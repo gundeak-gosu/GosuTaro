@@ -196,15 +196,23 @@ input,textarea{font-family:var(--font)}
   overflow:hidden;
 }
 .fan-guide-txt{
-  text-align:center;font-size:12px;color:var(--text2);
+  text-align:center;font-size:12px;color:var(--text-muted);
   margin-bottom:10px;padding:0 16px;
 }
-.fan-guide-txt .slot-name{color:var(--gold);font-weight:700}
-/* 카드들이 가로로 스크롤되는 팬 — 손에 쥔 카드처럼 겹쳐서 부채꼴로 펼쳐진다 */
+.fan-guide-txt .slot-name{color:var(--text-accent);font-weight:700}
+/* 스크롤 가능함을 알려주는 좌우 페이드 힌트 */
+.fan-area::before,.fan-area::after{
+  content:"";position:absolute;top:28px;bottom:18px;width:28px;z-index:5;pointer-events:none;
+}
+.fan-area::before{left:0;background:linear-gradient(90deg,#0d0520,transparent)}
+.fan-area::after{right:0;background:linear-gradient(-90deg,#0d0520,transparent)}
+/* 카드들이 가로로 스크롤되는 팬 — 손에 쥔 카드처럼 겹쳐서 큰 부채꼴 하나로 펼쳐진다 */
 .fan-scroll{
   display:flex;align-items:flex-end;overflow-x:auto;
-  padding:30px 48px 18px;
+  padding:34px 48px 18px;
   -webkit-overflow-scrolling:touch;
+  touch-action:pan-x;
+  scroll-snap-type:x proximity;
   scrollbar-width:none;
 }
 .fan-scroll::-webkit-scrollbar{display:none}
@@ -212,7 +220,8 @@ input,textarea{font-family:var(--font)}
 .fan-card-wrap{
   flex-shrink:0;transform-origin:bottom center;
   transition:transform .25s ease;
-  margin-left:-30px;
+  margin-left:-27px;
+  scroll-snap-align:start;
 }
 .fan-card-wrap:first-child{margin-left:0}
 .fan-card-wrap:active{z-index:100}
@@ -1276,7 +1285,7 @@ function tplCards(){
   const nextPos=allPlaced?null:sp.pos[_nextSlot];
   const guideHtml=allPlaced
     ?`<div class="fan-guide-txt" style="color:var(--green)">✨ 모든 카드가 배치됐어요!</div>`
-    :`<div class="fan-guide-txt">아래 카드 중 끌리는 카드를 골라 <span class="slot-name">「${nextPos.l}」</span> 자리에 놓아보세요</div>`;
+    :`<div class="fan-guide-txt">👉 카드를 옆으로 밀어 78장을 전부 확인해보세요 — 끌리는 카드를 골라 <span class="slot-name">「${nextPos.l}」</span> 자리에 놓아보세요</div>`;
 
   return`<div class="pick-screen fade-up">
   <!-- 상단: 배치 영역 -->
@@ -1313,13 +1322,14 @@ function buildFan(){
   const available=ST.fanDeck.filter(c=>!usedIds.has(c.id));
 
   fanScroll.innerHTML="";
-  // 부채꼴 곡선 — 화면에 한 번에 보이는 카드 수(약 13장) 주기로 물결치듯 반복시켜
-  // 스크롤하는 내내 항상 "펼쳐진 카드 한 뭉치"처럼 보이게 한다.
-  const ARC_PERIOD=13,ARC_ANGLE=15,ARC_LIFT=13;
+  // 부채꼴 곡선 — 78장 전체에 걸쳐 하나의 큰 곡선으로 회전각이 이어지게 계산한다.
+  // (일정 주기로 반복시키면 몇 장 스크롤해도 항상 똑같은 모양이라 "카드가 몇 장 없다"처럼 보이는 문제가 있었음)
+  const n=available.length||1;
+  const TOTAL_ARC=36,LIFT_MAX=14;
   available.forEach((card,i)=>{
-    const t=(i%ARC_PERIOD)/ARC_PERIOD*Math.PI*2;
-    const angle=Math.sin(t)*ARC_ANGLE;
-    const lift=Math.cos(t)*ARC_LIFT-ARC_LIFT;
+    const c=n>1?(i/(n-1)-0.5):0; // -0.5(첫 장) ~ 0.5(마지막 장)
+    const angle=c*TOTAL_ARC;
+    const lift=LIFT_MAX*Math.pow(2*c,2); // 중앙은 0, 양 끝으로 갈수록 아래로 처지는 완만한 포물선
     const wrap=document.createElement("div");
     wrap.className="fan-card-wrap";
     wrap.style.transform=`rotate(${angle.toFixed(1)}deg) translateY(${lift.toFixed(1)}px)`;
@@ -1489,8 +1499,8 @@ async function doFetch(){
   ST.journal.unshift({
     timestamp:Date.now(),
     date:new Date().toLocaleDateString("ko-KR",{year:"numeric",month:"long",day:"numeric",weekday:"short"}),
-    question:ST.question,spread:ST.spread.name,
-    cards:allCards.map(c=>({e:c.e,name:c.name,reversed:c.reversed,suit:c.suit})),
+    question:ST.question,spread:ST.spread.name,spreadIcon:ST.spread.icon,spreadPos:ST.spread.pos,
+    cards:allCards.map(c=>({...c})),
     interpretation:ST.interpretation,
   });
   saveProgress();
@@ -1669,12 +1679,21 @@ function openJM(idx){
   const j=ST.journal[idx];
   document.getElementById("jm-date").textContent="📅 "+j.date;
   document.getElementById("jm-q").textContent='"'+j.question+'"';
-  document.getElementById("jm-spread").textContent="🃏 "+j.spread;
+  document.getElementById("jm-spread").textContent=(j.spreadIcon?j.spreadIcon+" ":"🃏 ")+j.spread+(j.spreadPos?" — 그때 뽑은 배치 그대로예요":"");
   const ce=document.getElementById("jm-cards");
-  if(j.cards&&j.cards.length){
-    ce.innerHTML=j.cards.map(c=>`<span class="mini-card" style="border:1px solid ${SC[c.suit]||"#7c3aed"}44"><span class="mc-face">${window.cardFaceSVG(c)}</span><span style="color:${SC[c.suit]||"var(--text2)"}">${c.name}${c.reversed?"↙":""}</span></span>`).join("");
-    ce.style.display="flex";
-  }else ce.style.display="none";
+  if(j.spreadPos&&j.spreadPos.length&&j.cards&&j.cards.length){
+    // 배치법 그대로 재현 (새 형식 기록)
+    ce.className="placement-area";
+    ce.style.cssText="margin-bottom:14px";
+    ce.innerHTML=j.spreadPos.map((p,i)=>j.cards[i]?placedSlotHTML(p,i,j.cards[i]):"").join("");
+  }else if(j.cards&&j.cards.length){
+    // 이전 방식으로 저장된 기록 — 카드 목록으로 표시
+    ce.className="";
+    ce.style.cssText="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px";
+    ce.innerHTML=j.cards.map(c=>`<span class="mini-card" style="border:1px solid ${SC[c.suit]||"#7c3aed"}44"><span class="mc-face">${window.cardFaceSVG(c)}</span><span style="color:${SC[c.suit]||"var(--text-muted)"}">${c.name}${c.reversed?"↙":""}</span></span>`).join("");
+  }else{
+    ce.style.display="none";
+  }
   document.getElementById("jm-interp").textContent=j.interpretation||"해석 기록이 없습니다.";
   document.getElementById("journal-modal").classList.add("show");
   document.getElementById("jm-box").scrollTop=0;

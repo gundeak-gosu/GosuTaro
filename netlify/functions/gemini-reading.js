@@ -153,7 +153,8 @@ exports.handler = async (event) => {
         generationConfig: {
           temperature: 0.8,
           topP: 0.9,
-          maxOutputTokens: 1600,
+          maxOutputTokens: 3000,
+          thinkingConfig: { thinkingBudget: 0 },
         },
       }),
     });

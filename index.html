@@ -370,12 +370,12 @@ input,textarea{font-family:var(--font)}
     <div class="field-label">이메일</div><input class="input-field" id="j-email" type="email" placeholder="이메일"/>
     <div class="field-label">비밀번호</div><input class="input-field" id="j-pw" type="password" placeholder="6자리 이상"/>
     <div class="field-label">생년월일 <span class="auto-badge">✦ 별자리 자동 입력</span></div>
-    <input class="input-field" id="j-birth" type="date" oninput="autoSign()"/>
+    <input class="input-field" id="j-birth" type="text" inputmode="numeric" maxlength="10" placeholder="예: 19771006 (8자리 숫자)" oninput="formatBirthInput(this)"/>
     <div class="field-label">별자리</div>
     <input class="input-field" id="j-sign" placeholder="생년월일 입력 시 자동으로 채워져요" readonly style="color:var(--text2)"/>
     <button class="btn-primary" onclick="emailJoin()">회원가입 완료</button>
   </div>
-  <button class="btn-ghost" onclick="guestLogin()" style="margin-top:10px;font-size:12px">로그인 없이 체험하기 →</button>
+  <button class="btn-ghost" id="btn-guest-login" onclick="guestLogin()" style="margin-top:10px;font-size:12px">로그인 없이 체험하기 →</button>
 </div>
 </div>
 
@@ -907,7 +907,10 @@ let _interCb=null,_warnCb=null;
 
 /* ═══════════════════════ 영속성 (localStorage) ═══════════════════════ */
 function saveSession(){
-  try{localStorage.setItem("taro_session",JSON.stringify(ST.user));}catch{}
+  try{
+    localStorage.setItem("taro_session",JSON.stringify(ST.user));
+    if(ST.user.loginType)localStorage.setItem("taro_last_login",ST.user.loginType);
+  }catch{}
 }
 function loadSession(){
   try{return JSON.parse(localStorage.getItem("taro_session")||"null");}catch{return null;}
@@ -971,7 +974,21 @@ function calcSign(d){
   for(const[em,ed,name]of s)if(m<em||(m===em&&day<=ed))return name;
   return"염소자리 ♑";
 }
-function autoSign(){const v=document.getElementById("j-birth")?.value;if(v)document.getElementById("j-sign").value=calcSign(v);}
+/* 생년월일 입력 — 네이티브 <input type=date>는 브라우저/OS마다 타이핑 UX가 들쭉날쭉해서
+   (예: "19771006" 연속 입력 시 "197710-06-일"처럼 깨져 보이는 문제) 텍스트 입력 + 자동 포맷으로 대체 */
+function formatBirthInput(el){
+  const digits=el.value.replace(/\D/g,"").slice(0,8);
+  let formatted=digits;
+  if(digits.length>4)formatted=digits.slice(0,4)+"-"+digits.slice(4,6);
+  if(digits.length>6)formatted=digits.slice(0,4)+"-"+digits.slice(4,6)+"-"+digits.slice(6,8);
+  el.value=formatted;
+
+  const signEl=document.getElementById("j-sign");
+  if(digits.length<8){signEl.value="";return;}
+  const y=+digits.slice(0,4),m=+digits.slice(4,6),d=+digits.slice(6,8);
+  const validDate=y>=1900&&y<=new Date().getFullYear()&&m>=1&&m<=12&&d>=1&&d<=31;
+  signEl.value=validDate?calcSign(formatted):"올바른 생년월일이 아니에요";
+}
 function shuffle(a){const b=[...a];for(let i=b.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]];}return b;}
 
 function findSimilarQuestion(q){
@@ -1081,16 +1098,53 @@ function handleNaverReturn(){
     saveSession();initApp();
   }catch(e){console.error("Naver return parse error",e);}
 }
-function emailLogin(){
-  const e=document.getElementById("l-email").value.trim(),p=document.getElementById("l-pw").value;
-  if(!e||!p){alert("이메일과 비밀번호를 입력해주세요.");return;}
-  ST.user={name:e.split("@")[0],email:e,sign:"",birth:"",loginType:"email"};saveSession();initApp();
+/* ═══════════════════════ 이메일 계정 (기기 로컬 저장 — 실제 서버 계정 아님, 아래 주석 참고) ═══════════════════════
+   서버 DB가 없어서 이 브라우저 안에서만 "이메일이 이미 있는지/비밀번호가 맞는지"를 확인해줄 수 있다.
+   비밀번호는 평문으로 저장하지 않고 SHA-256 해시만 저장하지만, 그래도 이건 UX용 로컬 확인일 뿐
+   진짜 서버 인증을 대체하지 못한다 — 다른 기기에서는 이 기록이 전혀 안 보인다.
+   여러 기기에서 동일 계정을 쓰려면 Supabase 같은 실제 백엔드가 필요하다. */
+async function hashPassword(pw){
+  const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(pw));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
 }
-function emailJoin(){
-  const n=document.getElementById("j-name").value.trim(),e=document.getElementById("j-email").value.trim();
+function loadLocalAccounts(){
+  try{return JSON.parse(localStorage.getItem("taro_accounts")||"{}");}catch{return{};}
+}
+function saveLocalAccounts(accounts){
+  try{localStorage.setItem("taro_accounts",JSON.stringify(accounts));}catch{}
+}
+async function emailLogin(){
+  const e=document.getElementById("l-email").value.trim().toLowerCase(),p=document.getElementById("l-pw").value;
+  if(!e||!p){alert("이메일과 비밀번호를 입력해주세요.");return;}
+  const accounts=loadLocalAccounts(),acc=accounts[e];
+  if(!acc){
+    if(confirm(`"${e}"로 가입된 계정을 찾을 수 없어요.\n회원가입 화면으로 이동할까요?`)){
+      switchTab("join");
+      document.getElementById("j-email").value=e;
+    }
+    return;
+  }
+  const hash=await hashPassword(p);
+  if(hash!==acc.passwordHash){alert("비밀번호가 올바르지 않아요.");return;}
+  ST.user={name:acc.name,email:e,sign:acc.sign||"",birth:acc.birth||"",loginType:"email"};
+  saveSession();initApp();
+}
+async function emailJoin(){
+  const n=document.getElementById("j-name").value.trim(),e=document.getElementById("j-email").value.trim().toLowerCase();
   const p=document.getElementById("j-pw").value,b=document.getElementById("j-birth").value;
   if(!e||!p||p.length<6){alert("이메일과 6자 이상 비밀번호를 입력해주세요.");return;}
-  ST.user={name:n||e.split("@")[0],email:e,sign:calcSign(b),birth:b,loginType:"email"};saveSession();initApp();
+  const accounts=loadLocalAccounts();
+  if(accounts[e]){
+    alert("이미 가입된 이메일이에요. 로그인 탭에서 로그인해주세요.");
+    switchTab("login");
+    document.getElementById("l-email").value=e;
+    return;
+  }
+  const name=n||e.split("@")[0],sign=b?calcSign(b):"";
+  accounts[e]={name,passwordHash:await hashPassword(p),sign,birth:b};
+  saveLocalAccounts(accounts);
+  ST.user={name,email:e,sign,birth:b,loginType:"email"};
+  saveSession();initApp();
 }
 function guestLogin(){ST.user={name:"게스트",email:"",sign:"",birth:"",loginType:"guest"};saveSession();initApp();}
 function logout(){
@@ -1757,8 +1811,24 @@ function renderProfile(){
 }
 
 /* ═══════════════════════ 부팅 — 세션/진행 상태 복원 + Toss 결제 리턴 처리 ═══════════════════════ */
+/* 로그인 화면에 "최근에 이걸로 로그인했어요" 뱃지 표시 */
+function markLastLoginBadge(){
+  let last;
+  try{last=localStorage.getItem("taro_last_login");}catch{last=null;}
+  if(!last)return;
+  const badge=' <span style="font-size:9px;background:var(--purple);color:#fff;border-radius:20px;padding:2px 7px;font-weight:700;vertical-align:middle">최근</span>';
+  const targets={
+    kakao:".social-btn.kakao",naver:".social-btn.naver",google:".social-btn.google",
+    email:"#tab-login",guest:"#btn-guest-login",
+  };
+  const sel=targets[last];
+  const el=sel&&document.querySelector(sel);
+  if(el)el.insertAdjacentHTML("beforeend",badge);
+}
+
 (function boot(){
   loadProgress();
+  markLastLoginBadge();
   const sess=loadSession();
   if(sess&&sess.loginType){
     ST.user=sess;

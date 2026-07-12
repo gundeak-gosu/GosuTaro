@@ -1,0 +1,1712 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>Mystic Tarot — AI 타로 마스터</title>
+<!-- Google AdSense — ca-pub-0000000000000000을 발급받은 퍼블리셔 ID로 교체하면 활성화됩니다.
+     자세한 내용은 ADS_PAYMENTS_GUIDE_KO.md 참고 -->
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-0000000000000000" crossorigin="anonymous"></script>
+<!-- TossPayments SDK — 결제 버튼(startTossPayment)에서 사용. 클라이언트 키는 index.html의 TOSS_CLIENT_KEY에서 교체 -->
+<script src="https://js.tosspayments.com/v2/standard"></script>
+<!-- 소셜 로그인 SDK — AUTH_CONFIG에 실제 키를 채우면 활성화됩니다. 자세한 내용은 SOCIAL_LOGIN_GUIDE_KO.md 참고 -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://developers.kakao.com/sdk/js/kakao.js"></script>
+<style>
+:root{
+  /* 배경 — design.md §1 */
+  --bg:#06000f;--surface:#0f0720;--card-bg:#130928;
+
+  /* 텍스트 3색 규칙 — design.md §2. 본문 텍스트는 이 3개만 사용한다 */
+  --text:#e9d5ff;         /* 1. Primary — 본문/제목/해석 텍스트 */
+  --text-muted:#a78bfa;   /* 2. Secondary — 라벨/캡션/보조 정보 */
+  --text-accent:#fbbf24;  /* 3. Accent — CTA/가격/스트릭 등 강조 */
+
+  /* 레거시 별칭 — 기존 호출부 호환용. 새 코드는 위 3개 변수만 사용할 것 */
+  --lilac:var(--text);--pink:var(--text-accent);
+  --text2:var(--text-muted);--muted:var(--text-muted);
+  --gold:var(--text-accent);
+
+  /* 브랜드 액센트 — 배경/테두리/그림자 전용, 본문 텍스트 색으로 쓰지 않는다 */
+  --purple:#7c3aed;--violet:#9333ea;--border:#3b076444;
+
+  /* 상태 배지 색 — 짧은 칩 라벨(성공/주의/위험) 전용 예외, design.md §2 참고 */
+  --red:#f87171;--green:#4ade80;--orange:#fb923c;
+
+  --font:'Segoe UI','Apple SD Gothic Neo','Noto Sans KR',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);overflow-x:hidden}
+button{cursor:pointer;font-family:var(--font)}
+input,textarea{font-family:var(--font)}
+
+/* 별 */
+#stars{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+.star{position:absolute;border-radius:50%;background:#fff;animation:twinkle var(--d,3s) ease-in-out infinite}
+@keyframes twinkle{0%,100%{opacity:.06}50%{opacity:var(--op,.9)}}
+
+/* 레이아웃 */
+#root{position:relative;z-index:1;min-height:100vh}
+.screen{display:none;min-height:100vh;flex-direction:column}
+.screen.active{display:flex}
+.shell{max-width:430px;margin:0 auto;width:100%;padding:0 18px 88px;flex:1;display:flex;flex-direction:column}
+
+/* 헤더 */
+.hdr{text-align:center;padding:28px 0 16px}
+.orb{font-size:42px;display:inline-block;animation:floatOrb 4s ease-in-out infinite}
+@keyframes floatOrb{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+.brand{font-size:25px;font-weight:900;letter-spacing:4px;
+  background:linear-gradient(90deg,#c4b5fd,#f9a8d4,#818cf8,#c4b5fd);
+  background-size:300%;-webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  animation:shimmer 5s linear infinite}
+@keyframes shimmer{to{background-position:300% center}}
+.sub{font-size:11px;color:var(--purple);letter-spacing:3px;margin-top:3px}
+
+/* 버튼 */
+.btn-primary{width:100%;padding:14px;border:none;border-radius:14px;
+  background:linear-gradient(135deg,var(--purple),var(--violet));
+  color:#fff;font-size:15px;font-weight:700;box-shadow:0 4px 20px #7c3aed44;
+  transition:opacity .15s,transform .1s}
+.btn-primary:active{opacity:.85;transform:scale(.98)}
+.btn-ghost{width:100%;padding:12px;border:1px solid #4c1d9566;border-radius:12px;
+  background:transparent;color:var(--text2);font-size:14px}
+
+/* 소셜 */
+.social-btn{width:100%;padding:13px;border:none;border-radius:12px;
+  font-size:14px;font-weight:600;display:flex;align-items:center;
+  justify-content:center;gap:10px;margin-bottom:10px;transition:opacity .15s}
+.social-btn:active{opacity:.8}
+.kakao{background:#FEE500;color:#3A1D1D}
+.naver{background:#03C75A;color:#fff}
+.google{background:#fff;color:#333;border:1px solid #ddd}
+
+/* 입력 */
+.input-field{width:100%;padding:13px 14px;
+  background:rgba(124,58,237,.12);border:1px solid #6d28d966;
+  border-radius:12px;color:var(--text);font-size:14px;outline:none;margin-bottom:10px}
+.input-field:focus{border-color:var(--purple)}
+.input-field::placeholder{color:var(--text-muted)}
+.field-label{font-size:11px;color:var(--text2);margin-bottom:5px;margin-top:4px}
+.auto-badge{font-size:9px;background:#7c3aed22;color:var(--purple);
+  border:1px solid #7c3aed44;border-radius:5px;padding:1px 6px;margin-left:5px}
+
+/* 카드박스 */
+.card-box{background:rgba(124,58,237,.08);border:1px solid var(--border);border-radius:16px;padding:18px;margin-bottom:14px}
+
+/* 배너광고 */
+.banner-ad{background:linear-gradient(135deg,#1a053388,#2d0a5e88);
+  border:1px solid #7c3aed33;border-radius:12px;
+  padding:9px 14px;margin:10px 0;display:flex;align-items:center;gap:10px}
+.ad-tag{font-size:9px;color:var(--purple);font-weight:700;letter-spacing:1px;white-space:nowrap}
+.ad-text{flex:1;color:var(--text);font-size:12px;line-height:1.4}
+.ad-btn{background:var(--purple);color:#fff;border:none;border-radius:8px;padding:5px 12px;font-size:11px;white-space:nowrap}
+
+/* 스트릭 */
+.streak-row{display:flex;align-items:center;gap:10px;padding:11px 14px;
+  background:rgba(251,191,36,.07);border:1px solid #fbbf2433;border-radius:12px;margin-bottom:12px}
+.streak-num{font-size:22px;font-weight:900;color:var(--gold)}
+.s-dot{width:10px;height:10px;border-radius:50%;background:#1e1b4b}
+.s-dot.done{background:var(--gold)}
+.s-dot.today{background:var(--gold);box-shadow:0 0 8px var(--gold)}
+
+/* 오늘카드 */
+.daily-card{background:linear-gradient(135deg,#1e0a3c,#130928);
+  border:1px solid var(--purple);border-radius:18px;padding:20px;margin-bottom:14px;text-align:center}
+.daily-art{width:80px;height:120px;margin:12px auto;border-radius:10px;overflow:hidden;
+  background:linear-gradient(160deg,#1e0a3c,#312e81);
+  border:2px solid var(--gold);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:5px;cursor:pointer;transition:transform .3s}
+.daily-art:active{transform:scale(.95)}
+.tag{padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600}
+.tag-do{background:#14532d33;color:var(--green);border:1px solid #4ade8033}
+.tag-dont{background:#7f1d1d33;color:var(--red);border:1px solid #f8717133}
+
+/* 네비 */
+.nav{position:fixed;bottom:0;left:0;right:0;z-index:200;
+  background:rgba(6,0,15,.95);backdrop-filter:blur(16px);
+  border-top:1px solid #3b076444;display:flex;justify-content:space-around;
+  padding:8px 0 max(env(safe-area-inset-bottom),6px)}
+.nav-btn{display:flex;flex-direction:column;align-items:center;gap:3px;
+  background:transparent;border:none;color:var(--muted);font-size:9px;padding:4px 14px;min-width:60px}
+.nav-btn .ico{font-size:22px}
+.nav-btn.active{color:var(--lilac)}
+
+/* 스프레드 선택 */
+.spread-item{background:rgba(124,58,237,.1);border:2px solid transparent;
+  border-radius:14px;padding:13px 14px;display:flex;align-items:center;gap:14px;
+  width:100%;text-align:left;margin-bottom:9px;transition:all .2s}
+.spread-item.recommended{border-color:var(--purple);
+  background:linear-gradient(135deg,rgba(124,58,237,.28),rgba(147,51,234,.15));
+  box-shadow:0 0 22px #7c3aed33}
+.badge-rec{display:inline-flex;align-items:center;font-size:10px;
+  background:var(--purple);color:#fff;border-radius:20px;padding:2px 9px;margin-left:7px;vertical-align:middle}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   카드 뽑기 화면 — 새 구조
+   위: 배치 슬롯들 / 아래: 카드 팬 (항상 펼쳐져 있음)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.pick-screen{display:flex;flex-direction:column;gap:0;min-height:calc(100vh - 88px)}
+
+/* 배치 영역 */
+.placement-area{
+  background:radial-gradient(ellipse at center,#1e0a3c 0%,#06000f 100%);
+  border:1px solid #3b0764;border-radius:16px;
+  position:relative;width:100%;padding-bottom:60%;
+  margin-bottom:10px;flex-shrink:0;
+}
+.slot-node{
+  position:absolute;transform:translate(-50%,-50%);
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+}
+/* 빈 슬롯 */
+.slot-empty{
+  width:50px;height:76px;border-radius:8px;
+  border:2px dashed #4c1d9566;
+  background:rgba(76,29,149,.08);
+  display:flex;align-items:center;justify-content:center;
+  font-size:11px;color:var(--text-muted);
+  transition:border-color .3s,background .3s;
+}
+.slot-empty.next-slot{
+  border-color:var(--purple);border-style:solid;
+  background:rgba(124,58,237,.18);
+  animation:nextPulse 1.2s ease-in-out infinite;
+  color:var(--text2);
+}
+@keyframes nextPulse{0%,100%{box-shadow:0 0 0 0 #7c3aed44}50%{box-shadow:0 0 0 6px #7c3aed00}}
+/* 배치된 카드 */
+.slot-placed{
+  width:50px;height:76px;border-radius:8px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  position:relative;overflow:hidden;
+}
+.slot-placed.landing{animation:cardLand .35s cubic-bezier(.22,.61,.36,1) forwards}
+@keyframes cardLand{0%{transform:scale(1.3) translateY(-6px);opacity:.6}100%{transform:scale(1) translateY(0);opacity:1}}
+.slot-label-txt{font-size:7.5px;color:var(--text2);text-align:center;max-width:58px;
+  line-height:1.2;background:rgba(0,0,0,.65);border-radius:4px;padding:1px 4px}
+
+/* 팬 영역 — 항상 화면 하단에 고정 */
+.fan-area{
+  position:relative;
+  background:linear-gradient(0deg,#06000f 0%,#0d0520 100%);
+  border-top:1px solid #3b0764;
+  border-radius:16px 16px 0 0;
+  padding:14px 0 20px;
+  flex:1;
+  overflow:hidden;
+}
+.fan-guide-txt{
+  text-align:center;font-size:12px;color:var(--text2);
+  margin-bottom:10px;padding:0 16px;
+}
+.fan-guide-txt .slot-name{color:var(--gold);font-weight:700}
+/* 카드들이 가로로 스크롤되는 팬 — 손에 쥔 카드처럼 겹쳐서 부채꼴로 펼쳐진다 */
+.fan-scroll{
+  display:flex;align-items:flex-end;overflow-x:auto;
+  padding:30px 48px 18px;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+}
+.fan-scroll::-webkit-scrollbar{display:none}
+/* 카드 한 장을 감싸는 래퍼 — 부채꼴 회전/들림은 여기서, 선택 애니메이션은 안쪽 .fan-card-item에서 */
+.fan-card-wrap{
+  flex-shrink:0;transform-origin:bottom center;
+  transition:transform .25s ease;
+  margin-left:-30px;
+}
+.fan-card-wrap:first-child{margin-left:0}
+.fan-card-wrap:active{z-index:100}
+/* 팬 카드 (뒷면) */
+.fan-card-item{
+  width:58px;height:88px;border-radius:8px;overflow:hidden;
+  background:linear-gradient(160deg,#1e1b4b,#312e81);
+  border:2px solid #7c3aed66;
+  box-shadow:0 5px 12px rgba(0,0,0,.4);
+  display:flex;align-items:center;justify-content:center;
+  font-size:18px;cursor:pointer;
+  transition:transform .2s,border-color .2s,box-shadow .2s;
+  user-select:none;-webkit-user-select:none;
+}
+.fan-card-item:active{transform:scale(.94) translateY(-6px)}
+.fan-card-item.picked{
+  border-color:var(--gold);
+  box-shadow:0 0 18px var(--gold);
+  animation:cardPicked .3s ease forwards;
+  pointer-events:none;
+}
+@keyframes cardPicked{
+  0%{transform:scale(1)}
+  40%{transform:scale(1.15) translateY(-8px)}
+  100%{transform:scale(0) translateY(-40px);opacity:0}
+}
+
+/* 날아가는 카드 (fixed) */
+.fly-token{
+  position:fixed;z-index:600;pointer-events:none;
+  width:50px;height:76px;border-radius:8px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  border:2px solid var(--gold);box-shadow:0 0 24px var(--gold);
+  transition:left .5s cubic-bezier(.22,.61,.36,1),
+             top .5s cubic-bezier(.22,.61,.36,1),
+             opacity .2s .35s;
+}
+
+/* 해석 */
+.mini-card{display:flex;align-items:center;gap:5px;background:rgba(124,58,237,.15);border-radius:8px;padding:4px 10px;font-size:11px}
+.mc-face{width:20px;height:32px;flex-shrink:0;border-radius:3px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.4)}
+.interpret-box{background:rgba(124,58,237,.08);border:1px solid #4c1d9544;border-radius:16px;padding:20px;margin-bottom:14px}
+.interpret-title{color:var(--pink);font-size:14px;font-weight:700;margin-bottom:14px}
+.interpret-text{color:var(--text);font-size:13.5px;line-height:2;white-space:pre-wrap}
+
+/* 로딩 */
+.loading-anim{text-align:center;padding:32px 0}
+.loading-orb{font-size:40px;display:inline-block;animation:floatOrb 1.6s ease-in-out infinite}
+.loading-steps{margin-top:14px;display:flex;flex-direction:column;gap:9px;text-align:left}
+.loading-step{font-size:12px;color:var(--muted);transition:color .3s}
+.loading-step.ls-active{color:var(--lilac)}
+.loading-step.ls-done{color:var(--green)}
+
+/* 저널 */
+.journal-item{background:var(--card-bg);border:1px solid var(--border);
+  border-radius:12px;padding:14px;margin-bottom:10px;cursor:pointer;transition:border-color .2s}
+.journal-item:active{border-color:var(--purple)}
+.journal-date{font-size:10px;color:var(--text2);margin-bottom:4px}
+.journal-q{font-size:13px;color:var(--lilac);margin-bottom:4px;font-weight:600}
+.journal-spread{font-size:11px;color:var(--text2);margin-bottom:6px}
+.journal-preview{font-size:12px;color:var(--text-muted);line-height:1.6;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.journal-arrow{font-size:11px;color:var(--purple);margin-top:6px;text-align:right}
+
+/* 저널 모달 */
+#journal-modal{display:none;position:fixed;inset:0;z-index:800;
+  background:rgba(0,0,0,.88);backdrop-filter:blur(10px);
+  align-items:flex-end;justify-content:center}
+#journal-modal.show{display:flex}
+#jm-box{background:linear-gradient(160deg,#130928,#0f0720);
+  border:1px solid #7c3aed55;border-radius:24px 24px 0 0;
+  width:100%;max-width:430px;max-height:88vh;overflow-y:auto;
+  padding:20px 20px 40px;animation:slideUp .35s cubic-bezier(.22,.61,.36,1)}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.jm-handle{width:40px;height:4px;background:#4c1d95;border-radius:2px;margin:0 auto 18px;cursor:pointer}
+
+/* 유사질문 경고 */
+#warn-modal{display:none;position:fixed;inset:0;z-index:900;
+  background:rgba(0,0,0,.9);backdrop-filter:blur(10px);
+  align-items:center;justify-content:center;padding:20px}
+#warn-modal.show{display:flex}
+.warn-box{background:linear-gradient(160deg,#1a0a2e,#0f0720);
+  border:1px solid var(--orange);border-radius:20px;
+  padding:28px 22px;max-width:380px;width:100%;text-align:center}
+.warn-similar{background:rgba(251,146,60,.08);border:1px solid #fb923c33;
+  border-radius:10px;padding:12px;margin-bottom:18px;text-align:left}
+
+/* 전면광고 */
+#interstitial{display:none;position:fixed;inset:0;background:rgba(0,0,0,.94);
+  z-index:999;align-items:center;justify-content:center}
+#interstitial.show{display:flex}
+.inter-box{background:linear-gradient(160deg,#1a0533,#0f0726);
+  border:1px solid #7c3aed66;border-radius:20px;padding:30px 22px;max-width:340px;width:90%;text-align:center}
+.inter-skip{background:transparent;border:none;font-size:13px;margin-top:8px;color:var(--muted)}
+.inter-skip.ready{color:var(--text2);cursor:pointer}
+
+/* 프로필 */
+.profile-hero{background:linear-gradient(135deg,#1e0a3c,#130928);
+  border:1px solid var(--purple);border-radius:18px;padding:22px;text-align:center;margin-bottom:14px}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px}
+.stat-box{background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:12px;text-align:center}
+.stat-num{font-size:24px;font-weight:800;color:var(--lilac)}
+.stat-lbl{font-size:10px;color:var(--muted);margin-top:3px}
+
+/* 유틸 */
+.or-row{display:flex;align-items:center;gap:10px;margin:14px 0;color:var(--muted);font-size:12px}
+.or-line{flex:1;height:1px;background:var(--border)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+.fade-up{animation:fadeUp .4s ease}
+</style>
+</head>
+<body>
+<div id="stars"></div>
+<div id="root">
+
+<!-- ═══ LOGIN ═══ -->
+<div id="screen-login" class="screen active">
+<div class="shell">
+  <div class="hdr"><div class="orb">🔮</div><div class="brand">MYSTIC TAROT</div><div class="sub">AI 타로 마스터</div></div>
+  <div class="card-box fade-up" style="text-align:center;margin-bottom:18px">
+    <div style="font-size:30px;margin-bottom:10px">🌙</div>
+    <div style="font-size:15px;color:var(--lilac);font-weight:700;margin-bottom:6px">별과 달이 기다리고 있어요</div>
+    <div style="font-size:12px;color:var(--text2);line-height:1.8">로그인하고 나만의 타로 일지와<br>매일의 우주 메시지를 받아보세요</div>
+  </div>
+  <button class="social-btn kakao" onclick="loginWithKakao()"><span>💬</span>카카오로 시작하기</button>
+  <button class="social-btn naver" onclick="loginWithNaver()">
+    <span style="width:22px;height:22px;background:#fff;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#03C75A;font-weight:900;font-size:13px">N</span>
+    네이버로 시작하기</button>
+  <button class="social-btn google" onclick="loginWithGoogle()">
+    <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.2l6.7-6.7C35.6 2.2 30.1 0 24 0 14.8 0 7 5.4 3.2 13.3l7.8 6C13 13.7 18.1 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4 7.1-10 7.1-17z"/><path fill="#FBBC05" d="M11 28.7A14.6 14.6 0 0 1 9.5 24c0-1.6.3-3.2.7-4.7l-7.8-6C.9 16.2 0 20 0 24c0 4 .9 7.8 2.4 11.2l8.6-6.5z"/><path fill="#34A853" d="M24 48c6.1 0 11.2-2 14.9-5.5l-7.5-5.8c-2 1.4-4.6 2.2-7.4 2.2-5.9 0-11-4-12.8-9.5l-8.6 6.5C7 43 15 48 24 48z"/></svg>
+    Google로 시작하기</button>
+  <div class="or-row"><div class="or-line"></div><span>또는 이메일로</span><div class="or-line"></div></div>
+  <div style="display:flex;border-radius:10px;overflow:hidden;border:1px solid var(--border);margin-bottom:16px">
+    <button id="tab-login" onclick="switchTab('login')" style="flex:1;padding:10px;border:none;background:var(--purple);color:#fff;font-size:13px;font-weight:600">로그인</button>
+    <button id="tab-join" onclick="switchTab('join')" style="flex:1;padding:10px;border:none;background:transparent;color:var(--text2);font-size:13px">회원가입</button>
+  </div>
+  <div id="form-login">
+    <div class="field-label">이메일</div><input class="input-field" id="l-email" type="email" placeholder="이메일"/>
+    <div class="field-label">비밀번호</div><input class="input-field" id="l-pw" type="password" placeholder="비밀번호"/>
+    <button class="btn-primary" onclick="emailLogin()">로그인</button>
+  </div>
+  <div id="form-join" style="display:none">
+    <div class="field-label">이름/닉네임</div><input class="input-field" id="j-name" placeholder="이름"/>
+    <div class="field-label">이메일</div><input class="input-field" id="j-email" type="email" placeholder="이메일"/>
+    <div class="field-label">비밀번호</div><input class="input-field" id="j-pw" type="password" placeholder="6자리 이상"/>
+    <div class="field-label">생년월일 <span class="auto-badge">✦ 별자리 자동 입력</span></div>
+    <input class="input-field" id="j-birth" type="date" oninput="autoSign()"/>
+    <div class="field-label">별자리</div>
+    <input class="input-field" id="j-sign" placeholder="생년월일 입력 시 자동으로 채워져요" readonly style="color:var(--text2)"/>
+    <button class="btn-primary" onclick="emailJoin()">회원가입 완료</button>
+  </div>
+  <button class="btn-ghost" onclick="guestLogin()" style="margin-top:10px;font-size:12px">로그인 없이 체험하기 →</button>
+</div>
+</div>
+
+<!-- ═══ HOME ═══ -->
+<div id="screen-home" class="screen">
+<div class="shell">
+  <div class="hdr"><div class="orb">🔮</div><div class="brand">MYSTIC TAROT</div><div class="sub" id="home-greeting">오늘도 별이 당신 곁에</div></div>
+  <div class="banner-ad" id="ad-home"><span class="ad-tag">AD</span><span class="ad-text">🌙 프리미엄 타로 마스터 — 1:1 심층 상담 첫 회 50% 할인</span><button class="ad-btn">상담받기</button></div>
+  <div class="streak-row">
+    <div style="font-size:26px">🔥</div>
+    <div style="flex:1"><div style="display:flex;align-items:baseline;gap:4px"><span class="streak-num" id="streak-num">1</span><span style="font-size:12px;color:var(--text-muted)">일 연속</span></div><div style="font-size:10px;color:var(--text-muted);margin-top:2px">오늘도 카드를 뽑아 스트릭을 이어가세요!</div></div>
+    <div style="display:flex;gap:3px" id="streak-bar"></div>
+  </div>
+  <div class="daily-card">
+    <div style="font-size:11px;color:var(--text2)" id="daily-date"></div>
+    <div style="font-size:12px;color:var(--text2);margin-top:2px">✦ 오늘의 타로 카드</div>
+    <div class="daily-art" id="daily-art" onclick="drawDailyCard()">
+      <div id="d-e" style="font-size:30px">✦</div>
+      <div id="d-n" style="font-size:10px;color:var(--gold)">탭하여 공개</div>
+    </div>
+    <div id="d-msg" style="font-size:13px;color:var(--text2);line-height:1.8">카드를 탭하면 오늘의 메시지를 받을 수 있어요</div>
+    <div id="d-tags" style="display:none;margin-top:10px;gap:8px;justify-content:center;flex-wrap:wrap"></div>
+  </div>
+  <div style="font-size:12px;color:var(--text2);margin-bottom:8px">💬 자주 묻는 질문</div>
+  <div id="quick-btns" style="display:flex;flex-direction:column;gap:7px;margin-bottom:16px"></div>
+  <button class="btn-primary" onclick="goAsk()">🔮 나만의 질문하기</button>
+</div>
+</div>
+
+<!-- ═══ TAROT ═══ -->
+<div id="screen-tarot" class="screen">
+<div class="shell">
+  <div class="hdr" style="padding:20px 0 10px"><div style="font-size:20px">🃏</div><div class="brand" style="font-size:18px;letter-spacing:2px">타로 리딩</div></div>
+  <div id="tarot-content"></div>
+</div>
+</div>
+
+<!-- ═══ JOURNAL ═══ -->
+<div id="screen-journal" class="screen">
+<div class="shell">
+  <div class="hdr" style="padding:20px 0 10px"><div class="brand" style="font-size:20px">📖 타로 일지</div><div class="sub">나의 리딩 기록</div></div>
+  <div class="banner-ad" id="ad-journal"><span class="ad-tag">AD</span><span class="ad-text">📿 라이더-웨이트 78장 입문 덱 특가</span><button class="ad-btn">구매</button></div>
+  <div id="journal-list"></div>
+</div>
+</div>
+
+<!-- ═══ PROFILE ═══ -->
+<div id="screen-profile" class="screen">
+<div class="shell">
+  <div class="hdr" style="padding:20px 0 10px"><div class="brand" style="font-size:20px">👤 내 프로필</div></div>
+  <div class="profile-hero">
+    <div style="font-size:50px;margin-bottom:8px">🔮</div>
+    <div style="font-size:18px;font-weight:700;color:var(--lilac)" id="p-name">여행자</div>
+    <div style="font-size:12px;color:var(--text2);margin-top:4px" id="p-sign">✦ 별자리 미설정</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:3px" id="p-email"></div>
+  </div>
+  <div class="stat-grid">
+    <div class="stat-box"><div class="stat-num" id="s-total">0</div><div class="stat-lbl">총 리딩</div></div>
+    <div class="stat-box"><div class="stat-num" id="s-streak">0</div><div class="stat-lbl">스트릭</div></div>
+    <div class="stat-box"><div class="stat-num" id="s-fav">—</div><div class="stat-lbl">최애 카드</div></div>
+  </div>
+  <div class="card-box"><div style="font-size:12px;color:var(--text2);margin-bottom:8px">✦ 나의 타로 성향</div><div id="p-tendency" style="font-size:13px;color:var(--lilac);line-height:1.9"></div></div>
+  <div class="banner-ad" id="ad-profile"><span class="ad-tag">AD</span><span class="ad-text">🌟 타로 마스터 클래스 — 무료 체험</span><button class="ad-btn">무료체험</button></div>
+  <button class="btn-ghost" onclick="logout()" style="margin-top:6px">로그아웃</button>
+  <div style="height:6px"></div>
+  <button class="btn-ghost" onclick="resetApp()" style="font-size:12px;color:var(--muted)">초기화</button>
+</div>
+</div>
+
+<!-- NAV -->
+<nav class="nav" id="main-nav" style="display:none">
+  <button class="nav-btn active" onclick="navTo('home')" id="nav-home"><span class="ico">🏠</span><span>홈</span></button>
+  <button class="nav-btn" onclick="navTo('tarot')" id="nav-tarot"><span class="ico">🔮</span><span>타로</span></button>
+  <button class="nav-btn" onclick="navTo('journal')" id="nav-journal"><span class="ico">📖</span><span>일지</span></button>
+  <button class="nav-btn" onclick="navTo('profile')" id="nav-profile"><span class="ico">👤</span><span>프로필</span></button>
+</nav>
+
+<!-- 저널 모달 -->
+<div id="journal-modal" onclick="closeJM(event)">
+  <div id="jm-box">
+    <div class="jm-handle" onclick="closeJMDirect()"></div>
+    <div id="jm-date" style="font-size:10px;color:var(--text2);margin-bottom:5px"></div>
+    <div id="jm-q" style="font-size:15px;font-weight:700;color:var(--lilac);line-height:1.5;margin-bottom:8px"></div>
+    <div id="jm-spread" style="font-size:11px;color:var(--purple);margin-bottom:10px"></div>
+    <div id="jm-cards" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"></div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:8px">🌙 타로 마스터의 해석</div>
+    <div id="jm-interp" style="font-size:13.5px;color:var(--text);line-height:2;white-space:pre-wrap;background:rgba(124,58,237,.06);border-radius:12px;padding:16px"></div>
+    <div style="height:16px"></div>
+    <button class="btn-ghost" onclick="closeJMDirect()">닫기</button>
+  </div>
+</div>
+
+<!-- 유사질문 경고 -->
+<div id="warn-modal">
+  <div class="warn-box fade-up">
+    <div style="font-size:40px;margin-bottom:12px">⚠️</div>
+    <div style="font-size:16px;font-weight:700;color:var(--orange);margin-bottom:10px">3개월 내 비슷한 질문이 있어요</div>
+    <div style="font-size:13px;color:var(--text);line-height:1.8;margin-bottom:16px">같은 주제를 반복 질문하면 카드의 에너지가 분산되어 <strong style="color:var(--orange)">결과의 정확도가 떨어질 수 있어요.</strong></div>
+    <div class="warn-similar" id="warn-similar-box"></div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button class="btn-primary" onclick="proceedAnyway()" style="background:linear-gradient(135deg,#92400e,#b45309)">그래도 진행할게요</button>
+      <button class="btn-ghost" onclick="closeWarn()">다른 질문으로 바꿀게요</button>
+    </div>
+  </div>
+</div>
+
+<!-- 전면광고 (무료 리딩 + 페이월 광고 게이트 공용) -->
+<div id="interstitial">
+  <div class="inter-box">
+    <div style="font-size:10px;color:var(--purple);letter-spacing:2px;margin-bottom:14px">광고</div>
+    <div id="inter-ad-slot" style="min-height:100px;display:flex;align-items:center;justify-content:center;margin-bottom:16px"></div>
+    <button class="inter-skip" id="inter-skip-btn">5초 후 건너뛰기…</button>
+  </div>
+</div>
+
+<script>
+/* ===== 라이더-웨이트 카드 아트 ===== */
+/* ══════════════════════════════════════════════════════════════
+   라이더-웨이트 스타일 타로 카드 SVG 아트
+   cardFaceSVG(card) -> 전체 카드 SVG 문자열 (viewBox 0 0 120 200)
+   ══════════════════════════════════════════════════════════════ */
+(function(){
+  const P={ // 팔레트
+    sky:"#bfe0ee", sky2:"#7fb3d0", cream:"#f3e8c9", cream2:"#e7d6a8",
+    sand:"#d9c078", sand2:"#c6a64c", grass:"#6f9e5a", water:"#3f7fae",
+    red:"#b5321f", blue:"#2b5a86", white:"#f5efe0", gold:"#e6bd3f",
+    flesh:"#e7bd94", stone:"#9a9184", dark:"#2a2118", mount:"#8a97a3",
+    green:"#4f8c53", purple:"#6d4a8c", brown:"#8a5a30", rose:"#c9455f"
+  };
+  // ── 공통 요소 헬퍼 (씬 좌표계: x 8..112, y 22..174) ──
+  const skyGround=(sk,gr,gy)=>`<rect x="8" y="22" width="104" height="${(gy||120)-22}" fill="${sk||P.sky}"/><rect x="8" y="${gy||120}" width="104" height="${174-(gy||120)}" fill="${gr||P.sand}"/>`;
+  const sun=(cx,cy,r,c)=>{let s=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="${c||P.gold}"/>`;for(let i=0;i<12;i++){const a=i*Math.PI/6;s+=`<line x1="${cx+Math.cos(a)*(r+1)}" y1="${cy+Math.sin(a)*(r+1)}" x2="${cx+Math.cos(a)*(r+ (i%2?3:5))}" y2="${cy+Math.sin(a)*(r+(i%2?3:5))}" stroke="${c||P.gold}" stroke-width="1.4"/>`;}return s;};
+  const star=(cx,cy,r,c)=>{let p="";for(let i=0;i<16;i++){const a=-Math.PI/2+i*Math.PI/8;const rr=i%2?r:r*.42;p+=`${cx+Math.cos(a)*rr},${cy+Math.sin(a)*rr} `;}return `<polygon points="${p}" fill="${c||P.gold}"/>`;};
+  const moon=(cx,cy,r)=>`<circle cx="${cx}" cy="${cy}" r="${r}" fill="#f0e6b8"/><path d="M${cx+r*.35} ${cy-r} a ${r} ${r} 0 1 0 0 ${2*r} a ${r*.8} ${r*.8} 0 1 1 0 ${-2*r} z" fill="#d9caa0" opacity=".5"/>`;
+  const mount=(y,c)=>`<path d="M8 ${y} L34 ${y-16} L52 ${y-4} L74 ${y-20} L96 ${y-6} L112 ${y-14} L112 ${y} Z" fill="${c||P.mount}"/>`;
+  const pillar=(x,c,lbl)=>`<rect x="${x-4}" y="34" width="8" height="128" fill="${c}"/><rect x="${x-6}" y="30" width="12" height="6" fill="${c}"/>${lbl?`<text x="${x}" y="102" font-size="9" fill="${P.gold}" text-anchor="middle" font-weight="700">${lbl}</text>`:""}`;
+  // 인물: 로브 입은 서있는 형상
+  const figure=(cx,y,robe,skin)=>`<circle cx="${cx}" cy="${y}" r="7" fill="${skin||P.flesh}"/><path d="M${cx-11} ${y+42} Q${cx} ${y+4} ${cx+11} ${y+42} Z" fill="${robe}"/>`;
+  const crown=(cx,y,c)=>`<path d="M${cx-8} ${y} L${cx-8} ${y-5} L${cx-4} ${y-2} L${cx} ${y-7} L${cx+4} ${y-2} L${cx+8} ${y-5} L${cx+8} ${y} Z" fill="${c||P.gold}" stroke="${P.dark}" stroke-width=".4"/>`;
+  const throne=(cx,c)=>`<rect x="${cx-24}" y="70" width="48" height="92" fill="${c}"/><rect x="${cx-28}" y="60" width="12" height="102" fill="${c}"/><rect x="${cx+16}" y="60" width="12" height="102" fill="${c}"/>`;
+  const cup=(cx,cy,s,c)=>`<path d="M${cx-4*s} ${cy} Q${cx} ${cy+6*s} ${cx+4*s} ${cy} Z" fill="${c||P.gold}"/><rect x="${cx-.8*s}" y="${cy+3*s}" width="${1.6*s}" height="${3*s}" fill="${c||P.gold}"/><rect x="${cx-2.5*s}" y="${cy+6*s}" width="${5*s}" height="${1.4*s}" fill="${c||P.gold}"/>`;
+  const sword=(cx,cy,len,c)=>`<line x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy-len}" stroke="${c||"#cfd6dd"}" stroke-width="2.4"/><polygon points="${cx},${cy-len-4} ${cx-1.4},${cy-len} ${cx+1.4},${cy-len}" fill="${c||"#cfd6dd"}"/><line x1="${cx-5}" y1="${cy}" x2="${cx+5}" y2="${cy}" stroke="${P.gold}" stroke-width="2"/><rect x="${cx-1}" y="${cy}" width="2" height="6" fill="${P.brown}"/>`;
+  const wand=(cx,cy,len,leaf)=>`<line x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy-len}" stroke="${P.brown}" stroke-width="2.6"/>${leaf?`<path d="M${cx} ${cy-len} q-5 -3 -2 -8 q4 3 2 8" fill="${P.green}"/><path d="M${cx} ${cy-len+3} q5 -3 2 -8 q-4 3 -2 8" fill="${P.green}"/>`:""}`;
+  const pentacle=(cx,cy,r,c)=>{let p="";for(let i=0;i<5;i++){const a=-Math.PI/2+i*4*Math.PI/5;p+=`${cx+Math.cos(a)*r},${cy+Math.sin(a)*r} `;}return `<circle cx="${cx}" cy="${cy}" r="${r+1.5}" fill="${c||P.gold}" stroke="${P.dark}" stroke-width=".5"/><polygon points="${p}" fill="none" stroke="${P.dark}" stroke-width=".7"/>`;};
+  const cloudHand=(x,y,dir)=>`<path d="M${x-14} ${y} q-6 -6 2 -8 q2 -6 9 -3 q6 -3 8 3 q7 0 3 8 Z" fill="#e9eef2"/><ellipse cx="${x}" cy="${y+3}" rx="5" ry="7" fill="${P.white}"/>`;
+
+  // ── 36장 씬 정의 ──
+  const S={};
+  // 0 바보
+  S[0]=skyGround("#f0e4b0",P.sand,150)+mount(150)+sun(26,40,7,"#f0d98a")
+    +`<path d="M96 150 L112 150 L112 174 L96 168 Z" fill="${P.sand2}"/>`
+    +figure(60,60,P.green)+`<rect x="58" y="58" width="4" height="6" fill="${P.red}"/>`
+    +`<line x1="70" y1="70" x2="80" y2="52" stroke="${P.brown}" stroke-width="1.6"/><circle cx="82" cy="50" r="4" fill="${P.brown}"/>`
+    +`<circle cx="46" cy="96" r="4" fill="${P.white}" stroke="${P.dark}" stroke-width=".4"/>`
+    +`<circle cx="60" cy="46" r="3" fill="${P.red}"/>`;
+  // 1 마법사
+  S[1]=skyGround("#f0e4b0","#cfe0b0",140)
+    +`<text x="60" y="40" font-size="14" fill="${P.dark}" text-anchor="middle">∞</text>`
+    +figure(60,54,P.red,P.flesh)+`<path d="M49 96 Q60 60 71 96 Z" fill="${P.white}" opacity=".8"/>`
+    +`<line x1="60" y1="50" x2="60" y2="34" stroke="${P.white}" stroke-width="2.4"/>`
+    +`<rect x="42" y="120" width="36" height="6" fill="${P.brown}"/>`
+    +cup(48,112,1.1)+pentacle(60,116,3.4)+`<line x1="70" y1="118" x2="70" y2="108" stroke="#cfd6dd" stroke-width="1.8"/>`+wand(76,120,10)
+    +`<path d="M40 132 q20 6 40 0" stroke="${P.green}" stroke-width="2" fill="none"/>`;
+  // 2 여사제
+  S[2]=`<rect x="8" y="22" width="104" height="152" fill="#25406b"/>`+pillar(24,"#1a1a1a","B")+pillar(96,"#e9e2d0","J")
+    +`<path d="M30 60 h60 v70 h-60 z" fill="#3f6aa0" opacity=".5"/>`
+    +figure(60,60,"#9fbcd6",P.flesh)+crown(60,50,"#dfe7ef")
+    +`<circle cx="60" cy="50" r="2.4" fill="${P.gold}"/>`
+    +moon(60,150,6)+`<path d="M50 96 L70 96 L66 130 L54 130 Z" fill="#cfe0ee" opacity=".6"/>`;
+  // 3 여황제
+  S[3]=skyGround("#f0e4b0",P.grass,132)
+    +`<rect x="8" y="132" width="104" height="42" fill="${P.sand}"/>`
+    +figure(60,58,"#e8ddc4",P.flesh)+crown(60,48,P.gold)
+    +star(60,44,3,P.gold)
+    +`<rect x="76" y="96" width="14" height="18" rx="2" fill="#d9c9a0"/><text x="83" y="109" font-size="8" fill="${P.red}" text-anchor="middle">♀</text>`
+    +`<path d="M40 132 q20 -8 40 0" stroke="${P.gold}" stroke-width="1.5" fill="none"/>`
+    +`<rect x="30" y="150" width="60" height="4" fill="${P.sand2}"/>`;
+  // 4 황제
+  S[4]=skyGround("#e9c58a","#c98a55",120)+mount(120,"#b06a3a")
+    +throne(60,"#7a4a2a")
+    +`<circle cx="40" cy="66" r="4" fill="${P.sand2}"/><circle cx="80" cy="66" r="4" fill="${P.sand2}"/>`
+    +figure(60,60,P.red,P.flesh)+crown(60,50,P.gold)
+    +`<line x1="46" y1="96" x2="46" y2="80" stroke="${P.gold}" stroke-width="2"/><circle cx="46" cy="78" r="2.4" fill="${P.gold}"/>`;
+  // 5 교황
+  S[5]=`<rect x="8" y="22" width="104" height="152" fill="#c9b48a"/>`+pillar(28,"#9a9184")+pillar(92,"#9a9184")
+    +figure(60,54,P.red,P.flesh)+`<path d="M54 44 h12 v8 h-12 z" fill="${P.white}"/><rect x="58" y="38" width="4" height="6" fill="${P.gold}"/>`
+    +`<line x1="60" y1="60" x2="60" y2="40" stroke="${P.gold}" stroke-width="2"/>`
+    +`<circle cx="44" cy="150" r="6" fill="#c98a55"/><circle cx="76" cy="150" r="6" fill="#6f9e5a"/>`
+    +`<line x1="55" y1="118" x2="65" y2="108" stroke="${P.gold}" stroke-width="1.4"/><line x1="65" y1="118" x2="55" y2="108" stroke="${P.gold}" stroke-width="1.4"/>`;
+  // 6 연인
+  S[6]=skyGround("#f0e4b0",P.grass,140)+sun(60,38,8,"#f0d98a")
+    +`<path d="M40 34 q6 -10 12 0 q-6 6 -6 6 q0 0 -6 -6" fill="#f0d98a"/>`
+    +figure(44,70,"#e7bd94",P.flesh)+figure(78,70,"#c98a55",P.flesh)
+    +`<path d="M56 96 q6 -30 8 0" fill="${P.green}"/>`
+    +`<path d="M18 96 q4 -20 8 0" fill="${P.green}"/>`;
+  // 7 전차
+  S[7]=skyGround("#bfe0ee","#c9a94f",130)+`<rect x="30" y="90" width="60" height="10" fill="#6a7a8a"/>`
+    +`<rect x="42" y="40" width="36" height="52" fill="#8a97a3"/>`
+    +`<path d="M42 40 h36 l-4 -8 h-28 z" fill="#3f6aa0"/>`
+    +figure(60,52,"#9a9184",P.flesh)+crown(60,44,P.gold)
+    +`<ellipse cx="46" cy="130" rx="12" ry="8" fill="#e9e2d0"/><ellipse cx="74" cy="130" rx="12" ry="8" fill="#3a352c"/>`;
+  // 8 힘
+  S[8]=skyGround("#f0e4b0",P.grass,140)
+    +`<text x="60" y="40" font-size="13" fill="${P.dark}" text-anchor="middle">∞</text>`
+    +figure(52,56,P.white,P.flesh)
+    +`<ellipse cx="80" cy="120" rx="20" ry="12" fill="#d9a24c"/><circle cx="96" cy="112" r="9" fill="#e0aa54"/><path d="M92 116 q4 3 8 0" stroke="${P.dark}" stroke-width="1" fill="none"/><path d="M88 108 l-6 -4 M100 106 l6 -3" stroke="#c98a3a" stroke-width="1.5"/>`;
+  // 9 은둔자
+  S[9]=`<rect x="8" y="22" width="104" height="152" fill="#2b3a52"/>`+mount(120,"#5a6a7c")
+    +`<path d="M60 46 Q44 60 44 100 L46 150 L74 150 L76 100 Q76 60 60 46 Z" fill="#8a8578"/>`
+    +`<circle cx="60" cy="52" r="6" fill="${P.flesh}"/><path d="M56 56 q4 8 8 0" fill="#e0dccf"/>`
+    +star(84,64,4,"#f0e6b8")+`<circle cx="84" cy="64" r="6" fill="none" stroke="${P.gold}" stroke-width="1"/>`
+    +`<line x1="40" y1="60" x2="38" y2="150" stroke="${P.brown}" stroke-width="2"/>`;
+  // 10 운명의 수레바퀴
+  S[10]=skyGround("#bfe0ee","#bfe0ee",174)
+    +`<circle cx="60" cy="98" r="34" fill="#e7d6a8" stroke="${P.dark}" stroke-width="1.5"/><circle cx="60" cy="98" r="22" fill="none" stroke="${P.dark}" stroke-width="1"/><circle cx="60" cy="98" r="8" fill="none" stroke="${P.dark}" stroke-width="1"/>`
+    +[0,1,2,3,4,5,6,7].map(i=>{const a=i*Math.PI/4;return `<line x1="${60+Math.cos(a)*8}" y1="${98+Math.sin(a)*8}" x2="${60+Math.cos(a)*34}" y2="${98+Math.sin(a)*34}" stroke="${P.dark}" stroke-width="1"/>`;}).join("")
+    +`<rect x="52" y="52" width="16" height="10" fill="#c9a94f"/><path d="M52 52 l8 -8 l8 8 z" fill="#c9a94f"/>`
+    +`<text x="60" y="102" font-size="10" fill="${P.dark}" text-anchor="middle" font-weight="700">☸</text>`;
+  // 11 정의
+  S[11]=`<rect x="8" y="22" width="104" height="152" fill="#c9b48a"/>`+pillar(26,"#7a5a8a")+pillar(94,"#7a5a8a")
+    +`<path d="M30 60 h60 v70 h-60 z" fill="#9a7ab0" opacity=".4"/>`
+    +figure(60,58,P.red,P.flesh)+crown(60,48,P.gold)
+    +sword(48,60,26)
+    +`<line x1="76" y1="64" x2="76" y2="100" stroke="${P.dark}" stroke-width="1"/><path d="M70 100 q6 6 12 0" fill="none" stroke="${P.dark}" stroke-width="1"/><ellipse cx="70" cy="102" rx="5" ry="2" fill="${P.gold}"/><ellipse cx="82" cy="102" rx="5" ry="2" fill="${P.gold}"/>`;
+  // 12 매달린 남자
+  S[12]=skyGround("#bfe0ee","#6f9e5a",150)
+    +`<rect x="30" y="40" width="60" height="5" fill="${P.brown}"/><rect x="58" y="45" width="4" height="12" fill="${P.brown}"/>`
+    +`<line x1="60" y1="57" x2="60" y2="70" stroke="${P.dark}" stroke-width="1.4"/>`
+    +sun(60,118,10,"#f0d98a")
+    +`<circle cx="60" cy="118" r="7" fill="${P.flesh}"/>`
+    +`<path d="M60 70 Q50 88 54 108 L66 108 Q70 88 60 70 Z" fill="${P.blue}"/>`
+    +`<rect x="56" y="106" width="3" height="12" fill="${P.red}"/><rect x="62" y="106" width="3" height="12" fill="${P.red}"/>`;
+  // 13 죽음
+  S[13]=skyGround("#d9d2c0","#b0a894",140)+mount(140,"#8a8578")
+    +`<rect x="70" y="30" width="3" height="40" fill="#2a2118"/><path d="M73 30 h16 v12 h-16 z" fill="#1a1a1a"/><path d="M78 34 q4 -3 8 0 q-4 4 -8 0" fill="${P.white}"/>`
+    +`<path d="M34 150 Q40 110 60 112 Q86 112 92 150 Z" fill="#e9e2d0"/>`
+    +`<circle cx="52" cy="70" r="8" fill="#e9e6dc"/><circle cx="49" cy="69" r="2" fill="${P.dark}"/><circle cx="55" cy="69" r="2" fill="${P.dark}"/>`
+    +`<path d="M44 78 q0 -14 14 -16 q14 2 14 16 z" fill="#c9c2b0" opacity=".6"/>`;
+  // 14 절제
+  S[14]=skyGround("#f0e4b0",P.grass,140)+sun(96,36,6,"#f0d98a")
+    +figure(60,52,P.white,P.flesh)
+    +`<path d="M40 40 Q34 52 40 60 M80 40 Q86 52 80 60" stroke="#e7bd94" stroke-width="2" fill="none"/>`
+    +cup(46,92,1.4,P.gold)+cup(74,100,1.4,P.gold)
+    +`<path d="M50 96 Q60 100 70 106" stroke="${P.water}" stroke-width="2" fill="none"/>`
+    +`<ellipse cx="60" cy="150" rx="16" ry="6" fill="${P.water}"/><path d="M56 140 l2 -18 l4 0 l2 18 z" fill="${P.gold}"/>`;
+  // 15 악마
+  S[15]=`<rect x="8" y="22" width="104" height="152" fill="#1a1420"/>`
+    +`<rect x="48" y="90" width="24" height="30" fill="#3a2a1a"/>`
+    +`<circle cx="60" cy="70" r="12" fill="#6a4a2a"/><path d="M50 60 l-5 -8 M70 60 l5 -8" stroke="#8a6a3a" stroke-width="2"/>`
+    +`<circle cx="55" cy="68" r="2" fill="${P.gold}"/><circle cx="65" cy="68" r="2" fill="${P.gold}"/>`
+    +`<path d="M52 58 q8 -6 16 0" stroke="${P.red}" stroke-width="1.5" fill="none"/>`
+    +figure(38,118,"#7a5a3a",P.flesh)+figure(82,118,"#7a5a3a",P.flesh)
+    +`<line x1="38" y1="112" x2="60" y2="98" stroke="#6a5a4a" stroke-width="1"/><line x1="82" y1="112" x2="60" y2="98" stroke="#6a5a4a" stroke-width="1"/>`;
+  // 16 탑
+  S[16]=`<rect x="8" y="22" width="104" height="152" fill="#1a1a2a"/>`
+    +`<rect x="48" y="60" width="24" height="90" fill="#7a6a5a"/><path d="M48 60 h24 v-10 h-24 z" fill="#c9a94f"/>`
+    +`<polygon points="30,22 54,66 44,66" fill="${P.gold}"/>`
+    +`<path d="M60 50 q10 -8 20 -4 q-6 8 -14 6" fill="#e6743f"/><path d="M60 50 q-10 -6 -18 0 q6 6 12 4" fill="#e6743f"/>`
+    +`<circle cx="34" cy="110" r="5" fill="${P.flesh}"/><circle cx="88" cy="130" r="5" fill="${P.flesh}"/>`
+    +star(46,90,2.5,"#f0e6b8")+star(80,80,2.5,"#f0e6b8")+star(66,100,2,"#f0e6b8");
+  // 17 별
+  S[17]=`<rect x="8" y="22" width="104" height="118" fill="#2b3a6b"/><rect x="8" y="140" width="104" height="34" fill="${P.grass}"/>`
+    +star(60,50,10,"#f5efc0")
+    +[[34,40],[86,40],[30,66],[90,66],[46,32],[74,32],[60,72]].map(p=>star(p[0],p[1],3,"#f0e6b8")).join("")
+    +figure(60,96,"#e7bd94",P.flesh)
+    +cup(46,120,1.2,P.gold)+cup(74,120,1.2,P.gold)
+    +`<ellipse cx="46" cy="150" rx="12" ry="5" fill="${P.water}"/>`;
+  // 18 달
+  S[18]=`<rect x="8" y="22" width="104" height="120" fill="#3a4a6b"/><rect x="8" y="142" width="104" height="32" fill="#5a6a4a"/>`
+    +moon(60,52,13)
+    +`<rect x="30" y="70" width="10" height="40" fill="#7a7266"/><rect x="80" y="70" width="10" height="40" fill="#7a7266"/><path d="M30 70 l5 -8 l5 8 z" fill="#7a7266"/><path d="M80 70 l5 -8 l5 8 z" fill="#7a7266"/>`
+    +`<path d="M60 142 L56 174 M60 142 L64 174" stroke="#d9c078" stroke-width="2"/>`
+    +`<ellipse cx="48" cy="160" rx="6" ry="4" fill="#8a97a3"/><ellipse cx="76" cy="158" rx="6" ry="4" fill="#6a5a4a"/>`;
+  // 19 태양
+  S[19]=`<rect x="8" y="22" width="104" height="130" fill="#8fc9e0"/><rect x="8" y="120" width="104" height="10" fill="#c98a55"/><rect x="8" y="130" width="104" height="44" fill="${P.gold}"/>`
+    +sun(60,52,15,"#f0c93f")
+    +`<circle cx="60" cy="52" r="9" fill="#f5d95a"/>`
+    +[36,50,64,78].map(x=>`<circle cx="${x}" cy="112" r="6" fill="#e6bd3f"/><line x1="${x}" y1="118" x2="${x}" y2="130" stroke="${P.green}" stroke-width="2"/>`).join("")
+    +`<circle cx="88" cy="150" r="6" fill="${P.flesh}"/><rect x="82" y="130" width="12" height="10" fill="#e9e2d0"/>`
+    +`<rect x="70" y="150" width="30" height="8" fill="#f0e0b0"/>`;
+  // 20 심판
+  S[20]=`<rect x="8" y="22" width="104" height="118" fill="#8aa0b0"/><rect x="8" y="140" width="104" height="34" fill="#6a7a8a"/>`
+    +`<path d="M40 60 q20 -14 40 0" stroke="#e9e2d0" stroke-width="3" fill="none"/>`
+    +figure(60,44,"#e9e2d0",P.flesh)
+    +`<line x1="48" y1="50" x2="30" y2="42" stroke="${P.gold}" stroke-width="2"/><path d="M28 40 l-6 -3 l0 8 z" fill="${P.gold}"/>`
+    +`<rect x="26" y="110" width="18" height="24" fill="#c9c2b0"/><rect x="74" y="110" width="18" height="24" fill="#c9c2b0"/><circle cx="60" cy="120" r="6" fill="${P.flesh}"/>`;
+  // 21 세계
+  S[21]=skyGround("#bfe0ee","#bfe0ee",174)
+    +`<ellipse cx="60" cy="98" rx="30" ry="52" fill="none" stroke="${P.green}" stroke-width="6"/>`
+    +figure(60,74,"#d9a0c0",P.flesh)
+    +`<circle cx="26" cy="40" r="5" fill="#e9e2d0"/><circle cx="94" cy="40" r="5" fill="#d9b84c"/><circle cx="26" cy="156" r="5" fill="#c98a55"/><circle cx="94" cy="156" r="5" fill="#8a97a3"/>`;
+  // ── 마이너 ──
+  const suitBG=(c)=>skyGround("#f0e4b0",c||"#cfe0b0",150);
+  // 22 완드 에이스
+  S[22]=suitBG()+cloudHand(40,80)+wand(46,120,58,true)
+    +[100,110,120].map((y,i)=>`<path d="M${52} ${y} q4 -3 6 -8" stroke="${P.green}" stroke-width="1.4" fill="none"/>`).join("");
+  // 23 완드 7
+  S[23]=suitBG()+`<path d="M20 150 Q60 130 100 150 Z" fill="${P.grass}"/>`
+    +figure(60,60,P.green,P.flesh)+wand(60,110,54,true)
+    +[30,44,58,72,86].map(x=>`<line x1="${x}" y1="174" x2="${x+6}" y2="130" stroke="${P.brown}" stroke-width="2.4"/>`).join("");
+  // 24 완드 왕
+  S[24]=`<rect x="8" y="22" width="104" height="152" fill="#e9c58a"/>`+throne(60,"#b5321f")+crown(60,50,P.gold)
+    +figure(60,60,P.gold,P.flesh)+wand(80,150,80,true)
+    +`<path d="M40 150 q4 6 8 0 q-4 -6 -8 0" fill="${P.green}"/>`;
+  // 25 컵 에이스
+  S[25]=`<rect x="8" y="22" width="104" height="120" fill="#bfe0ee"/><rect x="8" y="142" width="104" height="32" fill="${P.water}"/>`
+    +cloudHand(40,86)+`<path d="M46 96 Q40 118 60 122 Q80 118 74 96 Z" fill="${P.gold}"/><rect x="57" y="122" width="6" height="8" fill="${P.gold}"/><rect x="50" y="130" width="20" height="4" fill="${P.gold}"/>`
+    +`<circle cx="60" cy="80" r="4" fill="${P.white}"/><path d="M56 80 l-3 3 M64 80 l3 3" stroke="${P.white}" stroke-width="1.4"/>`
+    +[52,60,68].map(x=>`<path d="M${x} 100 q0 8 0 14" stroke="#8fc9e0" stroke-width="1.4" fill="none"/>`).join("");
+  // 26 컵 2
+  S[26]=suitBG("#cfe0b0")+figure(44,70,P.red,P.flesh)+figure(76,70,P.blue,P.flesh)
+    +cup(50,110,1.3,P.gold)+cup(70,110,1.3,P.gold)
+    +`<line x1="60" y1="76" x2="60" y2="96" stroke="${P.red}" stroke-width="1"/><circle cx="60" cy="74" r="4" fill="#c98a3a"/>`;
+  // 27 컵 9
+  S[27]=`<rect x="8" y="22" width="104" height="152" fill="#c9b48a"/>`
+    +`<rect x="20" y="96" width="80" height="6" fill="#3a6aa0"/>`
+    +[34,50,66,82].map(x=>cup(x,86,1.2,P.gold)).join("")
+    +[30,44,58,72,86].map(x=>cup(x,120,1.2,P.gold)).join("")
+    +figure(60,60,P.red,P.flesh)+`<path d="M50 96 q10 -20 20 0" fill="${P.white}" opacity=".6"/>`;
+  // 28 컵 여왕
+  S[28]=`<rect x="8" y="22" width="104" height="120" fill="#bfe0ee"/><rect x="8" y="142" width="104" height="32" fill="${P.water}"/>`
+    +throne(60,"#7ab0c9")+crown(60,50,P.gold)+figure(60,60,"#9fc0d6",P.flesh)
+    +`<path d="M52 96 Q48 106 60 108 Q72 106 68 96 Z" fill="${P.gold}"/><rect x="58" y="88" width="4" height="8" fill="${P.gold}"/>`;
+  // 29 소드 에이스
+  S[29]=`<rect x="8" y="22" width="104" height="152" fill="#bcd0dd"/>`+mount(160,"#8a97a3")
+    +cloudHand(60,140,"up")+sword(60,138,86)
+    +`<path d="M50 54 q10 -8 20 0 q-4 6 -10 6 q-6 0 -10 -6" fill="none" stroke="${P.gold}" stroke-width="1.4"/><circle cx="60" cy="52" r="8" fill="none" stroke="${P.gold}" stroke-width="1.4"/>`;
+  // 30 소드 3
+  S[30]=`<rect x="8" y="22" width="104" height="152" fill="#8a97a3"/>`
+    +[30,50,70,90].map((x,i)=>`<line x1="${x}" y1="40" x2="${x+8}" y2="150" stroke="#c9d0d6" stroke-width="1.2" opacity=".7"/>`).join("")
+    +`<path d="M60 130 C40 100 40 82 60 90 C80 82 80 100 60 130 Z" fill="${P.rose}"/>`
+    +`<g transform="rotate(-32 60 96)">${sword(60,120,52)}</g><g transform="rotate(32 60 96)">${sword(60,120,52)}</g>${sword(60,120,52)}`;
+  // 31 소드 왕
+  S[31]=`<rect x="8" y="22" width="104" height="152" fill="#9fb4c4"/>`+throne(60,"#5a6a8a")+crown(60,50,P.gold)
+    +figure(60,60,P.blue,P.flesh)+sword(78,150,80);
+  // 32 펜타클 에이스
+  S[32]=suitBG("#6f9e5a")+cloudHand(60,80)+pentacle(60,110,14,P.gold)
+    +`<path d="M40 150 q20 -8 40 0" stroke="${P.green}" stroke-width="2" fill="none"/><rect x="52" y="150" width="16" height="10" fill="#4f8c53"/>`;
+  // 33 펜타클 6
+  S[33]=`<rect x="8" y="22" width="104" height="152" fill="#cfe0b0"/>`
+    +figure(60,58,P.red,P.flesh)
+    +`<line x1="76" y1="70" x2="76" y2="96" stroke="${P.dark}" stroke-width="1"/><ellipse cx="70" cy="98" rx="5" ry="2" fill="${P.gold}"/><ellipse cx="82" cy="98" rx="5" ry="2" fill="${P.gold}"/>`
+    +figure(34,120,"#8a7a5a",P.flesh)+figure(88,120,"#8a7a5a",P.flesh)
+    +[46,60,74].map((x,i)=>pentacle(x,44,4)).join("");
+  // 34 펜타클 10
+  S[34]=`<rect x="8" y="22" width="104" height="152" fill="#d9c9a0"/>`
+    +`<rect x="20" y="30" width="80" height="120" fill="#c9b48a" opacity=".5"/>`
+    +figure(40,80,P.red,P.flesh)+figure(80,80,P.blue,P.flesh)+figure(60,110,"#8a7a5a",P.flesh)
+    +[[34,50],[50,44],[66,44],[82,50],[30,80],[90,80],[34,110],[86,110],[50,130],[70,130]].map(p=>pentacle(p[0],p[1],4)).join("");
+  // 35 펜타클 왕
+  S[35]=`<rect x="8" y="22" width="104" height="152" fill="#3a4a2a"/>`+throne(60,"#5a4a2a")+crown(60,50,P.gold)
+    +figure(60,60,"#2a5a2a",P.flesh)+pentacle(78,120,10)
+    +[30,44,90].map((x,i)=>`<circle cx="${x}" cy="${40+i*4}" r="4" fill="#7a3a6a"/>`).join("");
+
+  // ── 래퍼: 전체 카드 SVG ──
+  const ROMAN=["0","I","II","III","IV","V","VI","VII","VIII","IX","X","XI","XII","XIII","XIV","XV","XVI","XVII","XVIII","XIX","XX","XXI"];
+  function cardFaceSVG(card){
+    const scene=S[card.id]||skyGround()+`<text x="60" y="100" font-size="30" text-anchor="middle">${card.e||"✦"}</text>`;
+    const numeral=card.suit==="major"&&card.id<=21?`<text x="60" y="17" font-size="9" fill="${P.dark}" text-anchor="middle" font-weight="700" font-family="Georgia,serif">${ROMAN[card.id]}</text>`:"";
+    const nm=(card.en||"").toUpperCase();
+    const fs=nm.length>16?5.2:nm.length>12?6.2:7;
+    return `<svg viewBox="0 0 120 200" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" style="width:100%;height:100%;display:block">`
+      +`<defs><clipPath id="cf${card.id}"><rect x="8" y="22" width="104" height="152"/></clipPath></defs>`
+      +`<rect x="2" y="2" width="116" height="196" rx="7" fill="${P.cream}" stroke="${P.dark}" stroke-width="2.5"/>`
+      +`<rect x="6" y="6" width="108" height="188" rx="3" fill="none" stroke="${P.dark}" stroke-width="1"/>`
+      +`<g clip-path="url(#cf${card.id})">${scene}</g>`
+      +`<rect x="8" y="22" width="104" height="152" fill="none" stroke="${P.dark}" stroke-width=".8"/>`
+      +numeral
+      +`<text x="60" y="189" font-size="${fs}" fill="${P.dark}" text-anchor="middle" font-weight="700" letter-spacing=".5" font-family="Georgia,serif">${nm}</text>`
+      +`</svg>`;
+  }
+  // ── 카드 뒷면 ──
+  function cardBackSVG(){
+    let stars="";
+    const pts=[[24,40],[96,40],[24,160],[96,160],[60,24],[60,176],[30,100],[90,100]];
+    pts.forEach(p=>{stars+=star(p[0],p[1],3,"#e6bd3f");});
+    return `<svg viewBox="0 0 120 200" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" style="width:100%;height:100%;display:block">`
+      +`<rect x="2" y="2" width="116" height="196" rx="7" fill="#241542" stroke="#e6bd3f" stroke-width="2.5"/>`
+      +`<rect x="8" y="8" width="104" height="184" rx="4" fill="none" stroke="#e6bd3f" stroke-width="1"/>`
+      +`<rect x="8" y="8" width="104" height="184" rx="4" fill="#2e1c56"/>`
+      +stars
+      +`<circle cx="60" cy="100" r="26" fill="none" stroke="#e6bd3f" stroke-width="1.4"/>`
+      +`<circle cx="60" cy="100" r="20" fill="#1c1236"/>`
+      +moon(66,100,12).replace(/#f0e6b8/g,"#e6bd3f").replace(/#d9caa0/g,"#3a2a5a")
+      +star(60,100,7,"#e6bd3f")
+      +`</svg>`;
+  }
+  window.cardFaceSVG=cardFaceSVG;
+  window.cardBackSVG=cardBackSVG;
+  window.cardFaceURI=function(card){return "data:image/svg+xml;utf8,"+encodeURIComponent(cardFaceSVG(card));};
+})();
+/* ═══════════════════════ 데이터 ═══════════════════════ */
+const CARDS=[
+  {id:0,name:"바보",en:"The Fool",e:"🃏",suit:"major",img:"major-00"},
+  {id:1,name:"마법사",en:"The Magician",e:"🎩",suit:"major",img:"major-01"},
+  {id:2,name:"여사제",en:"The High Priestess",e:"🌙",suit:"major",img:"major-02"},
+  {id:3,name:"여황제",en:"The Empress",e:"🌿",suit:"major",img:"major-03"},
+  {id:4,name:"황제",en:"The Emperor",e:"👑",suit:"major",img:"major-04"},
+  {id:5,name:"교황",en:"The Hierophant",e:"⛪",suit:"major",img:"major-05"},
+  {id:6,name:"연인",en:"The Lovers",e:"💞",suit:"major",img:"major-06"},
+  {id:7,name:"전차",en:"The Chariot",e:"🏇",suit:"major",img:"major-07"},
+  {id:8,name:"힘",en:"Strength",e:"🦁",suit:"major",img:"major-08"},
+  {id:9,name:"은둔자",en:"The Hermit",e:"🕯️",suit:"major",img:"major-09"},
+  {id:10,name:"운명의 수레바퀴",en:"Wheel of Fortune",e:"🎡",suit:"major",img:"major-10"},
+  {id:11,name:"정의",en:"Justice",e:"⚖️",suit:"major",img:"major-11"},
+  {id:12,name:"매달린 남자",en:"The Hanged Man",e:"🙃",suit:"major",img:"major-12"},
+  {id:13,name:"죽음",en:"Death",e:"🌹",suit:"major",img:"major-13"},
+  {id:14,name:"절제",en:"Temperance",e:"🍷",suit:"major",img:"major-14"},
+  {id:15,name:"악마",en:"The Devil",e:"🔗",suit:"major",img:"major-15"},
+  {id:16,name:"탑",en:"The Tower",e:"⚡",suit:"major",img:"major-16"},
+  {id:17,name:"별",en:"The Star",e:"⭐",suit:"major",img:"major-17"},
+  {id:18,name:"달",en:"The Moon",e:"🌕",suit:"major",img:"major-18"},
+  {id:19,name:"태양",en:"The Sun",e:"☀️",suit:"major",img:"major-19"},
+  {id:20,name:"심판",en:"Judgement",e:"📯",suit:"major",img:"major-20"},
+  {id:21,name:"세계",en:"The World",e:"🌍",suit:"major",img:"major-21"},
+  {id:22,name:"완드 에이스",en:"Ace of Wands",e:"🔥",suit:"wands",img:"wands-01"},
+  {id:23,name:"완드 2",en:"Two of Wands",e:"🔥",suit:"wands",img:"wands-02"},
+  {id:24,name:"완드 3",en:"Three of Wands",e:"🔥",suit:"wands",img:"wands-03"},
+  {id:25,name:"완드 4",en:"Four of Wands",e:"🔥",suit:"wands",img:"wands-04"},
+  {id:26,name:"완드 5",en:"Five of Wands",e:"🔥",suit:"wands",img:"wands-05"},
+  {id:27,name:"완드 6",en:"Six of Wands",e:"🔥",suit:"wands",img:"wands-06"},
+  {id:28,name:"완드 7",en:"Seven of Wands",e:"🔥",suit:"wands",img:"wands-07"},
+  {id:29,name:"완드 8",en:"Eight of Wands",e:"🔥",suit:"wands",img:"wands-08"},
+  {id:30,name:"완드 9",en:"Nine of Wands",e:"🔥",suit:"wands",img:"wands-09"},
+  {id:31,name:"완드 10",en:"Ten of Wands",e:"🔥",suit:"wands",img:"wands-10"},
+  {id:32,name:"완드 시종",en:"Page of Wands",e:"🔥",suit:"wands",img:"wands-11"},
+  {id:33,name:"완드 기사",en:"Knight of Wands",e:"🔥",suit:"wands",img:"wands-12"},
+  {id:34,name:"완드 여왕",en:"Queen of Wands",e:"🔥",suit:"wands",img:"wands-13"},
+  {id:35,name:"완드 왕",en:"King of Wands",e:"🔥",suit:"wands",img:"wands-14"},
+  {id:36,name:"컵 에이스",en:"Ace of Cups",e:"💧",suit:"cups",img:"cups-01"},
+  {id:37,name:"컵 2",en:"Two of Cups",e:"💧",suit:"cups",img:"cups-02"},
+  {id:38,name:"컵 3",en:"Three of Cups",e:"💧",suit:"cups",img:"cups-03"},
+  {id:39,name:"컵 4",en:"Four of Cups",e:"💧",suit:"cups",img:"cups-04"},
+  {id:40,name:"컵 5",en:"Five of Cups",e:"💧",suit:"cups",img:"cups-05"},
+  {id:41,name:"컵 6",en:"Six of Cups",e:"💧",suit:"cups",img:"cups-06"},
+  {id:42,name:"컵 7",en:"Seven of Cups",e:"💧",suit:"cups",img:"cups-07"},
+  {id:43,name:"컵 8",en:"Eight of Cups",e:"💧",suit:"cups",img:"cups-08"},
+  {id:44,name:"컵 9",en:"Nine of Cups",e:"💧",suit:"cups",img:"cups-09"},
+  {id:45,name:"컵 10",en:"Ten of Cups",e:"💧",suit:"cups",img:"cups-10"},
+  {id:46,name:"컵 시종",en:"Page of Cups",e:"💧",suit:"cups",img:"cups-11"},
+  {id:47,name:"컵 기사",en:"Knight of Cups",e:"💧",suit:"cups",img:"cups-12"},
+  {id:48,name:"컵 여왕",en:"Queen of Cups",e:"💧",suit:"cups",img:"cups-13"},
+  {id:49,name:"컵 왕",en:"King of Cups",e:"💧",suit:"cups",img:"cups-14"},
+  {id:50,name:"소드 에이스",en:"Ace of Swords",e:"⚔️",suit:"swords",img:"swords-01"},
+  {id:51,name:"소드 2",en:"Two of Swords",e:"⚔️",suit:"swords",img:"swords-02"},
+  {id:52,name:"소드 3",en:"Three of Swords",e:"⚔️",suit:"swords",img:"swords-03"},
+  {id:53,name:"소드 4",en:"Four of Swords",e:"⚔️",suit:"swords",img:"swords-04"},
+  {id:54,name:"소드 5",en:"Five of Swords",e:"⚔️",suit:"swords",img:"swords-05"},
+  {id:55,name:"소드 6",en:"Six of Swords",e:"⚔️",suit:"swords",img:"swords-06"},
+  {id:56,name:"소드 7",en:"Seven of Swords",e:"⚔️",suit:"swords",img:"swords-07"},
+  {id:57,name:"소드 8",en:"Eight of Swords",e:"⚔️",suit:"swords",img:"swords-08"},
+  {id:58,name:"소드 9",en:"Nine of Swords",e:"⚔️",suit:"swords",img:"swords-09"},
+  {id:59,name:"소드 10",en:"Ten of Swords",e:"⚔️",suit:"swords",img:"swords-10"},
+  {id:60,name:"소드 시종",en:"Page of Swords",e:"⚔️",suit:"swords",img:"swords-11"},
+  {id:61,name:"소드 기사",en:"Knight of Swords",e:"⚔️",suit:"swords",img:"swords-12"},
+  {id:62,name:"소드 여왕",en:"Queen of Swords",e:"⚔️",suit:"swords",img:"swords-13"},
+  {id:63,name:"소드 왕",en:"King of Swords",e:"⚔️",suit:"swords",img:"swords-14"},
+  {id:64,name:"펜타클 에이스",en:"Ace of Pentacles",e:"🪙",suit:"pentacles",img:"pentacles-01"},
+  {id:65,name:"펜타클 2",en:"Two of Pentacles",e:"🪙",suit:"pentacles",img:"pentacles-02"},
+  {id:66,name:"펜타클 3",en:"Three of Pentacles",e:"🪙",suit:"pentacles",img:"pentacles-03"},
+  {id:67,name:"펜타클 4",en:"Four of Pentacles",e:"🪙",suit:"pentacles",img:"pentacles-04"},
+  {id:68,name:"펜타클 5",en:"Five of Pentacles",e:"🪙",suit:"pentacles",img:"pentacles-05"},
+  {id:69,name:"펜타클 6",en:"Six of Pentacles",e:"🪙",suit:"pentacles",img:"pentacles-06"},
+  {id:70,name:"펜타클 7",en:"Seven of Pentacles",e:"🪙",suit:"pentacles",img:"pentacles-07"},
+  {id:71,name:"펜타클 8",en:"Eight of Pentacles",e:"🪙",suit:"pentacles",img:"pentacles-08"},
+  {id:72,name:"펜타클 9",en:"Nine of Pentacles",e:"🪙",suit:"pentacles",img:"pentacles-09"},
+  {id:73,name:"펜타클 10",en:"Ten of Pentacles",e:"🪙",suit:"pentacles",img:"pentacles-10"},
+  {id:74,name:"펜타클 시종",en:"Page of Pentacles",e:"🪙",suit:"pentacles",img:"pentacles-11"},
+  {id:75,name:"펜타클 기사",en:"Knight of Pentacles",e:"🪙",suit:"pentacles",img:"pentacles-12"},
+  {id:76,name:"펜타클 여왕",en:"Queen of Pentacles",e:"🪙",suit:"pentacles",img:"pentacles-13"},
+  {id:77,name:"펜타클 왕",en:"King of Pentacles",e:"🪙",suit:"pentacles",img:"pentacles-14"},
+];
+const CARD_MEANING={"바보": "새로운 시작과 순수한 가능성. 두려움 없이 첫걸음을 내딛을 때예요.", "마법사": "당신에게 필요한 모든 도구가 갖춰져 있어요. 집중하면 이뤄집니다.", "여사제": "직관과 내면의 목소리에 귀 기울이세요. 답은 이미 안에 있어요.", "여황제": "풍요와 돌봄의 에너지. 마음을 열고 결실을 받아들이세요.", "황제": "질서와 안정, 주도권. 명확한 기준을 세우면 흐름이 잡혀요.", "교황": "전통과 배움, 신뢰할 조언자. 검증된 길에서 지혜를 얻으세요.", "연인": "선택의 순간, 마음이 이끄는 진짜 가치를 확인하세요.", "전차": "상반된 힘을 하나로 모아 밀어붙이면 승리가 따라와요.", "힘": "거친 힘이 아니라 부드러운 인내로 상황을 다스리세요.", "은둔자": "잠시 혼자만의 시간 속에서 답을 비춰볼 때예요.", "운명의 수레바퀴": "흐름이 바뀌는 전환점. 변화를 거스르지 말고 올라타세요.", "정의": "공정한 눈으로 상황을 바라보면 균형이 보여요.", "매달린 남자": "관점을 뒤집어 보면 지금의 정체가 다르게 보여요.", "죽음": "한 국면의 끝과 새로운 전환. 놓아줄수록 새 문이 열려요.", "절제": "극단을 피하고 서로 다른 것을 조화롭게 섞어보세요.", "악마": "집착·유혹·습관의 사슬. 무엇에 묶여 있는지 직시할 때예요.", "탑": "낡은 구조가 무너지며 진짜 기반을 다시 세울 기회가 와요.", "별": "희망과 치유의 에너지. 지친 마음을 회복할 시간이에요.", "달": "불확실함 속에서도 직감을 믿고 천천히 나아가세요.", "태양": "밝고 긍정적인 기운. 자신 있게 드러내도 좋은 때예요.", "심판": "지난 시간을 되돌아보고 새로운 부름에 응답할 때예요.", "세계": "하나의 여정이 완성돼요. 성취를 온전히 누리세요.", "완드 에이스": "새로운 열정과 영감이 타오르기 시작해요.", "완드 2": "계획을 세우고 더 큰 그림을 그리는 단계예요.", "완드 3": "씨 뿌린 일이 뻗어나가길 기다리는 확장의 시간이에요.", "완드 4": "안정과 축하, 결실을 함께 나누는 시간이에요.", "완드 5": "경쟁과 마찰 속에서 기 싸움하는 상황이에요.", "완드 6": "인정받고 승리를 거두는 순간이에요.", "완드 7": "자기 입장을 지키기 위해 버텨야 하는 상황이에요.", "완드 8": "빠르게 진행되는 흐름, 속도감 있는 전개예요.", "완드 9": "지쳤지만 마지막 하나 남은 방어선을 지키는 끈기예요.", "완드 10": "책임과 짐을 짊어지고 있는 부담이에요.", "완드 시종": "새로운 소식과 배움에 대한 열정이 도착해요.", "완드 기사": "저돌적으로 밀어붙이는 행동력이 필요해요.", "완드 여왕": "자신감 있고 따뜻한 카리스마로 이끄세요.", "완드 왕": "비전을 실행으로 옮기는 리더십을 발휘할 때예요.", "컵 에이스": "새로운 감정과 사랑의 시작. 마음이 채워지는 신호예요.", "컵 2": "서로 마음이 통하는 진심 어린 교감이에요.", "컵 3": "함께 기뻐할 사람들과의 축하가 있어요.", "컵 4": "권태 속에서 놓치고 있는 새로운 제안을 봐야 해요.", "컵 5": "아쉬움에 머물지 말고 남은 것을 바라볼 때예요.", "컵 6": "그리운 기억과 순수했던 시절의 정이에요.", "컵 7": "여러 선택지 앞에서 환상과 현실을 구분할 때예요.", "컵 8": "만족스럽지 않은 걸 떠나 더 깊은 의미를 찾아 나서는 걸음이에요.", "컵 9": "마음의 소원이 이루어지는 만족감이에요.", "컵 10": "정서적 충만함과 화목한 관계예요.", "컵 시종": "감수성 예민한 다정한 메시지가 도착해요.", "컵 기사": "낭만을 좇아 다가오는 제안이 있어요.", "컵 여왕": "공감 능력이 뛰어난 따뜻한 마음으로 대하세요.", "컵 왕": "감정을 다스릴 줄 아는 성숙한 태도가 필요해요.", "소드 에이스": "명료한 통찰과 진실이 드러나는 순간이에요.", "소드 2": "결정을 미루고 있는 팽팽한 균형 상태예요.", "소드 3": "마음 아픈 이별이나 실망이 있을 수 있어요.", "소드 4": "잠시 멈춤과 회복. 무리하지 말고 재정비할 시간이에요.", "소드 5": "이겼지만 씁쓸한 뒷맛이 남는 갈등이에요.", "소드 6": "힘든 상황을 벗어나 더 나은 곳으로 나아가는 이동이에요.", "소드 7": "은밀한 전략이나 혼자만의 계획이 필요해요.", "소드 8": "스스로를 가두는 생각의 틀에 갇힌 상태예요.", "소드 9": "걱정과 불안으로 잠 못 이루는 밤이에요.", "소드 10": "바닥까지 갔지만 여기가 끝이자 시작인 지점이에요.", "소드 시종": "날카로운 호기심으로 정보를 모으는 중이에요.", "소드 기사": "거침없이 밀어붙이는 논리와 속도가 필요해요.", "소드 여왕": "냉철하고 독립적인 판단력을 발휘하세요.", "소드 왕": "이성과 명료한 판단. 감정을 걷어내고 원칙대로 결정하세요.", "펜타클 에이스": "새로운 기회와 실질적인 시작이에요.", "펜타클 2": "두 가지 일 사이에서 균형을 잡는 저글링이 필요해요.", "펜타클 3": "협업과 실력 인정. 함께 만들어가며 기틀을 다질 때예요.", "펜타클 4": "가진 것을 움켜쥐고 지키려는 마음이에요.", "펜타클 5": "어려운 시기, 도움을 청해도 되는 상황이에요.", "펜타클 6": "나누고 베푸는 균형 잡힌 주고받음이에요.", "펜타클 7": "지금까지의 노력을 점검하는 인내의 시간이에요.", "펜타클 8": "꾸준한 반복으로 실력을 쌓는 숙련의 과정이에요.", "펜타클 9": "스스로 일군 결실을 누리는 여유예요.", "펜타클 10": "대대로 이어지는 안정된 유산과 기반이에요.", "펜타클 시종": "배움과 새 기회의 씨앗. 호기심을 갖고 시작해보세요.", "펜타클 기사": "성실하고 꾸준하게 한 걸음씩 나아가는 태도예요.", "펜타클 여왕": "실용적 풍요와 따뜻한 보살핌. 일상을 알차게 가꿔보세요.", "펜타클 왕": "현실적 성취와 안정된 기반. 꾸준함이 보상받아요."};
+window.cardFaceSVG=function(card){var s=card.img?("assets/cards/"+card.img+".jpg"):null;return s?('<img src="'+s+'" style="width:100%;height:100%;object-fit:cover;display:block" draggable="false" alt="'+(card.name||"")+'">'):('<div style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;font-size:24px">'+(card.e||"✦")+'</div>');};
+const SC={major:"#fbbf24",wands:"#f97316",cups:"#60a5fa",swords:"#a78bfa",pentacles:"#34d399"};
+
+const SPREADS={
+  one:{id:"one",name:"원 카드",cards:1,icon:"🌟",desc:"빠른 조언·오늘의 메시지 (1장)",
+    pos:[{l:"핵심 메시지",x:50,y:50}],keys:["오늘","간단","빠른","하나","예","아니오"]},
+  three:{id:"three",name:"쓰리 카드",cards:3,icon:"✨",desc:"과거·현재·미래 흐름 파악 (3장)",
+    pos:[{l:"과거",x:20,y:50},{l:"현재",x:50,y:50},{l:"미래",x:80,y:50}],
+    keys:["연애","미래","흐름","과거","진로","사랑","될까"]},
+  horseshoe:{id:"horseshoe",name:"호스슈",cards:5,icon:"🧲",desc:"원인·상황·조언·결과 (5장)",
+    pos:[{l:"과거",x:18,y:72},{l:"현재",x:35,y:45},{l:"숨겨진 영향",x:50,y:26},{l:"조언",x:65,y:45},{l:"결과",x:82,y:72}],
+    keys:["원인","결과","직장","갈등","문제","취업","이직"]},
+  hexagram:{id:"hexagram",name:"헥사그램",cards:7,icon:"🔯",desc:"두 사람 관계 심층 분석 (7장)",
+    pos:[{l:"과거",x:50,y:14},{l:"현재",x:75,y:38},{l:"가까운 미래",x:25,y:62},{l:"조언",x:50,y:84},{l:"상대 마음",x:25,y:38},{l:"나의 마음",x:75,y:62},{l:"최종 결과",x:50,y:50}],
+    keys:["관계","상대","마음","인간관계","두 사람","연인","커플","그 사람","썸"]},
+  celtic:{id:"celtic",name:"켈틱 크로스",cards:10,icon:"☩",desc:"인생 전반 심층 분석 (10장)",
+    pos:[{l:"현재",x:36,y:48},{l:"장애물",x:50,y:48},{l:"의식",x:36,y:26},{l:"무의식",x:36,y:70},{l:"먼 과거",x:18,y:48},{l:"가까운 미래",x:54,y:48},{l:"나의 태도",x:80,y:82},{l:"외부 영향",x:80,y:62},{l:"희망/두려움",x:80,y:42},{l:"최종 결과",x:80,y:22}],
+    keys:["인생","종합","깊이","전반","모든","전체","앞으로"]},
+};
+
+const DAILY_MSGS={"바보": ["새로운 가능성의 문이 열리고 있어요. 두려움 없이 첫걸음을 내딛어보세요.", "✓ 새로운 도전에 뛰어들기", "✗ 지나친 걱정으로 기회 놓치기"], "마법사": ["당신 안에 모든 도구가 갖춰져 있어요. 집중하고 실행하면 이루어집니다.", "✓ 목표에 완전히 집중하기", "✗ 능력 의심하며 미루기"], "여사제": ["직관이 논리보다 정확한 날이에요. 침묵 속에 답이 있어요.", "✓ 내면의 목소리 듣기", "✗ 충동적으로 결정하기"], "여황제": ["풍요와 돌봄의 에너지가 함께해요. 스스로를 넉넉히 채워주세요.", "✓ 나를 따뜻하게 돌보기", "✗ 무리하게 몰아붙이기"], "황제": ["질서를 세우기 좋은 날. 기준이 분명하면 흐름이 잡혀요.", "✓ 계획과 원칙 세우기", "✗ 즉흥적으로 벌이기"], "교황": ["믿을 만한 조언과 배움이 도움이 돼요. 검증된 길을 살펴보세요.", "✓ 멘토·전통에서 배우기", "✗ 혼자 고집부리기"], "연인": ["마음이 원하는 것과 머리가 계산하는 것을 구분해볼 때예요.", "✓ 진심에 따라 선택하기", "✗ 조건만 따져 판단하기"], "전차": ["의지를 다잡으면 방향이 흔들려도 목적지에 닿아요.", "✓ 집중해서 밀어붙이기", "✗ 감정에 휘둘려 방향 잃기"], "힘": ["온화함이 완력보다 강할 수 있는 날이에요.", "✓ 침착하게 다독이기", "✗ 힘으로 밀어붙이기"], "은둔자": ["혼자 있는 시간이 오히려 길을 밝혀줘요.", "✓ 홀로 사색하는 시간 갖기", "✗ 무리한 약속으로 나를 소진하기"], "운명의 수레바퀴": ["예상 못한 변화가 결국 좋은 쪽으로 흘러갈 수 있어요.", "✓ 변화의 흐름에 올라타기", "✗ 예전 방식만 고집하기"], "정의": ["감정을 걷어내고 사실관계를 냉정히 따져볼 때예요.", "✓ 원칙대로 공정하게 판단하기", "✗ 감정적으로 편들기"], "매달린 남자": ["멈춰 서서 다른 각도로 바라보면 답이 보여요.", "✓ 기다리며 다른 시각 찾기", "✗ 조급하게 억지로 진행하기"], "죽음": ["한 챕터가 끝나고 새 장이 열려요. 놓아줄수록 가벼워집니다.", "✓ 낡은 것 정리하기", "✗ 과거에 집착하기"], "절제": ["균형과 절제가 오늘의 열쇠예요.", "✓ 서두르지 않고 조율하기", "✗ 한쪽으로 치우쳐 무리하기"], "악마": ["무엇에 묶여 있는지 직시할 때. 사슬은 스스로 풀 수 있어요.", "✓ 나쁜 습관 끊어내기", "✗ 유혹에 휩쓸리기"], "탑": ["갑작스런 변화가 있어도 결국 더 단단해지는 계기예요.", "✓ 무너진 자리에서 다시 세우기", "✗ 불안정한 걸 억지로 붙잡기"], "별": ["작은 희망 하나가 큰 위로가 되는 날이에요.", "✓ 스스로에게 희망 걸어주기", "✗ 비관에 사로잡히기"], "달": ["명확하지 않아도 조급해하지 않는 게 답이에요.", "✓ 직감을 믿고 천천히 살피기", "✗ 불안한 마음으로 성급히 단정하기"], "태양": ["숨기지 않고 있는 그대로 빛나도 되는 날이에요.", "✓ 자신감 있게 나서기", "✗ 스스로를 과소평가하기"], "심판": ["과거를 정리하면 새로운 기회가 눈에 들어와요.", "✓ 솔직하게 스스로를 돌아보기", "✗ 지난 일을 외면하기"], "세계": ["그동안의 노력이 결실을 맺는 완성의 기운이에요.", "✓ 마무리를 축하하고 누리기", "✗ 성과를 인정 안 하고 급히 넘어가기"], "완드 에이스": ["새로운 열정과 영감이 타오르기 시작해요.", "✓ 새로운 열정에 불붙이기", "✗ 아이디어만 갖고 미루기"], "완드 2": ["계획을 세우고 더 큰 그림을 그리는 단계예요.", "✓ 큰 그림 먼저 그리기", "✗ 준비 없이 서두르기"], "완드 3": ["씨 뿌린 일이 뻗어나가길 기다리는 확장의 시간이에요.", "✓ 결과를 믿고 기다리기", "✗ 조급하게 재촉하기"], "완드 4": ["안정과 축하, 결실을 함께 나누는 시간이에요.", "✓ 이룬 것을 함께 축하하기", "✗ 성과를 당연시하기"], "완드 5": ["경쟁과 마찰 속에서 기 싸움하는 상황이에요.", "✓ 건강한 경쟁으로 승화하기", "✗ 감정싸움으로 번지기"], "완드 6": ["인정받고 승리를 거두는 순간이에요.", "✓ 당당히 성과 드러내기", "✗ 자만하며 방심하기"], "완드 7": ["자기 입장을 지키기 위해 버텨야 하는 상황이에요.", "✓ 소신 있게 입장 지키기", "✗ 지쳐서 포기하기"], "완드 8": ["빠르게 진행되는 흐름, 속도감 있는 전개예요.", "✓ 빠른 흐름에 올라타기", "✗ 정신없이 놓치기"], "완드 9": ["지쳤지만 마지막 하나 남은 방어선을 지키는 끈기예요.", "✓ 마지막까지 버텨내기", "✗ 다 왔는데 주저앉기"], "완드 10": ["책임과 짐을 짊어지고 있는 부담이에요.", "✓ 짐을 나눠서 지기", "✗ 혼자 다 짊어지기"], "완드 시종": ["새로운 소식과 배움에 대한 열정이 도착해요.", "✓ 호기심으로 배우기", "✗ 소식을 흘려듣기"], "완드 기사": ["저돌적으로 밀어붙이는 행동력이 필요해요.", "✓ 과감하게 행동하기", "✗ 성급하게 밀어붙이기"], "완드 여왕": ["자신감 있고 따뜻한 카리스마로 이끄세요.", "✓ 자신감으로 이끌기", "✗ 감정 기복 드러내기"], "완드 왕": ["비전을 실행으로 옮기는 리더십을 발휘할 때예요.", "✓ 비전을 실행에 옮기기", "✗ 계획만 세우고 멈추기"], "컵 에이스": ["새로운 감정과 사랑의 시작. 마음이 채워지는 신호예요.", "✓ 새로운 마음 받아들이기", "✗ 과거 감정에 머물기"], "컵 2": ["서로 마음이 통하는 진심 어린 교감이에요.", "✓ 진심으로 교감하기", "✗ 마음을 숨기기"], "컵 3": ["함께 기뻐할 사람들과의 축하가 있어요.", "✓ 함께 기뻐하고 나누기", "✗ 혼자 감정 삭이기"], "컵 4": ["권태 속에서 놓치고 있는 새로운 제안을 봐야 해요.", "✓ 새로운 제안에 마음 열기", "✗ 무기력하게 흘려보내기"], "컵 5": ["아쉬움에 머물지 말고 남은 것을 바라볼 때예요.", "✓ 남은 것에 감사하기", "✗ 잃은 것만 곱씹기"], "컵 6": ["그리운 기억과 순수했던 시절의 정이에요.", "✓ 따뜻한 추억 나누기", "✗ 과거에만 머물기"], "컵 7": ["여러 선택지 앞에서 환상과 현실을 구분할 때예요.", "✓ 현실적인 선택 고르기", "✗ 환상에 휩쓸리기"], "컵 8": ["만족스럽지 않은 걸 떠나 더 깊은 의미를 찾아 나서는 걸음이에요.", "✓ 진짜 의미 찾아 나서기", "✗ 익숙함에 안주하기"], "컵 9": ["마음의 소원이 이루어지는 만족감이에요.", "✓ 만족을 온전히 누리기", "✗ 더 큰 욕심 부리기"], "컵 10": ["정서적 충만함과 화목한 관계예요.", "✓ 화목함을 지켜가기", "✗ 사소한 갈등 키우기"], "컵 시종": ["감수성 예민한 다정한 메시지가 도착해요.", "✓ 다정하게 마음 전하기", "✗ 감정을 무시하기"], "컵 기사": ["낭만을 좇아 다가오는 제안이 있어요.", "✓ 설렘을 따라가보기", "✗ 감정에 휩쓸려 판단 흐리기"], "컵 여왕": ["공감 능력이 뛰어난 따뜻한 마음으로 대하세요.", "✓ 공감으로 다가가기", "✗ 감정에 압도당하기"], "컵 왕": ["감정을 다스릴 줄 아는 성숙한 태도가 필요해요.", "✓ 성숙하게 감정 다스리기", "✗ 감정을 억누르기만 하기"], "소드 에이스": ["명료한 통찰과 진실이 드러나는 순간이에요.", "✓ 진실을 명확히 마주하기", "✗ 알면서 모른 척하기"], "소드 2": ["결정을 미루고 있는 팽팽한 균형 상태예요.", "✓ 신중하게 저울질하기", "✗ 결정을 계속 미루기"], "소드 3": ["마음 아픈 이별이나 실망이 있을 수 있어요.", "✓ 아픔을 인정하고 흘려보내기", "✗ 상처를 숨기기"], "소드 4": ["잠시 멈춤과 회복. 무리하지 말고 재정비할 시간이에요.", "✓ 잠시 멈춰 회복하기", "✗ 쉬지 않고 무리하기"], "소드 5": ["이겼지만 씁쓸한 뒷맛이 남는 갈등이에요.", "✓ 승패보다 관계를 챙기기", "✗ 이기려고만 몰아붙이기"], "소드 6": ["힘든 상황을 벗어나 더 나은 곳으로 나아가는 이동이에요.", "✓ 더 나은 곳으로 이동하기", "✗ 힘든 곳에 머물기"], "소드 7": ["은밀한 전략이나 혼자만의 계획이 필요해요.", "✓ 전략적으로 접근하기", "✗ 숨기다 신뢰를 잃기"], "소드 8": ["스스로를 가두는 생각의 틀에 갇힌 상태예요.", "✓ 생각의 틀 깨고 나오기", "✗ 스스로를 가두기"], "소드 9": ["걱정과 불안으로 잠 못 이루는 밤이에요.", "✓ 걱정을 말로 꺼내기", "✗ 혼자 불안 키우기"], "소드 10": ["바닥까지 갔지만 여기가 끝이자 시작인 지점이에요.", "✓ 끝을 인정하고 다시 시작하기", "✗ 바닥에서 못 일어나기"], "소드 시종": ["날카로운 호기심으로 정보를 모으는 중이에요.", "✓ 정보를 꼼꼼히 모으기", "✗ 성급히 결론 내기"], "소드 기사": ["거침없이 밀어붙이는 논리와 속도가 필요해요.", "✓ 빠르고 논리적으로 움직이기", "✗ 무례하게 몰아붙이기"], "소드 여왕": ["냉철하고 독립적인 판단력을 발휘하세요.", "✓ 냉철하게 판단하기", "✗ 차갑게 선 긋기만 하기"], "소드 왕": ["이성과 명료한 판단. 감정을 걷어내고 원칙대로 결정하세요.", "✓ 원칙대로 결정하기", "✗ 감정을 걷어내지 못하기"], "펜타클 에이스": ["새로운 기회와 실질적인 시작이에요.", "✓ 현실적인 첫걸음 떼기", "✗ 기회를 흘려보내기"], "펜타클 2": ["두 가지 일 사이에서 균형을 잡는 저글링이 필요해요.", "✓ 우선순위 정해 균형잡기", "✗ 양쪽 다 놓치기"], "펜타클 3": ["협업과 실력 인정. 함께 만들어가며 기틀을 다질 때예요.", "✓ 함께 만들며 인정받기", "✗ 혼자 다 하려 하기"], "펜타클 4": ["가진 것을 움켜쥐고 지키려는 마음이에요.", "✓ 가진 것을 잘 지키기", "✗ 지나치게 움켜쥐기"], "펜타클 5": ["어려운 시기, 도움을 청해도 되는 상황이에요.", "✓ 필요할 때 도움 청하기", "✗ 자존심으로 버티기"], "펜타클 6": ["나누고 베푸는 균형 잡힌 주고받음이에요.", "✓ 나누며 균형 맞추기", "✗ 일방적으로 주거나 받기"], "펜타클 7": ["지금까지의 노력을 점검하는 인내의 시간이에요.", "✓ 인내심 갖고 점검하기", "✗ 성과 없다고 포기하기"], "펜타클 8": ["꾸준한 반복으로 실력을 쌓는 숙련의 과정이에요.", "✓ 꾸준히 실력 쌓기", "✗ 지름길만 찾기"], "펜타클 9": ["스스로 일군 결실을 누리는 여유예요.", "✓ 스스로 일군 여유 누리기", "✗ 성취를 못 즐기기"], "펜타클 10": ["대대로 이어지는 안정된 유산과 기반이에요.", "✓ 안정된 기반 다지기", "✗ 눈앞의 이익만 좇기"], "펜타클 시종": ["배움과 새 기회의 씨앗. 호기심을 갖고 시작해보세요.", "✓ 호기심으로 배워보기", "✗ 배움을 미루기"], "펜타클 기사": ["성실하고 꾸준하게 한 걸음씩 나아가는 태도예요.", "✓ 성실하게 한 걸음씩", "✗ 조급하게 건너뛰기"], "펜타클 여왕": ["실용적 풍요와 따뜻한 보살핌. 일상을 알차게 가꿔보세요.", "✓ 일상을 알차게 가꾸기", "✗ 무리해서 소진되기"], "펜타클 왕": ["현실적 성취와 안정된 기반. 꾸준함이 보상받아요.", "✓ 꾸준함으로 승부보기", "✗ 성급하게 확장하기"]};
+
+const QUICK_QS=["오늘 나에게 필요한 메시지는?","지금 연애운은 어떤가요?","좋아하는 그 사람 마음이 궁금해요","이직을 고민 중인데 어떻게 될까요?","요즘 고민이 해결될 수 있을까요?"];
+
+/* ═══════════════════════ 수익화 설정 ═══════════════════════ */
+const FREE_READINGS=3; // 기기당 무료 리딩 횟수. 이후엔 광고 시청 또는 결제 중 선택.
+
+// Google AdSense — 발급받은 값으로 교체 (ADS_PAYMENTS_GUIDE_KO.md 참고)
+const ADSENSE_CLIENT="ca-pub-0000000000000000";
+const ADSENSE_SLOTS={home:"0000000001",journal:"0000000002",profile:"0000000003",interstitial:"0000000004",result1:"0000000005",result2:"0000000006"};
+
+// TossPayments — 발급받은 테스트/라이브 클라이언트 키로 교체 (ADS_PAYMENTS_GUIDE_KO.md 참고)
+const TOSS_CLIENT_KEY="test_ck_YOUR_CLIENT_KEY";
+const TOSS_PRODUCT={name:"타로 프리미엄 이용권 (광고 제거)",amount:2900};
+
+/* ═══════════════════════ 소셜 로그인 설정 ═══════════════════════
+   비어있으면 데모 로그인(가짜 사용자)으로 동작한다. 값을 채우면 실제 OAuth로 전환된다.
+   발급 방법은 SOCIAL_LOGIN_GUIDE_KO.md 참고. */
+const AUTH_CONFIG={
+  googleClientId:"",   // Google Cloud Console → OAuth 2.0 클라이언트 ID
+  kakaoJsKey:"",       // Kakao Developers → 앱 키 → JavaScript 키
+  naverClientId:"",    // Naver Developers → 애플리케이션 정보 → Client ID
+};
+
+/* ═══════════════════════ 상태 ═══════════════════════ */
+let ST={
+  user:{name:"",email:"",sign:"",birth:"",loginType:""},
+  streak:1,totalReadings:0,journal:[],todayRead:false,todayCardKey:null,
+  freeUsed:0,premium:false,
+  step:"question",question:"",spread:null,
+  drawnCards:[],    // 배치 완료된 카드 배열 (null = 미배치)
+  fanDeck:[],       // 팬에 남아있는 카드들
+  interpretation:"",
+};
+let _interCb=null,_warnCb=null;
+
+/* ═══════════════════════ 영속성 (localStorage) ═══════════════════════ */
+function saveSession(){
+  try{localStorage.setItem("taro_session",JSON.stringify(ST.user));}catch{}
+}
+function loadSession(){
+  try{return JSON.parse(localStorage.getItem("taro_session")||"null");}catch{return null;}
+}
+function clearSession(){try{localStorage.removeItem("taro_session");}catch{}}
+
+function saveProgress(){
+  try{
+    localStorage.setItem("taro_progress",JSON.stringify({
+      streak:ST.streak,totalReadings:ST.totalReadings,journal:ST.journal,
+      todayRead:ST.todayRead,todayDate:new Date().toDateString(),todayCardKey:ST.todayCardKey,
+      freeUsed:ST.freeUsed,premium:ST.premium,
+    }));
+  }catch{}
+}
+function loadProgress(){
+  let p;
+  try{p=JSON.parse(localStorage.getItem("taro_progress")||"null");}catch{p=null;}
+  if(!p)return;
+  const today=new Date().toDateString();
+  ST.streak=p.streak||1;
+  ST.totalReadings=p.totalReadings||0;
+  ST.journal=Array.isArray(p.journal)?p.journal:[];
+  ST.todayRead=p.todayDate===today?!!p.todayRead:false;
+  ST.todayCardKey=p.todayDate===today?(p.todayCardKey||null):null;
+  ST.freeUsed=p.freeUsed||0;
+  ST.premium=!!p.premium;
+}
+
+/* ═══════════════════════ 결제 완료 대기 중인 리딩 (Toss 리다이렉트 복원용) ═══════════════════════ */
+function savePendingReading(){
+  try{
+    sessionStorage.setItem("taro_pending_reading",JSON.stringify({
+      question:ST.question,spread:ST.spread,drawnCards:ST.drawnCards,
+    }));
+  }catch{}
+}
+function loadPendingReading(){
+  try{return JSON.parse(sessionStorage.getItem("taro_pending_reading")||"null");}catch{return null;}
+}
+function clearPendingReading(){try{sessionStorage.removeItem("taro_pending_reading");}catch{}}
+
+/* ═══════════════════════ 별 ═══════════════════════ */
+(function(){
+  const c=document.getElementById("stars");
+  for(let i=0;i<50;i++){
+    const s=document.createElement("div");s.className="star";
+    const sz=Math.random()*2.5+.8;
+    s.style.cssText=`left:${Math.random()*100}%;top:${Math.random()*100}%;width:${sz}px;height:${sz}px;--op:${(Math.random()*.7+.3).toFixed(2)};--d:${(2+Math.random()*3).toFixed(1)}s;animation-delay:${(Math.random()*3).toFixed(1)}s`;
+    c.appendChild(s);
+  }
+})();
+
+/* ═══════════════════════ 유틸 ═══════════════════════ */
+function calcSign(d){
+  if(!d)return"";
+  const dt=new Date(d),m=dt.getMonth()+1,day=dt.getDate();
+  const s=[[1,20,"염소자리 ♑"],[2,19,"물병자리 ♒"],[3,20,"물고기자리 ♓"],[4,20,"양자리 ♈"],
+    [5,21,"황소자리 ♉"],[6,21,"쌍둥이자리 ♊"],[7,23,"게자리 ♋"],[8,23,"사자자리 ♌"],
+    [9,23,"처녀자리 ♍"],[10,23,"천칭자리 ♎"],[11,22,"전갈자리 ♏"],[12,22,"사수자리 ♐"],[12,31,"염소자리 ♑"]];
+  for(const[em,ed,name]of s)if(m<em||(m===em&&day<=ed))return name;
+  return"염소자리 ♑";
+}
+function autoSign(){const v=document.getElementById("j-birth")?.value;if(v)document.getElementById("j-sign").value=calcSign(v);}
+function shuffle(a){const b=[...a];for(let i=b.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]];}return b;}
+
+function findSimilarQuestion(q){
+  const now=Date.now(),THREE=90*24*60*60*1000;
+  const kw=q.replace(/[?!！？.,。]/g,"").split(/\s+/).filter(w=>w.length>1);
+  for(const j of ST.journal){
+    if(!j.timestamp||(now-j.timestamp)>THREE)continue;
+    const jk=j.question.replace(/[?!！？.,。]/g,"").split(/\s+/).filter(w=>w.length>1);
+    const common=kw.filter(w=>jk.some(jw=>jw.includes(w)||w.includes(jw))).length;
+    if(common/Math.max(kw.length,jk.length,1)>=0.4)return j;
+  }
+  return null;
+}
+
+/* ═══════════════════════ 로그인 ═══════════════════════ */
+function switchTab(t){
+  const il=t==="login";
+  document.getElementById("form-login").style.display=il?"block":"none";
+  document.getElementById("form-join").style.display=il?"none":"block";
+  document.getElementById("tab-login").style.cssText=`flex:1;padding:10px;border:none;font-size:13px;font-weight:600;background:${il?"var(--purple)":"transparent"};color:${il?"#fff":"var(--text2)"}`;
+  document.getElementById("tab-join").style.cssText=`flex:1;padding:10px;border:none;font-size:13px;background:${il?"transparent":"var(--purple)"};color:${il?"var(--text2)":"#fff"}`;
+}
+function socialLogin(t){
+  // AUTH_CONFIG가 비어있을 때 쓰이는 데모 로그인(가짜 사용자). 실제 연동은 아래 loginWithGoogle/Kakao/Naver 참고.
+  ST.user={name:{kakao:"카카오 사용자",naver:"네이버 사용자",google:"구글 사용자"}[t],email:t+"@demo.com",sign:calcSign("1995-03-15"),birth:"1995-03-15",loginType:t};
+  saveSession();initApp();
+}
+
+/* ═══════════════════════ 실제 소셜 로그인 (SOCIAL_LOGIN_GUIDE_KO.md 참고) ═══════════════════════ */
+function loginWithGoogle(){
+  if(!AUTH_CONFIG.googleClientId){socialLogin("google");return;}
+  if(!window.google||!google.accounts||!google.accounts.id){
+    alert("Google 로그인 모듈을 불러오지 못했어요. 잠시 후 다시 시도해주세요.");return;
+  }
+  google.accounts.id.initialize({client_id:AUTH_CONFIG.googleClientId,callback:onGoogleCredential});
+  google.accounts.id.prompt();
+}
+async function onGoogleCredential(resp){
+  try{
+    const r=await fetch("/.netlify/functions/auth-google",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({credential:resp.credential}),
+    });
+    const data=await r.json();
+    if(!r.ok)throw new Error(data.error||"Google 로그인 실패");
+    ST.user={name:data.name||"구글 사용자",email:data.email||"",sign:"",birth:"",loginType:"google"};
+    saveSession();initApp();
+  }catch(e){
+    console.error("Google login error",e);
+    alert("구글 로그인에 실패했어요.");
+  }
+}
+
+function loginWithKakao(){
+  if(!AUTH_CONFIG.kakaoJsKey){socialLogin("kakao");return;}
+  if(!window.Kakao){alert("카카오 로그인 모듈을 불러오지 못했어요. 잠시 후 다시 시도해주세요.");return;}
+  if(!Kakao.isInitialized())Kakao.init(AUTH_CONFIG.kakaoJsKey);
+  Kakao.Auth.login({
+    success:function(authObj){
+      fetch("/.netlify/functions/auth-kakao",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({accessToken:authObj.access_token}),
+      })
+        .then(async r=>({ok:r.ok,data:await r.json()}))
+        .then(({ok,data})=>{
+          if(!ok)throw new Error(data.error||"카카오 로그인 실패");
+          ST.user={name:data.name||"카카오 사용자",email:data.email||"",sign:"",birth:"",loginType:"kakao"};
+          saveSession();initApp();
+        })
+        .catch(e=>{console.error("Kakao login error",e);alert("카카오 로그인에 실패했어요.");});
+    },
+    fail:function(err){console.error("Kakao auth fail",err);alert("카카오 로그인이 취소되었어요.");},
+  });
+}
+
+function loginWithNaver(){
+  if(!AUTH_CONFIG.naverClientId){socialLogin("naver");return;}
+  const state=Math.random().toString(36).slice(2);
+  try{sessionStorage.setItem("naver_oauth_state",state);}catch{}
+  const redirectUri=location.origin+"/.netlify/functions/auth-naver-callback";
+  const url="https://nid.naver.com/oauth2.0/authorize?response_type=code"
+    +"&client_id="+encodeURIComponent(AUTH_CONFIG.naverClientId)
+    +"&redirect_uri="+encodeURIComponent(redirectUri)
+    +"&state="+state;
+  location.href=url;
+}
+function handleNaverReturn(){
+  const q=new URLSearchParams(location.search);
+  if(q.get("naverFail")){
+    alert("네이버 로그인에 실패했어요.");
+    history.replaceState(null,"",location.pathname);
+    return;
+  }
+  const p=q.get("naverProfile");
+  if(!p)return;
+  const returnedState=q.get("naverState");
+  let savedState=null;
+  try{savedState=sessionStorage.getItem("naver_oauth_state");sessionStorage.removeItem("naver_oauth_state");}catch{}
+  history.replaceState(null,"",location.pathname);
+  if(!savedState||returnedState!==savedState){
+    console.error("Naver oauth state mismatch — 로그인을 무시합니다.");
+    return;
+  }
+  try{
+    const profile=JSON.parse(atob(decodeURIComponent(p)));
+    ST.user={name:profile.name||"네이버 사용자",email:profile.email||"",sign:"",birth:"",loginType:"naver"};
+    saveSession();initApp();
+  }catch(e){console.error("Naver return parse error",e);}
+}
+function emailLogin(){
+  const e=document.getElementById("l-email").value.trim(),p=document.getElementById("l-pw").value;
+  if(!e||!p){alert("이메일과 비밀번호를 입력해주세요.");return;}
+  ST.user={name:e.split("@")[0],email:e,sign:"",birth:"",loginType:"email"};saveSession();initApp();
+}
+function emailJoin(){
+  const n=document.getElementById("j-name").value.trim(),e=document.getElementById("j-email").value.trim();
+  const p=document.getElementById("j-pw").value,b=document.getElementById("j-birth").value;
+  if(!e||!p||p.length<6){alert("이메일과 6자 이상 비밀번호를 입력해주세요.");return;}
+  ST.user={name:n||e.split("@")[0],email:e,sign:calcSign(b),birth:b,loginType:"email"};saveSession();initApp();
+}
+function guestLogin(){ST.user={name:"게스트",email:"",sign:"",birth:"",loginType:"guest"};saveSession();initApp();}
+function logout(){
+  if(!confirm("로그아웃하시겠어요?"))return;
+  Object.assign(ST,{user:{name:"",email:"",sign:"",birth:"",loginType:""},streak:1,totalReadings:0,journal:[],todayRead:false,todayCardKey:null,freeUsed:0,premium:false,step:"question",question:"",spread:null,drawnCards:[],fanDeck:[],interpretation:""});
+  clearSession();clearPendingReading();
+  try{localStorage.removeItem("taro_progress");}catch{}
+  document.getElementById("main-nav").style.display="none";showOnly("login");
+}
+function resetApp(){if(!confirm("모든 데이터를 초기화할까요?"))return;logout();}
+
+/* ═══════════════════════ 앱 초기화 ═══════════════════════ */
+function initApp(){
+  document.getElementById("main-nav").style.display="flex";
+  navTo("home");
+  const h=new Date().getHours();
+  const g=h<12?"🌅 좋은 아침이에요":h<18?"☀️ 좋은 오후예요":"🌙 좋은 저녁이에요";
+  document.getElementById("home-greeting").textContent=g+(ST.user.name?" · "+ST.user.name:"");
+  document.getElementById("daily-date").textContent=new Date().toLocaleDateString("ko-KR",{month:"long",day:"numeric",weekday:"short"});
+  // 스트릭바
+  const bar=document.getElementById("streak-bar");bar.innerHTML="";
+  document.getElementById("streak-num").textContent=ST.streak;
+  for(let i=0;i<7;i++){const d=document.createElement("div");d.className="s-dot"+(i<ST.streak%7?" done":"")+(i===ST.streak%7-1?" today":"");bar.appendChild(d);}
+  // 빠른질문
+  const qb=document.getElementById("quick-btns");qb.innerHTML="";
+  QUICK_QS.forEach(q=>{const b=document.createElement("button");b.className="btn-ghost";b.style.cssText="text-align:left;padding:10px 14px;font-size:13px";b.textContent="💬 "+q;b.onclick=()=>startTarot(q);qb.appendChild(b);});
+  // 오늘 이미 뽑은 카드가 있으면 복원
+  if(ST.todayRead&&ST.todayCardKey)renderDailyCard(ST.todayCardKey);
+  upgradeAdSlot("ad-home","home");
+}
+function renderDailyCard(key){
+  const card=CARDS.find(c=>c.name===key)||CARDS[0],info=DAILY_MSGS[key];
+  if(!info)return;
+  const art=document.getElementById("daily-art"),col=SC[card.suit]||"#fbbf24";
+  art.style.border=`2px solid ${col}`;art.style.boxShadow=`0 0 22px ${col}44`;art.onclick=null;
+  art.style.background="transparent";
+  art.innerHTML=`<div style="width:100%;height:100%">${window.cardFaceSVG(card)}</div>`;
+  const dmsg=document.getElementById("d-msg");dmsg.textContent=`『${card.name}』 `+info[0];dmsg.style.fontStyle="italic";dmsg.style.color="var(--text)";
+  const tags=document.getElementById("d-tags");tags.style.display="flex";
+  tags.innerHTML=`<span class="tag tag-do">${info[1]}</span><span class="tag tag-dont">${info[2]}</span>`;
+}
+function drawDailyCard(){
+  if(ST.todayRead)return;ST.todayRead=true;
+  const keys=Object.keys(DAILY_MSGS),key=keys[Math.floor(Math.random()*keys.length)];
+  ST.todayCardKey=key;saveProgress();
+  renderDailyCard(key);
+}
+
+/* ═══════════════════════ 네비 ═══════════════════════ */
+function showOnly(id){document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));document.getElementById("screen-"+id).classList.add("active");window.scrollTo(0,0);}
+function navTo(id){
+  showOnly(id);document.querySelectorAll(".nav-btn").forEach(b=>b.classList.remove("active"));document.getElementById("nav-"+id).classList.add("active");
+  if(id==="tarot"&&ST.step==="question")renderTarot();
+  if(id==="journal")renderJournal();
+  if(id==="profile")renderProfile();
+}
+function goAsk(){navTo("tarot");ST.step="question";renderTarot();}
+
+/* ═══════════════════════ 타로 플로우 ═══════════════════════ */
+function startTarot(q){ST.question=q;ST.step="spread";navTo("tarot");renderTarot();}
+function suggestSpread(q){
+  const lq=q.toLowerCase();let best=null,bs=0;
+  for(const[id,sp]of Object.entries(SPREADS)){const sc=sp.keys.filter(k=>lq.includes(k)).length;if(sc>bs){bs=sc;best=id;}}
+  return best;
+}
+function renderTarot(){
+  const el=document.getElementById("tarot-content");
+  if(!el)return;
+  if(ST.step==="question")el.innerHTML=tplQuestion();
+  else if(ST.step==="spread")el.innerHTML=tplSpread();
+  else if(ST.step==="cards"){el.innerHTML=tplCards();buildFan();}
+  else if(ST.step==="paywall")el.innerHTML=tplPaywall();
+  else if(ST.step==="result"){el.innerHTML=tplResult();upgradeAdSlot("ad-result1","result1");upgradeAdSlot("ad-result2","result2");}
+}
+
+/* — 질문 — */
+function tplQuestion(){
+  return`<div class="fade-up">
+  <div class="card-box" style="text-align:center;margin-bottom:14px">
+    <div style="font-size:26px;margin-bottom:8px">🌙</div>
+    <div style="font-size:14px;color:var(--lilac);font-weight:700;margin-bottom:5px">무엇이 궁금하신가요?</div>
+    <div style="font-size:12px;color:var(--text2)">구체적일수록 정확한 리딩이 가능해요</div>
+  </div>
+  <textarea id="q-input" class="input-field" style="min-height:100px;resize:none"
+    placeholder="예: 요즘 좋아하는 사람이 있는데 그 사람은 나를 어떻게 생각할까요?"></textarea>
+  <div style="font-size:11px;color:var(--text2);margin-bottom:8px">💬 예시 질문</div>
+  <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
+    ${QUICK_QS.map(q=>`<button onclick="document.getElementById('q-input').value=\`${q}\`"
+      style="background:rgba(124,58,237,.1);border:1px solid #3b0764;border-radius:8px;padding:8px 13px;color:var(--text2);font-size:12px;text-align:left">💬 ${q}</button>`).join("")}
+  </div>
+  <button class="btn-primary" onclick="goSpread()">배치법 선택하기 →</button>
+</div>`;
+}
+function goSpread(){
+  const q=document.getElementById("q-input")?.value.trim();
+  if(!q){alert("질문을 입력해주세요.");return;}
+  const sim=findSimilarQuestion(q);
+  if(sim){showWarn(sim,()=>{ST.question=q;ST.step="spread";renderTarot();});return;}
+  ST.question=q;ST.step="spread";renderTarot();
+}
+
+/* — 경고 — */
+function showWarn(sim,cb){
+  _warnCb=cb;
+  document.getElementById("warn-similar-box").innerHTML=
+    `<div style="font-size:10px;color:var(--orange);font-weight:700;margin-bottom:6px">📋 이전 질문</div>
+    <div style="font-size:12px;color:var(--text-muted);line-height:1.5">"${sim.question}"</div>
+    <div style="font-size:10px;color:var(--muted);margin-top:4px">📅 ${sim.date||""} · ${sim.spread||""}</div>`;
+  document.getElementById("warn-modal").classList.add("show");
+}
+function proceedAnyway(){document.getElementById("warn-modal").classList.remove("show");if(_warnCb){_warnCb();_warnCb=null;}}
+function closeWarn(){document.getElementById("warn-modal").classList.remove("show");_warnCb=null;}
+
+/* — 스프레드 선택 — */
+function tplSpread(){
+  const hint=suggestSpread(ST.question);
+  return`<div class="fade-up">
+  <div class="card-box" style="margin-bottom:12px">
+    <div style="font-size:11px;color:var(--text2);margin-bottom:4px">📋 나의 질문</div>
+    <div style="font-size:13px;color:var(--lilac)">"${ST.question}"</div>
+  </div>
+  <div style="font-size:12px;color:var(--text2);margin-bottom:4px">어떤 배치로 카드를 펼칠까요?</div>
+  ${hint?`<div style="font-size:11px;color:var(--pink);margin-bottom:12px">✦ 질문에 맞는 배치법을 추천해 드려요</div>`:`<div style="height:12px"></div>`}
+  ${Object.values(SPREADS).map(sp=>`
+  <button onclick="pickSpread('${sp.id}')" class="spread-item${hint===sp.id?" recommended":""}">
+    <span style="font-size:26px;width:36px;text-align:center">${sp.icon}</span>
+    <div style="flex:1">
+      <div style="font-size:14px;font-weight:700;color:${hint===sp.id?"var(--lilac)":"var(--text)"}">${sp.name}${hint===sp.id?`<span class="badge-rec">✦ 추천</span>`:""}</div>
+      <div style="font-size:11px;color:var(--text2);margin-top:3px">${sp.desc}</div>
+    </div>
+  </button>`).join("")}
+  <button class="btn-ghost" onclick="ST.step='question';renderTarot()">← 질문 수정</button>
+</div>`;
+}
+function pickSpread(id){
+  ST.spread=SPREADS[id];
+  ST.fanDeck=shuffle(CARDS);
+  ST.drawnCards=new Array(ST.spread.cards).fill(null);
+  ST.step="cards";
+  renderTarot();
+}
+
+/* ═══════════════════════════════════════════════════════
+   카드 뽑기 화면
+   구조:
+     위쪽 = 배치 슬롯들 (위치 고정)
+     아래 = 카드 팬 (처음부터 가로 스크롤로 펼쳐짐)
+   
+   동작:
+     1. 카드 팬에서 원하는 카드 탭
+     2. 선택 애니 → 카드가 해당 슬롯으로 날아감
+     3. 슬롯에 착지 후 앞면 공개
+     4. 팬에서 해당 카드 사라짐
+     5. 다음 비어있는 슬롯이 자동 하이라이트
+═══════════════════════════════════════════════════════ */
+
+// 현재 선택 대기 중인 슬롯 인덱스
+let _nextSlot=0;
+
+/* 배치 슬롯 하나(카드가 놓인 상태) — 카드뽑기 화면과 결과 화면이 공유해서 쓴다 */
+function placedSlotHTML(p,i,card){
+  const col=SC[card.suit]||"#7c3aed";
+  return`<div class="slot-node" id="slot-node-${i}" style="left:${p.x}%;top:${p.y}%">
+    <div class="slot-placed" id="slot-placed-${i}"
+      style="border:2px solid ${col};box-shadow:0 4px 16px ${col}44;background:transparent;">
+      <div style="width:100%;height:100%;${card.reversed?"transform:rotate(180deg);":""}">${window.cardFaceSVG(card)}</div>
+      ${card.reversed?`<div style="font-size:5.5px;color:#fff;background:var(--red);border-radius:3px;padding:0 3px;position:absolute;bottom:2px;left:50%;transform:translateX(-50%);z-index:2">역방향</div>`:""}
+    </div>
+    <div class="slot-label-txt">${p.l}</div>
+  </div>`;
+}
+function emptySlotHTML(p,i,isNext){
+  return`<div class="slot-node" id="slot-node-${i}" style="left:${p.x}%;top:${p.y}%">
+    <div class="slot-empty${isNext?" next-slot":""}" id="slot-empty-${i}">
+      ${isNext?"👆":"·"}
+    </div>
+    <div class="slot-label-txt" style="color:${isNext?"var(--text2)":"#3b0764"}">${p.l}</div>
+  </div>`;
+}
+function tplCards(){
+  const sp=ST.spread;
+  const placed=ST.drawnCards.filter(Boolean).length;
+  const allPlaced=placed===sp.cards;
+
+  // 배치 슬롯 HTML
+  let slots="";
+  sp.pos.forEach((p,i)=>{
+    const card=ST.drawnCards[i];
+    const isNext=(!allPlaced&&i===_nextSlot);
+    slots+=card?placedSlotHTML(p,i,card):emptySlotHTML(p,i,isNext);
+  });
+
+  // 팬 안내 텍스트
+  const nextPos=allPlaced?null:sp.pos[_nextSlot];
+  const guideHtml=allPlaced
+    ?`<div class="fan-guide-txt" style="color:var(--green)">✨ 모든 카드가 배치됐어요!</div>`
+    :`<div class="fan-guide-txt">아래 카드 중 끌리는 카드를 골라 <span class="slot-name">「${nextPos.l}」</span> 자리에 놓아보세요</div>`;
+
+  return`<div class="pick-screen fade-up">
+  <!-- 상단: 배치 영역 -->
+  <div style="font-size:11px;color:var(--text2);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+    <span>${sp.icon} ${sp.name}</span>
+    <span style="color:var(--lilac)">${placed}/${sp.cards} 배치</span>
+  </div>
+  <div class="placement-area" id="placement-area">${slots}</div>
+
+  <!-- 하단: 카드 팬 -->
+  <div class="fan-area">
+    ${guideHtml}
+    <div class="fan-scroll" id="fan-scroll">
+      <!-- buildFan()이 채운다 -->
+    </div>
+  </div>
+
+  <!-- 해석 버튼 (모두 배치 후 표시) -->
+  ${allPlaced?`
+  <div style="padding:14px 0 0">
+    <button class="btn-primary" onclick="goResult()">✨ AI 해석 받기</button>
+    <div style="height:8px"></div>
+    <button class="btn-ghost" onclick="resetPick()">← 다시 뽑기</button>
+  </div>`:""}
+</div>`;
+}
+
+/* 팬 카드 DOM 구성 — tplCards() 렌더 직후 호출 */
+function buildFan(){
+  const fanScroll=document.getElementById("fan-scroll");
+  if(!fanScroll)return;
+  // 이미 배치된 카드 id 세트
+  const usedIds=new Set(ST.drawnCards.filter(Boolean).map(c=>c.id));
+  const available=ST.fanDeck.filter(c=>!usedIds.has(c.id));
+
+  fanScroll.innerHTML="";
+  // 부채꼴 곡선 — 화면에 한 번에 보이는 카드 수(약 13장) 주기로 물결치듯 반복시켜
+  // 스크롤하는 내내 항상 "펼쳐진 카드 한 뭉치"처럼 보이게 한다.
+  const ARC_PERIOD=13,ARC_ANGLE=15,ARC_LIFT=13;
+  available.forEach((card,i)=>{
+    const t=(i%ARC_PERIOD)/ARC_PERIOD*Math.PI*2;
+    const angle=Math.sin(t)*ARC_ANGLE;
+    const lift=Math.cos(t)*ARC_LIFT-ARC_LIFT;
+    const wrap=document.createElement("div");
+    wrap.className="fan-card-wrap";
+    wrap.style.transform=`rotate(${angle.toFixed(1)}deg) translateY(${lift.toFixed(1)}px)`;
+    wrap.style.zIndex=String(i);
+
+    const el=document.createElement("div");
+    el.className="fan-card-item";
+    el.id="fan-card-"+card.id;
+    el.innerHTML=window.cardBackSVG();
+    el.addEventListener("click",()=>onFanCardClick(el,card));
+    // 터치 피드백
+    el.addEventListener("touchstart",()=>el.style.transform="scale(.94) translateY(-6px)",{passive:true});
+    el.addEventListener("touchend",()=>el.style.transform="",{passive:true});
+    wrap.appendChild(el);
+    fanScroll.appendChild(wrap);
+  });
+}
+
+/* 팬 카드 클릭 핸들러 */
+function onFanCardClick(el,card){
+  // 현재 배치 완료됐으면 무시
+  const placed=ST.drawnCards.filter(Boolean).length;
+  if(placed>=ST.spread.cards)return;
+  // 이미 선택된 카드면 무시
+  if(el.classList.contains("picked"))return;
+
+  const targetSlotIdx=_nextSlot;
+  card={...card,reversed:Math.random()>.7};
+
+  // 1. 팬 카드 선택 애니
+  el.innerHTML=window.cardFaceSVG(card);
+  el.style.borderColor="var(--gold)";
+  el.style.boxShadow="0 0 20px var(--gold)";
+  el.classList.add("picked");
+
+  // 2. 날아가는 토큰 생성
+  const fanRect=el.getBoundingClientRect();
+  const fly=document.createElement("div");
+  fly.className="fly-token";
+  const col=SC[card.suit]||"#fbbf24";
+  fly.style.cssText=`left:${fanRect.left}px;top:${fanRect.top}px;background:transparent;overflow:hidden;`;
+  fly.innerHTML=window.cardFaceSVG(card);
+  document.body.appendChild(fly);
+
+  // 3. 슬롯 위치로 날아가기
+  const slotNode=document.getElementById("slot-node-"+targetSlotIdx);
+  if(slotNode){
+    const slotRect=slotNode.getBoundingClientRect();
+    const destLeft=slotRect.left+(slotRect.width-50)/2;
+    const destTop=slotRect.top+(slotRect.height-76)/2;
+    // 한 프레임 뒤에 transition 적용
+    requestAnimationFrame(()=>{
+      fly.style.transition="left .5s cubic-bezier(.22,.61,.36,1),top .5s cubic-bezier(.22,.61,.36,1),opacity .2s .35s";
+      fly.style.left=destLeft+"px";
+      fly.style.top=destTop+"px";
+      fly.style.opacity="0";
+    });
+  }
+
+  // 4. 500ms 후: 슬롯에 카드 배치, 화면 갱신
+  setTimeout(()=>{
+    fly.remove();
+    ST.drawnCards[targetSlotIdx]=card;
+    // 다음 빈 슬롯 찾기
+    _nextSlot=ST.drawnCards.findIndex(c=>c===null);
+    if(_nextSlot===-1)_nextSlot=ST.spread.cards; // 전부 찼으면 overflow
+    renderTarot();
+  },520);
+}
+
+function resetPick(){
+  ST.drawnCards=new Array(ST.spread.cards).fill(null);
+  ST.fanDeck=shuffle(CARDS);
+  _nextSlot=0;
+  renderTarot();
+}
+function goResult(){showInterstitial(doFetch);}
+
+/* — 결과 — */
+function tplResult(){
+  const sp=ST.spread;
+  const slots=sp.pos.map((p,i)=>placedSlotHTML(p,i,ST.drawnCards[i])).join("");
+  const loading=!ST.interpretation;
+  return`<div class="fade-up">
+  <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">${sp.icon} ${sp.name} — 뽑은 배치 그대로예요</div>
+  <div class="placement-area" id="result-placement-area">${slots}</div>
+  <div class="banner-ad" id="ad-result1"><span class="ad-tag">AD</span><span class="ad-text">🌙 별자리 궁합 무료 분석</span><button class="ad-btn">확인</button></div>
+  <div class="interpret-box">
+    <div class="interpret-title">🌙 타로 마스터의 해석</div>
+    ${loading
+      ?`<div class="loading-anim">
+          <div class="loading-orb">🔮</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:10px">카드의 비밀을 읽는 중…</div>
+          <div class="loading-steps">
+            <div class="loading-step" id="ls0">✦ 질문과 카드 연결 중</div>
+            <div class="loading-step" id="ls1">✦ 배치 흐름 분석 중</div>
+            <div class="loading-step" id="ls2">✦ 심층 해석 작성 중</div>
+            <div class="loading-step" id="ls3">✦ 개인화 조언 정리 중</div>
+          </div>
+        </div>`
+      :`<div class="interpret-text">${ST.interpretation}</div>`}
+  </div>
+  ${!loading?`
+  <div class="banner-ad" id="ad-result2"><span class="ad-tag">AD</span><span class="ad-text">📿 타로 덱 입문 세트 특가</span><button class="ad-btn">보기</button></div>
+  <button class="btn-primary" onclick="newReading()" style="margin-bottom:10px">🔮 새 질문하기</button>
+  <button class="btn-ghost" onclick="navTo('journal')">📖 리딩 기록 보기</button>
+  `:""}
+</div>`;
+}
+
+/* 로딩 스텝 애니 — null 체크 포함 */
+function animLoading(){
+  let i=0;
+  const t=setInterval(()=>{
+    if(i>0){
+      const p=document.getElementById("ls"+(i-1));
+      if(p){p.classList.remove("ls-active");p.classList.add("ls-done");p.textContent="✓ "+p.textContent.replace("✦ ","");}
+    }
+    const cur=document.getElementById("ls"+i);
+    if(cur)cur.classList.add("ls-active");
+    i++;if(i>3)clearInterval(t);
+  },950);
+}
+
+/* ═══════════════════════ Gemini API Proxy ═══════════════════════ */
+function localReading(){
+  const sp=ST.spread, cs=ST.drawnCards.filter(Boolean);
+  let out=(ST.question?("『"+ST.question+"』\n\n"):"");
+  cs.forEach((c,i)=>{
+    const pos=(sp.pos[i]&&sp.pos[i].l)||("카드 "+(i+1));
+    const m=CARD_MEANING[c.name]||"지금 당신의 상황에 새로운 통찰을 전하는 카드예요.";
+    out+="● "+pos+" — "+c.name+(c.reversed?"(역방향)":"")+"\n"+(c.reversed?"지금은 이 카드의 힘이 다소 막혀 있어요. ":"")+m+"\n\n";
+  });
+  out+="※ 인터넷 연결/서버(AI) 응답이 없어 기본 해석을 보여드렸어요. 배포 환경에서는 AI 맞춤 해석이 제공됩니다.";
+  return out;
+}
+async function doFetch(){
+  ST.step="result";ST.interpretation="";renderTarot();
+  setTimeout(animLoading,150);
+
+  const sp=ST.spread;
+  const allCards=ST.drawnCards.filter(Boolean);
+
+  try{
+    const res=await fetch("/.netlify/functions/gemini-reading",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        question:ST.question,
+        spread:{name:sp.name,cards:sp.cards,positions:sp.pos.map(p=>p.l)},
+        cards:allCards.map((c,i)=>({position:sp.pos[i].l,name:c.name,en:c.en,suit:c.suit,reversed:!!c.reversed})),
+        user:{
+          name:ST.user.name&&ST.user.name!=="게스트"?ST.user.name:"",
+          sign:ST.user.sign||"",
+          birth:ST.user.birth||""
+        }
+      })
+    });
+    const data=await res.json();
+    if(!res.ok)throw new Error(data.error||"Gemini request failed");
+    ST.interpretation=data.interpretation||"해석을 가져오지 못했습니다.";
+  }catch(e){
+    ST.interpretation=localReading();
+  }
+  ST.totalReadings++;
+  if(!ST.premium)ST.freeUsed++;
+  ST.journal.unshift({
+    timestamp:Date.now(),
+    date:new Date().toLocaleDateString("ko-KR",{year:"numeric",month:"long",day:"numeric",weekday:"short"}),
+    question:ST.question,spread:ST.spread.name,
+    cards:allCards.map(c=>({e:c.e,name:c.name,reversed:c.reversed,suit:c.suit})),
+    interpretation:ST.interpretation,
+  });
+  saveProgress();
+  clearPendingReading();
+  renderTarot();
+}
+
+function newReading(){
+  ST.step="question";ST.question="";ST.spread=null;
+  ST.drawnCards=[];ST.fanDeck=[];ST.interpretation="";_nextSlot=0;
+  renderTarot();
+}
+
+/* ═══════════════════════ 전면광고 (무료 리딩 / 페이월 광고 게이트 공용) ═══════════════════════ */
+function showInterstitial(cb,opts){
+  opts=opts||{};
+  const skippable=opts.skippable!==false;
+  const wait=opts.seconds||5;
+  _interCb=cb;
+  const skip=document.getElementById("inter-skip-btn");
+  const slot=document.getElementById("inter-ad-slot");
+  if(slot){
+    slot.innerHTML=adSlotHTML("interstitial",
+      `<div style="text-align:center"><div style="font-size:44px;margin-bottom:12px">🔮</div>
+      <div style="font-size:17px;font-weight:700;color:var(--text);margin-bottom:8px">프리미엄 타로 마스터</div>
+      <div style="font-size:13px;color:var(--text-muted);line-height:1.7">전문 타로이스트와 1:1 심층 상담<br>첫 상담 50% 할인!<br><span style="color:var(--text-accent);font-size:11px">★★★★★ 4.9 · 12,847개 리뷰</span></div></div>`);
+    pushAdSlot();
+  }
+  document.getElementById("interstitial").classList.add("show");
+  let s=wait;
+  const tick=()=>{
+    if(skippable){
+      skip.textContent=s>0?s+"초 후 건너뛰기…":"건너뛰고 결과 보기 →";
+      skip.className=s>0?"inter-skip":"inter-skip ready";
+      skip.onclick=s>0?null:closeInter;
+    }else{
+      skip.textContent=s>0?`✓ 결과 잠금 해제까지 ${s}초`:"";
+      skip.className="inter-skip";skip.onclick=null;
+      if(s<=0)closeInter();
+    }
+  };
+  tick();
+  const t=setInterval(()=>{s--;tick();if(s<=0)clearInterval(t);},1000);
+}
+function closeInter(){document.getElementById("interstitial").classList.remove("show");if(_interCb){_interCb();_interCb=null;}}
+
+/* ═══════════════════════ 페이월 (무료 횟수 소진 후) ═══════════════════════ */
+function goResult(){
+  if(ST.premium||ST.freeUsed<FREE_READINGS){showInterstitial(doFetch);return;}
+  ST.step="paywall";renderTarot();
+}
+function tplPaywall(){
+  return`<div class="fade-up">
+  <div class="card-box" style="text-align:center;margin-bottom:14px">
+    <div style="font-size:30px;margin-bottom:10px">🔮</div>
+    <div style="font-size:15px;color:var(--text);font-weight:700;margin-bottom:6px">무료 리딩을 모두 사용했어요</div>
+    <div style="font-size:12px;color:var(--text-muted);line-height:1.7">기기당 무료 ${FREE_READINGS}회를 다 쓰셨어요.<br>광고를 보거나 결제하면 계속 볼 수 있어요.</div>
+  </div>
+  <button class="btn-primary" onclick="startTossPayment()" style="margin-bottom:10px">💳 결제하고 광고 없이 보기 (₩${TOSS_PRODUCT.amount.toLocaleString()})</button>
+  <button class="btn-ghost" onclick="watchAdThenUnlock()">📺 광고 보고 무료로 보기</button>
+</div>`;
+}
+function watchAdThenUnlock(){
+  showInterstitial(doFetch,{skippable:false,seconds:15});
+}
+
+/* ═══════════════════════ Google AdSense 슬롯 ═══════════════════════
+   ADSENSE_CLIENT가 아직 placeholder(ca-pub-0000000000000000)면 기존 하드코딩
+   배너를 그대로 보여주고, 실제 값으로 채워지면 실제 광고 슬롯으로 자동 전환된다.
+   설정 방법: ADS_PAYMENTS_GUIDE_KO.md 참고. */
+function adSlotHTML(key,fallbackHTML){
+  if(ADSENSE_CLIENT.indexOf("0000000000000000")!==-1)return fallbackHTML||"";
+  const slot=ADSENSE_SLOTS[key];
+  if(!slot)return fallbackHTML||"";
+  return`<ins class="adsbygoogle" style="display:block;width:100%;min-height:60px"
+    data-ad-client="${ADSENSE_CLIENT}" data-ad-slot="${slot}"
+    data-ad-format="auto" data-full-width-responsive="true"></ins>`;
+}
+function pushAdSlot(){
+  if(ADSENSE_CLIENT.indexOf("0000000000000000")!==-1)return;
+  try{(window.adsbygoogle=window.adsbygoogle||[]).push({});}catch(e){}
+}
+function upgradeAdSlot(elId,key){
+  const el=document.getElementById(elId);
+  if(!el||ADSENSE_CLIENT.indexOf("0000000000000000")!==-1)return;
+  el.innerHTML=adSlotHTML(key);
+  pushAdSlot();
+}
+
+/* ═══════════════════════ TossPayments ═══════════════════════
+   TOSS_CLIENT_KEY가 발급받은 실제 키로 바뀌기 전까지는 결제를 시도하지 않고 안내만 한다.
+   설정 방법: ADS_PAYMENTS_GUIDE_KO.md 참고. */
+async function startTossPayment(){
+  if(TOSS_CLIENT_KEY.indexOf("YOUR_CLIENT_KEY")!==-1){
+    alert("결제 기능을 사용하려면 TossPayments 클라이언트 키 설정이 필요해요.\nADS_PAYMENTS_GUIDE_KO.md 문서를 참고해주세요.");
+    return;
+  }
+  if(!window.TossPayments){
+    alert("결제 모듈을 불러오지 못했어요. 잠시 후 다시 시도해주세요.");
+    return;
+  }
+  savePendingReading();
+  const orderId="taro_"+Date.now()+"_"+Math.floor(Math.random()*10000);
+  try{
+    const tp=TossPayments(TOSS_CLIENT_KEY);
+    const payment=tp.payment({customerKey:TossPayments.ANONYMOUS});
+    await payment.requestPayment({
+      method:"CARD",
+      amount:{currency:"KRW",value:TOSS_PRODUCT.amount},
+      orderId,
+      orderName:TOSS_PRODUCT.name,
+      successUrl:location.origin+location.pathname+"?tossSuccess=1",
+      failUrl:location.origin+location.pathname+"?tossFail=1",
+    });
+  }catch(e){
+    console.error("Toss payment error",e);
+    clearPendingReading();
+  }
+}
+async function confirmTossPayment(paymentKey,orderId,amount){
+  try{
+    const res=await fetch("/.netlify/functions/toss-confirm",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({paymentKey,orderId,amount}),
+    });
+    const data=await res.json();
+    if(!res.ok||!data.ok)throw new Error(data.error||"결제 확인 실패");
+    return true;
+  }catch(e){
+    console.error("Toss confirm error",e);
+    return false;
+  }
+}
+async function handleTossReturn(){
+  const q=new URLSearchParams(location.search);
+  if(q.get("tossFail")){
+    alert("결제가 취소되었거나 실패했어요.");
+    clearPendingReading();
+    history.replaceState(null,"",location.pathname);
+    return;
+  }
+  if(!q.get("paymentKey"))return;
+  const paymentKey=q.get("paymentKey"),orderId=q.get("orderId"),amount=q.get("amount");
+  history.replaceState(null,"",location.pathname);
+  const ok=await confirmTossPayment(paymentKey,orderId,amount);
+  if(!ok){alert("결제 확인에 실패했어요. 고객센터로 문의해주세요.");clearPendingReading();return;}
+  ST.premium=true;saveProgress();
+  const pending=loadPendingReading();
+  if(pending&&pending.question&&pending.spread){
+    ST.question=pending.question;ST.spread=pending.spread;ST.drawnCards=pending.drawnCards;
+    clearPendingReading();
+    navTo("tarot");doFetch();
+  }else{
+    alert("결제가 완료되었습니다! 이제 광고 없이 계속 이용하실 수 있어요.");
+  }
+}
+
+/* ═══════════════════════ 저널 ═══════════════════════ */
+function renderJournal(){
+  upgradeAdSlot("ad-journal","journal");
+  const el=document.getElementById("journal-list");
+  if(!ST.journal.length){
+    el.innerHTML=`<div style="text-align:center;padding:48px 20px;color:var(--muted)"><div style="font-size:40px;margin-bottom:14px">📖</div><div style="line-height:1.8">아직 리딩 기록이 없어요.<br>첫 타로 리딩을 시작해보세요!</div><div style="height:18px"></div><button class="btn-primary" style="max-width:220px;margin:0 auto" onclick="navTo('tarot')">타로 리딩 하기</button></div>`;
+    return;
+  }
+  el.innerHTML=ST.journal.map((j,idx)=>`
+    <div class="journal-item" onclick="openJM(${idx})">
+      <div class="journal-date">📅 ${j.date}</div>
+      <div class="journal-q">"${j.question}"</div>
+      <div class="journal-spread">🃏 ${j.spread} · ${(j.cards||[]).map(c=>c.e).join(" ")}</div>
+      <div class="journal-preview">${(j.interpretation||"").slice(0,80)}…</div>
+      <div class="journal-arrow">자세히 보기 →</div>
+    </div>`).join("");
+}
+function openJM(idx){
+  const j=ST.journal[idx];
+  document.getElementById("jm-date").textContent="📅 "+j.date;
+  document.getElementById("jm-q").textContent='"'+j.question+'"';
+  document.getElementById("jm-spread").textContent="🃏 "+j.spread;
+  const ce=document.getElementById("jm-cards");
+  if(j.cards&&j.cards.length){
+    ce.innerHTML=j.cards.map(c=>`<span class="mini-card" style="border:1px solid ${SC[c.suit]||"#7c3aed"}44"><span class="mc-face">${window.cardFaceSVG(c)}</span><span style="color:${SC[c.suit]||"var(--text2)"}">${c.name}${c.reversed?"↙":""}</span></span>`).join("");
+    ce.style.display="flex";
+  }else ce.style.display="none";
+  document.getElementById("jm-interp").textContent=j.interpretation||"해석 기록이 없습니다.";
+  document.getElementById("journal-modal").classList.add("show");
+  document.getElementById("jm-box").scrollTop=0;
+}
+function closeJM(e){if(e.target===document.getElementById("journal-modal"))closeJMDirect();}
+function closeJMDirect(){document.getElementById("journal-modal").classList.remove("show");}
+
+/* ═══════════════════════ 프로필 ═══════════════════════ */
+function renderProfile(){
+  upgradeAdSlot("ad-profile","profile");
+  document.getElementById("p-name").textContent=ST.user.name||"여행자";
+  document.getElementById("p-sign").textContent=ST.user.sign?"✦ "+ST.user.sign:"✦ 별자리 미설정";
+  document.getElementById("p-email").textContent=ST.user.email||"";
+  document.getElementById("s-total").textContent=ST.totalReadings;
+  document.getElementById("s-streak").textContent=ST.streak;
+  const all=ST.journal.flatMap(j=>j.cards||[]);
+  if(all.length){const f={};all.forEach(c=>f[c.e]=(f[c.e]||0)+1);const top=Object.entries(f).sort((a,b)=>b[1]-a[1])[0];if(top)document.getElementById("s-fav").textContent=top[0];}
+  const tends=["직관적인 탐구자 — 카드 상징 속 숨겨진 패턴을 예리하게 읽어냅니다.","감성적 통찰자 — 관계와 마음의 흐름을 타로로 깊이 탐색해요.","분석적 질문자 — 복잡한 상황을 카드로 명확하게 정리하는 능력이 있어요."];
+  document.getElementById("p-tendency").textContent=ST.totalReadings>0?tends[ST.totalReadings%3]:"타로 리딩을 시작하면 나만의 성향이 분석됩니다 ✨";
+}
+
+/* ═══════════════════════ 부팅 — 세션/진행 상태 복원 + Toss 결제 리턴 처리 ═══════════════════════ */
+(function boot(){
+  loadProgress();
+  const sess=loadSession();
+  if(sess&&sess.loginType){
+    ST.user=sess;
+    initApp();
+  }
+  handleNaverReturn();
+  handleTossReturn();
+})();
+</script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-const MODEL = "gemini-2.5-flash";
+const MODEL = "gemini-flash-latest";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 const MAX_BODY_BYTES = 12_000;
 const MAX_QUESTION_CHARS = 400;

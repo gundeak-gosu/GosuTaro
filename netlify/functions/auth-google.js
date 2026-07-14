@@ -1,3 +1,5 @@
+const { isConfigured, finalizeLogin } = require("./_lib/supabase");
+
 const TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo";
 const MAX_BODY_BYTES = 8_000;
 
@@ -40,7 +42,15 @@ exports.handler = async (event) => {
     if (!res.ok) return json(401, { error: "Google 토큰이 유효하지 않습니다." });
     if (data.aud !== process.env.GOOGLE_CLIENT_ID) return json(401, { error: "Google 클라이언트 ID가 일치하지 않습니다." });
 
-    return json(200, { name: data.name || data.email || "구글 사용자", email: data.email || "" });
+    const profile = { name: data.name || data.email || "구글 사용자", email: data.email || "" };
+
+    if (!isConfigured()) {
+      // Supabase 미설정 — 신원만 확인해서 반환 (기기 로컬 세션으로만 로그인)
+      return json(200, profile);
+    }
+
+    const result = await finalizeLogin("google", data.sub, profile);
+    return json(200, result);
   } catch (error) {
     console.error("Google auth error", error.name || error.message);
     return json(502, { error: "Google 로그인 확인에 실패했습니다." });

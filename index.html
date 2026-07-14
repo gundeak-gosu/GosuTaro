@@ -893,9 +893,16 @@ const AUTH_CONFIG={
   naverClientId:"",    // Naver Developers → 애플리케이션 정보 → Client ID
 };
 
+// 실제 회원 백엔드(Supabase) — URL은 비밀이 아니라 그대로 노출해도 된다.
+// 서버 함수(netlify/functions/auth-*, journal-add, progress-save)가 이 값을 보고
+// SUPABASE_SERVICE_ROLE_KEY(Netlify 환경변수, 여기엔 없음)로 DB를 대신 접근한다.
+// 비어있으면 기기 로컬 전용(데모) 로그인으로 자동 폴백된다.
+const SUPABASE_URL="https://olwdzrfbvyahzfimeazm.supabase.co";
+
 /* ═══════════════════════ 상태 ═══════════════════════ */
 let ST={
   user:{name:"",email:"",sign:"",birth:"",loginType:""},
+  authToken:null,   // Supabase 연동 계정 로그인 시에만 존재 (게스트/미설정 상태는 null)
   streak:1,totalReadings:0,journal:[],todayRead:false,todayCardKey:null,
   freeUsed:0,premium:false,
   step:"question",question:"",spread:null,
@@ -917,6 +924,59 @@ function loadSession(){
 }
 function clearSession(){try{localStorage.removeItem("taro_session");}catch{}}
 
+/* 서버 로그인 세션 토큰 — Supabase 연동 계정(이메일/구글/카카오/네이버)만 해당, 게스트는 없음 */
+function saveAuthToken(token){
+  try{token?localStorage.setItem("taro_auth_token",token):localStorage.removeItem("taro_auth_token");}catch{}
+}
+function loadAuthToken(){try{return localStorage.getItem("taro_auth_token");}catch{return null;}}
+
+/* 서버 로그인 응답(token/user/progress/journal)을 ST에 반영하는 공통 처리 */
+/* 서버 응답의 user/progress/journal을 ST에 반영 (토큰은 건드리지 않음 — 새로고침 시 재동기화용으로도 재사용) */
+function mergeServerData(data){
+  if(data.user)ST.user=data.user;
+  if(data.progress){
+    const pr=data.progress,today=new Date().toDateString();
+    ST.streak=pr.streak||1;
+    ST.totalReadings=pr.total_readings||0;
+    ST.todayRead=pr.today_date===today?!!pr.today_read:false;
+    ST.todayCardKey=pr.today_date===today?(pr.today_card_key||null):null;
+    ST.freeUsed=pr.free_used||0;
+    ST.premium=!!pr.premium;
+  }
+  ST.journal=(data.journal||[]).map(row=>({
+    timestamp:new Date(row.created_at).getTime(),
+    date:new Date(row.created_at).toLocaleDateString("ko-KR",{year:"numeric",month:"long",day:"numeric",weekday:"short"}),
+    question:row.question,spread:row.spread_name,spreadIcon:row.spread_icon,spreadPos:row.spread_pos,
+    cards:row.cards,interpretation:row.interpretation,
+  }));
+}
+/* 새 로그인(이메일/구글/카카오/네이버) 성공 시 — 세션 토큰까지 새로 저장하고 화면 진입 */
+function applyServerSession(data){
+  ST.authToken=data.token;
+  saveAuthToken(data.token);
+  mergeServerData(data);
+  saveSession();saveProgress();initApp();
+}
+/* 이미 로그인된 상태로 새로고침했을 때, 로컬 캐시가 아니라 서버의 최신 기록으로 조용히 갱신 */
+async function refreshFromServer(){
+  if(!ST.authToken||!SUPABASE_URL)return;
+  try{
+    const res=await fetch("/.netlify/functions/session-refresh",{headers:{Authorization:"Bearer "+ST.authToken}});
+    if(!res.ok)return; // 만료된 토큰 등 — 로컬 캐시로 계속 쓰고 조용히 무시
+    const data=await res.json();
+    mergeServerData(data);
+    saveSession();
+    try{localStorage.setItem("taro_progress",JSON.stringify({
+      streak:ST.streak,totalReadings:ST.totalReadings,journal:ST.journal,
+      todayRead:ST.todayRead,todayDate:new Date().toDateString(),todayCardKey:ST.todayCardKey,
+      freeUsed:ST.freeUsed,premium:ST.premium,
+    }));}catch{}
+    if(document.getElementById("screen-home").classList.contains("active"))initApp();
+    if(document.getElementById("screen-journal").classList.contains("active"))renderJournal();
+    if(document.getElementById("screen-profile").classList.contains("active"))renderProfile();
+  }catch(e){console.error("session refresh failed",e);}
+}
+
 function saveProgress(){
   try{
     localStorage.setItem("taro_progress",JSON.stringify({
@@ -925,8 +985,21 @@ function saveProgress(){
       freeUsed:ST.freeUsed,premium:ST.premium,
     }));
   }catch{}
+  // 서버 계정으로 로그인한 상태면(게스트 아님) 진행 상태도 서버에 동기화 — 실패해도 로컬엔 이미 저장됐으니 무시
+  if(ST.authToken){
+    fetch("/.netlify/functions/progress-save",{
+      method:"PUT",
+      headers:{"Content-Type":"application/json",Authorization:"Bearer "+ST.authToken},
+      body:JSON.stringify({
+        streak:ST.streak,totalReadings:ST.totalReadings,todayRead:ST.todayRead,
+        todayDate:new Date().toDateString(),todayCardKey:ST.todayCardKey,
+        freeUsed:ST.freeUsed,premium:ST.premium,
+      }),
+    }).catch(e=>console.error("progress sync failed",e));
+  }
 }
 function loadProgress(){
+  ST.authToken=loadAuthToken();
   let p;
   try{p=JSON.parse(localStorage.getItem("taro_progress")||"null");}catch{p=null;}
   if(!p)return;
@@ -1026,6 +1099,13 @@ function loginWithGoogle(){
   google.accounts.id.initialize({client_id:AUTH_CONFIG.googleClientId,callback:onGoogleCredential});
   google.accounts.id.prompt();
 }
+/* 서버 응답이 세션 토큰을 포함하면(Supabase 연동됨) 그걸로 로그인, 아니면 신원 정보만으로 데모 로그인 */
+function applyLoginResult(data,fallbackLoginType){
+  if(data&&data.token){applyServerSession(data);return;}
+  const fallbackName={google:"구글 사용자",kakao:"카카오 사용자",naver:"네이버 사용자"}[fallbackLoginType]||"사용자";
+  ST.user={name:(data&&data.name)||fallbackName,email:(data&&data.email)||"",sign:"",birth:"",loginType:fallbackLoginType};
+  saveSession();initApp();
+}
 async function onGoogleCredential(resp){
   try{
     const r=await fetch("/.netlify/functions/auth-google",{
@@ -1034,8 +1114,7 @@ async function onGoogleCredential(resp){
     });
     const data=await r.json();
     if(!r.ok)throw new Error(data.error||"Google 로그인 실패");
-    ST.user={name:data.name||"구글 사용자",email:data.email||"",sign:"",birth:"",loginType:"google"};
-    saveSession();initApp();
+    applyLoginResult(data,"google");
   }catch(e){
     console.error("Google login error",e);
     alert("구글 로그인에 실패했어요.");
@@ -1055,8 +1134,7 @@ function loginWithKakao(){
         .then(async r=>({ok:r.ok,data:await r.json()}))
         .then(({ok,data})=>{
           if(!ok)throw new Error(data.error||"카카오 로그인 실패");
-          ST.user={name:data.name||"카카오 사용자",email:data.email||"",sign:"",birth:"",loginType:"kakao"};
-          saveSession();initApp();
+          applyLoginResult(data,"kakao");
         })
         .catch(e=>{console.error("Kakao login error",e);alert("카카오 로그인에 실패했어요.");});
     },
@@ -1093,17 +1171,15 @@ function handleNaverReturn(){
     return;
   }
   try{
-    const profile=JSON.parse(atob(decodeURIComponent(p)));
-    ST.user={name:profile.name||"네이버 사용자",email:profile.email||"",sign:"",birth:"",loginType:"naver"};
-    saveSession();initApp();
+    const data=JSON.parse(atob(decodeURIComponent(p)));
+    applyLoginResult(data,"naver");
   }catch(e){console.error("Naver return parse error",e);}
 }
-/* ═══════════════════════ 이메일 계정 (기기 로컬 저장 — 실제 서버 계정 아님, 아래 주석 참고) ═══════════════════════
-   서버 DB가 없어서 이 브라우저 안에서만 "이메일이 이미 있는지/비밀번호가 맞는지"를 확인해줄 수 있다.
-   비밀번호는 평문으로 저장하지 않고 SHA-256 해시만 저장하지만, 그래도 이건 UX용 로컬 확인일 뿐
-   진짜 서버 인증을 대체하지 못한다 — 다른 기기에서는 이 기록이 전혀 안 보인다.
-   여러 기기에서 동일 계정을 쓰려면 Supabase 같은 실제 백엔드가 필요하다. */
-async function hashPassword(pw){
+/* ═══════════════════════ 이메일 계정 ═══════════════════════
+   SUPABASE_URL이 설정되어 있으면 실제 서버(netlify/functions/auth-email.js)가
+   비밀번호를 검증/저장한다 — 여러 기기에서 같은 계정으로 로그인 가능.
+   비어있으면(설정 전) 이 브라우저에만 남는 로컬 해시 계정으로 폴백한다(데모용, 다른 기기에서는 안 보임). */
+async function hashPasswordLocal(pw){
   const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(pw));
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
 }
@@ -1113,44 +1189,81 @@ function loadLocalAccounts(){
 function saveLocalAccounts(accounts){
   try{localStorage.setItem("taro_accounts",JSON.stringify(accounts));}catch{}
 }
-async function emailLogin(){
-  const e=document.getElementById("l-email").value.trim().toLowerCase(),p=document.getElementById("l-pw").value;
-  if(!e||!p){alert("이메일과 비밀번호를 입력해주세요.");return;}
+async function emailLoginLocal(e,p){
   const accounts=loadLocalAccounts(),acc=accounts[e];
   if(!acc){
     if(confirm(`"${e}"로 가입된 계정을 찾을 수 없어요.\n회원가입 화면으로 이동할까요?`)){
-      switchTab("join");
-      document.getElementById("j-email").value=e;
+      switchTab("join");document.getElementById("j-email").value=e;
     }
     return;
   }
-  const hash=await hashPassword(p);
+  const hash=await hashPasswordLocal(p);
   if(hash!==acc.passwordHash){alert("비밀번호가 올바르지 않아요.");return;}
   ST.user={name:acc.name,email:e,sign:acc.sign||"",birth:acc.birth||"",loginType:"email"};
   saveSession();initApp();
+}
+async function emailJoinLocal(n,e,p,b,sign){
+  const accounts=loadLocalAccounts();
+  if(accounts[e]){
+    alert("이미 가입된 이메일이에요. 로그인 탭에서 로그인해주세요.");
+    switchTab("login");document.getElementById("l-email").value=e;
+    return;
+  }
+  const name=n||e.split("@")[0];
+  accounts[e]={name,passwordHash:await hashPasswordLocal(p),sign,birth:b};
+  saveLocalAccounts(accounts);
+  ST.user={name,email:e,sign,birth:b,loginType:"email"};
+  saveSession();initApp();
+}
+async function emailLogin(){
+  const e=document.getElementById("l-email").value.trim().toLowerCase(),p=document.getElementById("l-pw").value;
+  if(!e||!p){alert("이메일과 비밀번호를 입력해주세요.");return;}
+  if(!SUPABASE_URL)return emailLoginLocal(e,p);
+  try{
+    const res=await fetch("/.netlify/functions/auth-email",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({action:"login",email:e,password:p}),
+    });
+    const data=await res.json();
+    if(res.status===404){
+      if(confirm(`"${e}"로 가입된 계정을 찾을 수 없어요.\n회원가입 화면으로 이동할까요?`)){
+        switchTab("join");document.getElementById("j-email").value=e;
+      }
+      return;
+    }
+    if(!res.ok){alert(data.error||"로그인에 실패했어요.");return;}
+    applyServerSession(data);
+  }catch(err){console.error("emailLogin error",err);alert("서버에 연결할 수 없어요. 잠시 후 다시 시도해주세요.");}
 }
 async function emailJoin(){
   const n=document.getElementById("j-name").value.trim(),e=document.getElementById("j-email").value.trim().toLowerCase();
   const p=document.getElementById("j-pw").value,b=document.getElementById("j-birth").value;
   if(!e||!p||p.length<6){alert("이메일과 6자 이상 비밀번호를 입력해주세요.");return;}
-  const accounts=loadLocalAccounts();
-  if(accounts[e]){
-    alert("이미 가입된 이메일이에요. 로그인 탭에서 로그인해주세요.");
-    switchTab("login");
-    document.getElementById("l-email").value=e;
-    return;
-  }
-  const name=n||e.split("@")[0],sign=b?calcSign(b):"";
-  accounts[e]={name,passwordHash:await hashPassword(p),sign,birth:b};
-  saveLocalAccounts(accounts);
-  ST.user={name,email:e,sign,birth:b,loginType:"email"};
-  saveSession();initApp();
+  const sign=b?calcSign(b):"";
+  if(!SUPABASE_URL)return emailJoinLocal(n,e,p,b,sign);
+  try{
+    const res=await fetch("/.netlify/functions/auth-email",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({action:"signup",email:e,password:p,name:n,birth:b,sign}),
+    });
+    const data=await res.json();
+    if(res.status===409){
+      alert("이미 가입된 이메일이에요. 로그인 탭에서 로그인해주세요.");
+      switchTab("login");document.getElementById("l-email").value=e;
+      return;
+    }
+    if(!res.ok){alert(data.error||"회원가입에 실패했어요.");return;}
+    applyServerSession(data);
+  }catch(err){console.error("emailJoin error",err);alert("서버에 연결할 수 없어요. 잠시 후 다시 시도해주세요.");}
 }
 function guestLogin(){ST.user={name:"게스트",email:"",sign:"",birth:"",loginType:"guest"};saveSession();initApp();}
 function logout(){
   if(!confirm("로그아웃하시겠어요?"))return;
-  Object.assign(ST,{user:{name:"",email:"",sign:"",birth:"",loginType:""},streak:1,totalReadings:0,journal:[],todayRead:false,todayCardKey:null,freeUsed:0,premium:false,step:"question",question:"",spread:null,drawnCards:[],fanDeck:[],interpretation:""});
-  clearSession();clearPendingReading();
+  if(ST.authToken){
+    fetch("/.netlify/functions/auth-logout",{method:"POST",headers:{Authorization:"Bearer "+ST.authToken}}).catch(()=>{});
+  }
+  Object.assign(ST,{user:{name:"",email:"",sign:"",birth:"",loginType:""},authToken:null,streak:1,totalReadings:0,journal:[],todayRead:false,todayCardKey:null,freeUsed:0,premium:false,step:"question",question:"",spread:null,drawnCards:[],fanDeck:[],interpretation:""});
+  clearSession();clearPendingReading();saveAuthToken(null);
   try{localStorage.removeItem("taro_progress");}catch{}
   document.getElementById("main-nav").style.display="none";showOnly("login");
 }
@@ -1599,6 +1712,15 @@ async function doFetch(){
     interpretation:ST.interpretation,
   });
   saveProgress();
+  if(ST.authToken){
+    fetch("/.netlify/functions/journal-add",{
+      method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+ST.authToken},
+      body:JSON.stringify({
+        question:ST.question,spreadName:ST.spread.name,spreadIcon:ST.spread.icon,spreadPos:ST.spread.pos,
+        cards:allCards.map(c=>({...c})),interpretation:ST.interpretation,
+      }),
+    }).catch(e=>console.error("journal sync failed",e));
+  }
   clearPendingReading();
   renderTarot();
 }
@@ -1833,6 +1955,7 @@ function markLastLoginBadge(){
   if(sess&&sess.loginType){
     ST.user=sess;
     initApp();
+    refreshFromServer(); // 로컬 캐시로 먼저 보여주고, 서버 최신 기록으로 조용히 갱신
   }
   handleNaverReturn();
   handleTossReturn();

@@ -1,3 +1,5 @@
+const { isConfigured, finalizeLogin } = require("./_lib/supabase");
+
 const TOKEN_URL = "https://nid.naver.com/oauth2.0/token";
 const PROFILE_URL = "https://openapi.naver.com/v1/nid/me";
 
@@ -42,7 +44,9 @@ exports.handler = async (event) => {
 
     const info = profileData.response || {};
     const profile = { name: info.name || info.nickname || "네이버 사용자", email: info.email || "" };
-    const encoded = encodeURIComponent(Buffer.from(JSON.stringify(profile)).toString("base64"));
+
+    const payload = isConfigured() ? await finalizeLogin("naver", info.id, profile) : profile;
+    const encoded = encodeURIComponent(Buffer.from(JSON.stringify(payload)).toString("base64"));
     const stateParam = encodeURIComponent(state || "");
 
     return redirect(`/?naverProfile=${encoded}&naverState=${stateParam}`);

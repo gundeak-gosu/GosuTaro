@@ -8,7 +8,9 @@
 - 서버 함수: `netlify/functions/`
   - `gemini-reading.js` — AI 해석 (`GEMINI_API_KEY`)
   - `toss-confirm.js` — 결제 승인 (`TOSS_SECRET_KEY`) — [ADS_PAYMENTS_GUIDE_KO.md](ADS_PAYMENTS_GUIDE_KO.md)
-  - `auth-google.js` / `auth-kakao.js` / `auth-naver-callback.js` — 소셜 로그인 검증 (`GOOGLE_CLIENT_ID`, `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`) — [SOCIAL_LOGIN_GUIDE_KO.md](SOCIAL_LOGIN_GUIDE_KO.md)
+  - `auth-google.js` / `auth-kakao.js` / `auth-naver-callback.js` / `auth-email.js` — 로그인 검증 (`GOOGLE_CLIENT_ID`, `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`) — [SOCIAL_LOGIN_GUIDE_KO.md](SOCIAL_LOGIN_GUIDE_KO.md)
+  - `journal-add.js` / `progress-save.js` / `session-refresh.js` / `auth-logout.js` — 회원 DB(리딩 기록/진행상태) 읽기·쓰기
+  - `_lib/supabase.js` — 위 회원 DB 함수들이 공유하는 Supabase 접속 헬퍼 (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`)
 
 API 키/시크릿은 HTML에 넣지 않습니다. Netlify 환경변수에만 저장하고, 서버 함수가 각 외부 서비스를 대신 호출합니다.
 

@@ -1,3 +1,5 @@
+const { isConfigured, finalizeLogin } = require("./_lib/supabase");
+
 const KAKAO_ME_URL = "https://kapi.kakao.com/v2/user/me";
 const MAX_BODY_BYTES = 4_000;
 
@@ -41,8 +43,12 @@ exports.handler = async (event) => {
     const account = data.kakao_account || {};
     const name = (account.profile && account.profile.nickname) || "카카오 사용자";
     const email = account.email || "";
+    const profile = { name, email };
 
-    return json(200, { name, email });
+    if (!isConfigured()) return json(200, profile);
+
+    const result = await finalizeLogin("kakao", String(data.id), profile);
+    return json(200, result);
   } catch (error) {
     console.error("Kakao auth error", error.name || error.message);
     return json(502, { error: "카카오 로그인 확인에 실패했습니다." });

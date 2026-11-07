@@ -3,7 +3,7 @@ import * as S from "./systems.js";
 import * as UI from "./ui.js";
 import * as MG from "./minigames.js";
 import { JOBS, DIFFICULTY, ANIMALS, ENEMIES, CHAPTERS, ITEMS, TIME, BUILDINGS, DUNGEONS } from "./data.js";
-import { Field3D, webglAvailable, mountViewer } from "./r3d.js";
+import { Field3D, webglAvailable, mountViewer, preloadHeroes } from "./r3d.js";
 import { randomSpawn } from "./earth.js";
 import * as Net from "./net.js";
 import { BIOMES } from "./data.js";
@@ -38,7 +38,7 @@ addEventListener("resize", () => { resize(); G.r3d?.resize(); });
 resize();
 // 3D 렌더러(WebGL 불가 기기는 기존 2D로 자동 대체)
 if (webglAvailable() && !/[?&]2d\b/.test(location.search)) {
-  try { G.r3d = new Field3D(document.getElementById("gl")); document.body.classList.add("three"); UI.setViewer(mountViewer); }
+  try { G.r3d = new Field3D(document.getElementById("gl")); document.body.classList.add("three"); UI.setViewer(mountViewer); preloadHeroes(); }
   catch (e) { console.warn("3D 초기화 실패 → 2D", e); G.r3d = null; }
 }
 

@@ -427,10 +427,83 @@ function makeVehicle(id) {
 }
 
 // 탈것 포함 캐릭터 래퍼
+// =====================================================================
+// 전문 3D 캐릭터(GLB) — assets/characters/hero_M.glb / hero_F.glb 가 있으면 플레이어를 이 모델로 그린다.
+// (사실적 이미지 → Meshy 3D 변환 + 휴머노이드 뼈대 + 걷기 애니메이션). 없으면 절차적 휴머노이드로 대체.
+// =====================================================================
+const HERO = { M: null, F: null };
+let SkelUtils = null, heroLoading = null;
+export function preloadHeroes(base = "assets/characters/") {
+  if (heroLoading) return heroLoading;
+  heroLoading = (async () => {
+    try {
+      const [{ GLTFLoader }, SU] = await Promise.all([import("../vendor/jsm/loaders/GLTFLoader.js"), import("../vendor/jsm/utils/SkeletonUtils.js")]);
+      SkelUtils = SU;
+      const loader = new GLTFLoader();
+      await Promise.all(["M", "F"].map(async (g) => { try { HERO[g] = await loader.loadAsync(`${base}hero_${g}.glb`); } catch { HERO[g] = null; } }));
+    } catch { /* 로더 실패 → 절차적 캐릭터 유지 */ }
+    return { M: !!HERO.M, F: !!HERO.F };
+  })();
+  return heroLoading;
+}
+export const heroAvailable = (g) => !!HERO[g];
+
+class GlbHuman {
+  constructor(gender) {
+    const gl = HERO[gender];
+    this.root = new THREE.Group();
+    const model = SkelUtils.clone(gl.scene);
+    // 키를 실제 사람 크기(남 1.76m · 여 1.66m)로 맞추고 발을 땅(y=0)에
+    const box = new THREE.Box3().setFromObject(model);
+    const h = box.max.y - box.min.y || 1;
+    const k = (gender === "F" ? 1.66 : 1.76) / h;
+    model.scale.setScalar(k);
+    model.position.y = -box.min.y * k;
+    model.traverse((o) => {
+      if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; }
+      if (o.isBone && !this.hand && /right.?hand|hand.?r$|r.?hand/i.test(o.name) && !/index|thumb|middle|ring|pinky/i.test(o.name)) this.hand = o;
+    });
+    this.root.add(model);
+    this.mixer = new THREE.AnimationMixer(model);
+    const clip = gl.animations?.[0];
+    if (clip) { this.action = this.mixer.clipAction(clip); this.action.play(); this.action.timeScale = 0; }
+    this.heldId = null; this.swing = 0; this.k = k;
+  }
+  setHeld(id) {
+    if (!this.hand || id === this.heldId) return;
+    if (this.held) this.hand.remove(this.held);
+    this.heldId = id; this.held = null;
+    if (id) { this.held = heldItem(id); this.held.scale.setScalar(1 / this.k / (this.hand.getWorldScale(new THREE.Vector3()).x / this.k || 1)); this.hand.add(this.held); }
+  }
+  animate(dt, { moving = 0, speed = 1, attack = false } = {}) {
+    if (attack) this.swing = 0.35;
+    if (this.action) {
+      const want = moving ? speed : 0;
+      this.action.timeScale += (want - this.action.timeScale) * Math.min(1, dt * 10);
+      if (!moving && this.action.timeScale < 0.05) {
+        // 멈추면 걸음이 가장 모이는 순간(클립 시작)으로 부드럽게 돌아가 선 자세 유지
+        this.action.time += (0 - this.action.time) * Math.min(1, dt * 6);
+      }
+      this.mixer.update(dt);
+    }
+    if (this.swing > 0) { this.swing -= dt; this.root.rotation.z = Math.sin((1 - this.swing / 0.35) * Math.PI) * 0.06; } else this.root.rotation.z = 0;
+  }
+}
+
+// 탈것 포함 캐릭터 래퍼. opts.hero: 전문 GLB 모델 사용(플레이어·뷰어)
 export class Rider {
-  constructor() { this.root = new THREE.Group(); this.human = new Humanoid(); this.root.add(this.human.root); this.mountKey = null; this.mountObj = null; }
+  constructor(opts = {}) { this.opts = opts; this.root = new THREE.Group(); this.human = new Humanoid(); this.root.add(this.human.root); this.mountKey = null; this.mountObj = null; this.glb = null; }
   set(look, equip, gender, mount, variant) {
-    this.human.build(look, equip, gender, variant);
+    const useGlb = this.opts.hero && !variant && heroAvailable(gender || "M");
+    if (useGlb && (!this.glb || this.glbGender !== gender)) {
+      if (this.glb) this.root.remove(this.glb.root);
+      this.root.remove(this.human.root);
+      this.glb = new GlbHuman(gender || "M"); this.glbGender = gender; this.root.add(this.glb.root);
+    }
+    if (!useGlb && this.glb) { this.root.remove(this.glb.root); this.glb = null; this.root.add(this.human.root); }
+    if (this.glb) this.glb.setHeld(equip?.hand?.id || null);
+    else this.human.build(look, equip, gender, variant);
+    const body = this.glb ? this.glb.root : this.human.root;
     const key = mount ? (mount.kind || mount.id) : null;
     if (key !== this.mountKey) {
       if (this.mountObj) this.root.remove(this.mountObj.root || this.mountObj);
@@ -439,13 +512,14 @@ export class Rider {
       else if (mount?.id) { const v = makeVehicle(mount.id); this.mountObj = { root: v, animate() {} }; this.root.add(v); }
     }
     if (this.mountObj) {
-      if (this.mountObj.saddleY) this.human.root.position.y = this.mountObj.saddleY - 0.55;
-      else this.human.root.position.y = 0.05;
-      this.human.root.position.z = mount?.kind ? -0.05 : -0.1;
-    } else this.human.root.position.set(0, 0, 0);
+      if (this.mountObj.saddleY) body.position.y = this.mountObj.saddleY - 0.55;
+      else body.position.y = 0.05;
+      body.position.z = mount?.kind ? -0.05 : -0.1;
+    } else body.position.set(0, 0, 0);
   }
   animate(dt, moving, speed, attack) {
-    this.human.animate(dt, { moving: this.mountObj ? 0 : moving, speed, riding: !!this.mountObj, attack });
+    if (this.glb) this.glb.animate(dt, { moving: this.mountObj ? 0 : moving, speed, attack });
+    else this.human.animate(dt, { moving: this.mountObj ? 0 : moving, speed, riding: !!this.mountObj, attack });
     if (this.mountObj?.animate) this.mountObj.animate(dt, moving, speed);
   }
 }
@@ -723,7 +797,7 @@ export class Field3D {
 
     // 플레이어
     const mount = p.mount ? (p.mount.type === "animal" ? { kind: p.mount.kind } : { id: p.mount.id }) : null;
-    const me = this.actor("player", () => new Rider());
+    const me = this.actor("player", () => new Rider({ hero: true }));
     me.set(p.look, p.equip, p.gender, mount);
     G.yaw = lerpAngle(G.yaw ?? 0, G.moveYaw ?? 0, Math.min(1, dt * 12));
     this.place(me.root, p.x, p.y, 0, G.yaw);
@@ -967,7 +1041,7 @@ export function mountViewer(canvas, getState, opts = {}) {
     embers.setAttribute("position", new THREE.BufferAttribute(ea, 3));
     const ep = new THREE.Points(embers, new THREE.PointsMaterial({ color: 0xff9a50, size: 0.05, transparent: true, opacity: 0.85, depthWrite: false })); scene.add(ep); extras.push(ep);
   }
-  const hero = new Rider(); scene.add(hero.root);
+  const hero = new Rider({ hero: true }); scene.add(hero.root);
   const others = [];
   let yaw = opts.cinematic ? 0.35 : 0.5, drag = null, t = 0, run = true, last = performance.now();
   if (!opts.cinematic) {

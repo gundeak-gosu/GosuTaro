@@ -501,8 +501,13 @@ class GlbHuman {
         // 뼈의 길이 방향(로컬 좌표에서 자식 쪽) = 비틀기 축
         const child = b === fore ? hand : null;
         const axis = child ? child.position.clone().normalize() : (this._handAxis ||= fore === hand ? new THREE.Vector3(0, 1, 0) : hand.position.clone().normalize());
+        // 애니메이션이 이 뼈를 이번 프레임에 건드리지 않았다면(지난번 교정 결과 그대로) 교정 전 자세로 되돌린 뒤 한 번만 비튼다
+        // → 매 프레임 비틀림이 누적돼 손이 360° 계속 도는 문제 방지
+        if (b._postFix && b.quaternion.equals(b._postFix)) b.quaternion.copy(b._preFix);
+        (b._preFix ||= new THREE.Quaternion()).copy(b.quaternion);
         _q.setFromAxisAngle(axis, ang * share * fix.sign);
         b.quaternion.multiply(_q);
+        (b._postFix ||= new THREE.Quaternion()).copy(b.quaternion);
       }
     }
   }

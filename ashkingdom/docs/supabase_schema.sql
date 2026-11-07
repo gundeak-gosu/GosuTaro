@@ -27,7 +27,7 @@ create policy "players read" on ashk_players for select using (true);
 create policy "players insert own" on ashk_players for insert with check (user_id = auth.uid());
 create policy "players update own" on ashk_players for update using (user_id = auth.uid()) with check (user_id = auth.uid());
 
-create or replace function ashk_players_guard() returns trigger language plpgsql as $$
+create or replace function ashk_players_guard() returns trigger language plpgsql set search_path = public as $$
 begin
   if tg_op = 'UPDATE' then
     if new.name is distinct from old.name and old.renamed_at > now() - interval '1 day' then
@@ -54,7 +54,7 @@ alter table ashk_regions enable row level security;
 create policy "regions read" on ashk_regions for select using (true);
 create policy "regions insert own" on ashk_regions for insert with check (user_id = auth.uid());
 -- 하루 3번 넘게 새 구역을 잡는 계정은 거부(새 생애 남발·구역 선점 방지)
-create or replace function ashk_regions_guard() returns trigger language plpgsql as $$
+create or replace function ashk_regions_guard() returns trigger language plpgsql set search_path = public as $$
 begin
   if (select min_client_ver from ashk_config where id = 1) > new.client_ver then raise exception 'client too old'; end if;
   if (select count(*) from ashk_regions where user_id = auth.uid() and claimed_at > now() - interval '1 day') >= 3 then raise exception 'too many claims'; end if;
@@ -84,7 +84,7 @@ create policy "records update own" on ashk_records for update using (user_id = a
 -- delete 정책 없음 = 삭제 불가
 
 -- 문지기: 옛 버전 / 말이 안 되는 숫자 / 너무 잦은 갱신 / 현재 시즌이 아닌 기록 거부
-create or replace function ashk_records_guard() returns trigger language plpgsql as $$
+create or replace function ashk_records_guard() returns trigger language plpgsql set search_path = public as $$
 declare
   minv int;
   cur text := 'S' || floor(extract(epoch from now()) / 86400 / 14)::int;
@@ -135,10 +135,10 @@ create policy "kingdoms insert own" on ashk_kingdoms for insert with check (user
 create policy "kingdoms update own" on ashk_kingdoms for update using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 -- 급수 = 국력 구간(클라이언트 GRADES 와 동일). 급수·국력이 안 맞거나 급격히 뛰면 거부
-create or replace function ashk_grade_of(p int) returns int language sql immutable as $$
+create or replace function ashk_grade_of(p int) returns int language sql immutable set search_path = public as $$
   select case when p >= 5600 then 7 when p >= 4000 then 6 when p >= 2800 then 5 when p >= 1900 then 4 when p >= 1200 then 3 when p >= 700 then 2 else 1 end;
 $$;
-create or replace function ashk_kingdoms_guard() returns trigger language plpgsql as $$
+create or replace function ashk_kingdoms_guard() returns trigger language plpgsql set search_path = public as $$
 begin
   if (select min_client_ver from ashk_config where id = 1) > new.client_ver then raise exception 'client too old'; end if;
   if new.grade <> ashk_grade_of(new.power) then raise exception 'grade mismatch'; end if;
@@ -174,7 +174,7 @@ create policy "groups read" on ashk_olympic_groups for select using (true);
 create policy "members read" on ashk_olympic_members for select using (true);
 -- 쓰기는 아래 RPC(security definer)로만
 
-create or replace function ashk_quota(c text) returns int language sql immutable as $$
+create or replace function ashk_quota(c text) returns int language sql immutable set search_path = public as $$
   select case c when 'asia' then 20 when 'europe' then 12 when 'africa' then 10 when 'namerica' then 10 when 'samerica' then 7 else 5 end;
 $$;
 
@@ -267,7 +267,7 @@ alter table ashk_hall_of_fame enable row level security;
 create policy "hof read" on ashk_hall_of_fame for select using (true);
 
 -- 매주 월요일 00:05(UTC) 지난주 1위를 기록 (Supabase: Database → Extensions → pg_cron 켜기)
-create or replace function ashk_close_week() returns void language sql security definer as $$
+create or replace function ashk_close_week() returns void language sql security definer set search_path = public as $$
   insert into ashk_hall_of_fame (week, kind, name, score)
   select floor((extract(epoch from now()) - 345600) / 604800)::int - 1, b.kind, b.name, b.score
   from (select distinct on (kind) kind, name, score from ashk_board
@@ -275,11 +275,12 @@ create or replace function ashk_close_week() returns void language sql security 
         order by kind, score desc) b
   on conflict do nothing;
 $$;
+revoke all on function ashk_close_week() from public, anon, authenticated;
 -- select cron.schedule('ashk-week', '5 0 * * 1', 'select ashk_close_week()');
 
 -- ---------- 매일 직접 확인용: 의심 기록 ----------
 -- 규칙이 다 잡지는 못하므로 하루 한두 번 이 뷰를 보고 수동으로 정리한다(비용 0, 시간만 든다).
-create or replace view ashk_suspicious as
+create or replace view ashk_suspicious with (security_invoker = true) as
   with s as (
     select kind, bracket, percentile_cont(0.99) within group (order by score) as p99
     from ashk_records group by kind, bracket
@@ -287,4 +288,5 @@ create or replace view ashk_suspicious as
   select r.*, s.p99 from ashk_records r join s using (kind, bracket)
   where r.score > s.p99 * 1.3
   order by r.updated_at desc;
+revoke all on ashk_suspicious from anon, authenticated; -- 관리자(대시보드)만
 -- 정리 예: delete from ashk_records where user_id = '...';  (대시보드에서 서비스 권한으로)

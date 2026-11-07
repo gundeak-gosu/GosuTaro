@@ -17,7 +17,9 @@ const HOUR = 3600e3, DAY = 86400e3, WEEK = 7 * DAY;
 const K = "ashk_net_v1";
 
 function cfg() { return typeof window !== "undefined" ? window.ASHK_CONFIG : null; }
-export function enabled() { const c = cfg(); return !!(c && c.supabaseUrl && c.anonKey); }
+let authOff = false; // 서버에서 익명 로그인이 꺼져 있으면 이번 실행 동안 오프라인(봇) 모드로
+export function enabled() { const c = cfg(); return !authOff && !!(c && c.supabaseUrl && c.anonKey); }
+export const isAuthOff = () => authOff;
 
 function load() { try { return JSON.parse(localStorage.getItem(K)) || {}; } catch { return {}; } }
 function save(n) { try { localStorage.setItem(K, JSON.stringify(n)); } catch { /* 저장 불가 환경 */ } }
@@ -45,7 +47,10 @@ async function session() {
   if (n.auth?.refresh) {
     try { r = await api("/auth/v1/token?grant_type=refresh_token", { method: "POST", body: { refresh_token: n.auth.refresh } }); } catch { r = null; }
   }
-  if (!r) r = await api("/auth/v1/signup", { method: "POST", body: {} });
+  if (!r) {
+    try { r = await api("/auth/v1/signup", { method: "POST", body: {} }); }
+    catch (e) { if (e.status === 422 || /anonymous/i.test(e.message)) { authOff = true; e.authOff = true; } throw e; }
+  }
   n.auth = { token: r.access_token, refresh: r.refresh_token, uid: r.user?.id, exp: now() + (r.expires_in || 3600) * 1000 };
   save(n);
   return n.auth;

@@ -415,7 +415,10 @@ export function openOlympics(tab = "olympics") {
   const re = (t = tab) => { m.close(); G.afterAction(); openOlympics(t); };
   m.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => re(b.dataset.tab)));
   m.querySelector("#claimS")?.addEventListener("click", () => { const r = O.claimSeason(acc, H.gr.g, JOBS[st.player.job].perks.prize || 0); if (r) { st.gold += r.gold; toast(`시즌 조 ${r.rank}위! 💎${r.gems} 금화 ${r.gold}`, "good"); if (r.item) S.giveItem(st, r.item, 1); } re(); });
-  const fail = (e) => { pane.innerHTML = `<p class="no">연결 실패: ${esc(e.message || e)}</p>`; };
+  const fail = (e) => {
+    if (e?.authOff || Net.isAuthOff()) { m.close(); toast("서버 로그인 준비 전이라 오프라인(봇) 모드로 진행합니다", "warn"); openOlympics(tab); return; }
+    pane.innerHTML = `<p class="no">연결 실패: ${esc(e.message || e)}</p>`;
+  };
   const row = (k, extra = "") => `<div class="krow ${k.me ? "me" : ""}"><span>${extra}</span><b>${esc(k.name)}</b>${k.bot ? ' <span class="badge bot">봇</span>' : ""} <small class="muted">${CONT_LABEL[k.continent] || ""} · ${gradeName(k.grade)} · Lv.${k.level ?? "-"} · 국력 ${(k.power ?? 0).toLocaleString()}</small></div>`;
 
   if (tab === "olympics") (async () => {

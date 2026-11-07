@@ -4,6 +4,8 @@
 |---|---|---|
 | `base_male_ref.png` | 남성 기본 캐릭터(기본 레이어: 민소매·반바지), A자세, 2K | Higgsfield `gpt_image_2_6` 고품질 |
 | `base_female_ref.png` | 여성 기본 캐릭터(기본 레이어: 스포츠 상의·반바지), A자세, 2K | Higgsfield `gpt_image_2_6` 고품질 |
+| `base_male_ref_v2.png` | **v2 남성(20세, 왕자 같은 기품 + 남자다운 인상, 상의 탈의·반바지)** — 다음 3D 변환 대상 | Higgsfield 고품질 2K |
+| `base_female_ref_v2.png` | **v2 여성(20세, 매우 아름다운 얼굴, 글래머러스한 몸매, 민소매·반바지)** — 다음 3D 변환 대상 | Higgsfield 고품질 2K |
 | `hero_M.glb` / `hero_F.glb` | 위 이미지를 3D로 변환(텍스처·PBR·휴머노이드 뼈대·걷기 애니메이션) | Higgsfield `image_to_3d`(Meshy) |
 
 - 모든 인물은 실존 인물을 닮지 않은 오리지널 캐릭터입니다.
@@ -20,3 +22,6 @@
 - 이름: `idle`(대기) `run`(달리기) `attack`(근접 공격) `shoot`(사격) `gather`(채집) `pickup`(줍기) `hit`(피격) `death`(사망) `ride`(승마) `cheer`(환호) `swim`(수영). `walk`(걷기)는 기본 모델에 포함.
 - 모든 모델이 같은 뼈대 이름(Hips, Spine…, RightHand 등 24개)을 쓰므로 **동작 하나를 모든 캐릭터·의상 모델이 공유**합니다.
 - 손 방향 교정: 원본 이미지가 손바닥이 앞을 향한 자세라, 아래팔·손을 80° 비틀어 자연스럽게 보정합니다(`GlbHuman.WRIST_FIX`).
+
+## 다음 3D 변환(결제 후)
+`base_*_ref_v2.png` → `image_to_3d`(텍스처·PBR·뼈대, 35~38크레딧/개) → WebP 최적화 → `hero_M.glb`/`hero_F.glb` 교체. 게임 코드는 수정 불필요.

@@ -290,3 +290,8 @@ create or replace view ashk_suspicious with (security_invoker = true) as
   order by r.updated_at desc;
 revoke all on ashk_suspicious from anon, authenticated; -- 관리자(대시보드)만
 -- 정리 예: delete from ashk_records where user_id = '...';  (대시보드에서 서비스 권한으로)
+
+-- Supabase 는 새 함수에 anon 실행 권한을 따로 주므로, 로그인한 사용자만 쓰도록 명시적으로 회수
+revoke execute on function ashk_join_olympics(text) from anon;
+revoke execute on function ashk_save_push(int, text, text, int, int, int) from anon;
+revoke execute on function ashk_close_week() from anon;

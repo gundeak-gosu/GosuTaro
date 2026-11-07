@@ -561,3 +561,42 @@ export const DUNGEONS = {
 export const POI_RULES = {
   trader: [0.18, 0.3], radio_tower: [0.3, 0.45], raider_camp: [0.4, 0.6], iron_city: [0.45, 0.65], rad_river: [0.45, 0.65], ash_fortress: [0.78, 0.88],
 };
+
+// ---------------- 지구 생물군계 (낙하 지점의 기후로 결정) ----------------
+// tiles: 지형 생성 비율 / nodes: 자원 노드 배율 / animals: 야생 동물 / needs: 고유 압박(정규화 전)
+// start: 그 지역에서 살아남을 최소 준비물(난이도 흐름을 맞추는 보정) / weather: 날씨 가중치
+export const BIOMES = {
+  temperate: { name: "온대림", spawn: true, grass: "#5b7a3e", tree: "broad", tiles: { water: 0.24, rock: 0.8, grass: 0.58, ruin: 0.3, sand: 0, snow: 0 }, nodes: { tree: 1, bush: 1, herb: 1, rock: 1, scrap: 1 }, animals: ["deer", "goat", "chicken", "horse", "cow", "boar", "dog", "wolf"], needs: { hunger: 1, thirst: 1 }, start: [], weather: { clear: 38, cloudy: 22, rain: 20, storm: 5, fog: 8, ashfall: 6, radstorm: 1 } },
+  rainforest: { name: "열대우림", spawn: true, grass: "#2f6b2a", tree: "jungle", tiles: { water: 0.28, rock: 0.85, grass: 0.4, ruin: 0.25, sand: 0, snow: 0 }, nodes: { tree: 2, bush: 1.6, herb: 2, rock: 0.6, scrap: 0.8 }, animals: ["boar", "deer", "chicken", "goat", "dog", "wolf"], needs: { hunger: 0.95, thirst: 0.9 }, start: [["herb", 3]], weather: { clear: 18, cloudy: 20, rain: 35, storm: 15, fog: 9, ashfall: 2, radstorm: 1 } },
+  savanna: { name: "사바나", spawn: true, grass: "#9a9a45", tree: "acacia", tiles: { water: 0.2, rock: 0.82, grass: 0.5, ruin: 0.3, sand: 0.12, snow: 0 }, nodes: { tree: 0.55, bush: 1.2, herb: 0.8, rock: 1, scrap: 1 }, animals: ["horse", "cow", "boar", "deer", "dog", "goat"], needs: { hunger: 0.95, thirst: 1.15 }, start: [["water_clean", 2]], weather: { clear: 45, cloudy: 15, rain: 14, storm: 8, heatwave: 10, ashfall: 6, radstorm: 2 } },
+  desert: { name: "사막", spawn: true, grass: "#a89a62", tree: "scrub", tiles: { water: 0.16, rock: 0.78, grass: 0.82, ruin: 0.32, sand: 0.55, snow: 0 }, nodes: { tree: 0.25, bush: 0.6, herb: 0.5, rock: 1.4, scrap: 1.5 }, animals: ["goat", "dog", "chicken", "horse", "boar"], needs: { hunger: 0.85, thirst: 1.35 }, start: [["water_clean", 4], ["cloth", 2]], weather: { clear: 52, cloudy: 8, rain: 4, heatwave: 16, sandstorm: 14, ashfall: 5, radstorm: 1 } },
+  steppe: { name: "초원·스텝", spawn: true, grass: "#8a8f52", tree: "broad", tiles: { water: 0.2, rock: 0.8, grass: 0.45, ruin: 0.3, sand: 0.08, snow: 0 }, nodes: { tree: 0.35, bush: 1.3, herb: 1, rock: 1, scrap: 1 }, animals: ["horse", "goat", "cow", "wolf", "dog", "chicken"], needs: { hunger: 1, thirst: 1.1 }, start: [["water_clean", 1]], weather: { clear: 42, cloudy: 22, rain: 12, storm: 6, sandstorm: 6, snow: 4, ashfall: 7, radstorm: 1 } },
+  taiga: { name: "침엽수림(타이가)", spawn: true, grass: "#3e5a3a", tree: "conifer", tiles: { water: 0.25, rock: 0.78, grass: 0.5, ruin: 0.22, sand: 0, snow: 0.25 }, nodes: { tree: 1.7, bush: 0.8, herb: 0.7, rock: 1, scrap: 0.7 }, animals: ["wolf", "deer", "boar", "dog", "horse"], needs: { hunger: 1.15, thirst: 0.9 }, start: [["leather", 5], ["cloth", 3]], weather: { clear: 30, cloudy: 26, rain: 14, snow: 18, fog: 6, ashfall: 5, radstorm: 1 } },
+  tundra: { name: "툰드라", spawn: true, grass: "#7a8270", tree: "dwarf", tiles: { water: 0.22, rock: 0.72, grass: 0.62, ruin: 0.2, sand: 0, snow: 0.55 }, nodes: { tree: 0.3, bush: 0.7, herb: 0.6, rock: 1.4, scrap: 0.8 }, animals: ["wolf", "deer", "goat", "dog"], needs: { hunger: 1.2, thirst: 0.85 }, start: [["leather", 8], ["cloth", 4], ["bone", 2]], weather: { clear: 26, cloudy: 24, snow: 24, blizzard: 12, fog: 8, ashfall: 5, radstorm: 1 } },
+  ice: { name: "빙원", spawn: false, grass: "#dfe4e8", tree: "dwarf", tiles: { water: 0.1, rock: 0.7, grass: 0.9, ruin: 0.1, sand: 0, snow: 0.95 }, nodes: { tree: 0, bush: 0.1, herb: 0, rock: 1, scrap: 0.3 }, animals: ["wolf"], needs: { hunger: 1.3, thirst: 0.8 }, start: [], weather: { snow: 40, blizzard: 40, clear: 20 } },
+};
+
+// 계절 이름: 지역마다 다르게(열대=건기·우기, 극지=백야·극야). 게임 연도는 항상 그 지역의 '봄'에 시작.
+export const SEASON_NAMES = {
+  default: ["봄", "여름", "가을", "핵겨울"],
+  rainforest: ["건기", "우기", "건기", "우기"],
+  savanna: ["건기", "우기", "건기", "우기"],
+  desert: ["봄", "혹서기", "가을", "겨울"],
+  tundra: ["해빙기", "백야", "결빙기", "극야"],
+};
+
+// 날씨: temp(℃ 가감) thirst(갈증 배율) move(이동 배율) fog(시야 0~1) rad(시간당 피폭) water(빗물)
+export const WEATHER = {
+  clear: { name: "맑음", temp: 1 },
+  cloudy: { name: "흐림", temp: -1, fog: 0.1 },
+  rain: { name: "비", temp: -3, thirst: 0.85, water: true, fog: 0.25 },
+  storm: { name: "폭풍우", temp: -5, thirst: 0.85, move: 0.85, water: true, fog: 0.45 },
+  snow: { name: "눈", temp: -4, move: 0.9, fog: 0.3 },
+  blizzard: { name: "눈보라", temp: -9, move: 0.7, fog: 0.65 },
+  fog: { name: "짙은 안개", temp: -1, fog: 0.7 },
+  heatwave: { name: "폭염", temp: 7, thirst: 1.35 },
+  sandstorm: { name: "모래폭풍", temp: 2, thirst: 1.2, move: 0.7, fog: 0.6 },
+  ashfall: { name: "잿가루", temp: -2, fog: 0.35 },
+  radstorm: { name: "방사능 폭풍", temp: -1, rad: 4, fog: 0.35 },
+};
+export const NUCLEAR_WINTER = -4; // 핵전쟁 이후 전 지구 평균 기온 하락(세계관)

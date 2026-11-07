@@ -4,6 +4,9 @@ import * as UI from "./ui.js";
 import * as MG from "./minigames.js";
 import { JOBS, DIFFICULTY, ANIMALS, ENEMIES, CHAPTERS, ITEMS, TIME, BUILDINGS, DUNGEONS } from "./data.js";
 import { Field3D, webglAvailable, mountViewer } from "./r3d.js";
+import { randomSpawn } from "./earth.js";
+import * as Net from "./net.js";
+import { BIOMES } from "./data.js";
 import { generateWorld, TILE, WORLD_W, WORLD_H, tileAt, isBlocked, nearWater, T, NODE_TYPES } from "./world.js";
 import * as R from "./render.js";
 import { loadAccount, saveAccount, loadGame, saveGame, deleteGame } from "./storage.js";
@@ -91,7 +94,9 @@ function create() {
     el.querySelectorAll("[data-j]").forEach((b) => (b.onclick = () => { sel.job = b.dataset.j; draw(); }));
     el.querySelectorAll("[data-d]").forEach((b) => (b.onclick = () => { sel.difficulty = b.dataset.d; draw(); }));
     el.querySelector("#go").onclick = async () => {
-      const st = S.newGame({ ...sel, name: sel.name.trim().slice(0, 10), account: G.acc, look });
+      // 지구 어딘가에 떨어진다 — 어디일지는 아무도 모른다(서버가 있으면 빈 구역을 예약)
+      const sp = await Net.claimSpawn(() => randomSpawn(Math.floor(Math.random() * 2 ** 31)));
+      const st = S.newGame({ ...sel, name: sel.name.trim().slice(0, 10), account: G.acc, look, seed: sp.seed, geo: sp });
       el.hidden = true;
       await startGame(st, true);
     };
@@ -102,7 +107,7 @@ function create() {
 // ================= 게임 시작 =================
 async function startGame(st, isNew = false) {
   G.st = st;
-  G.world = generateWorld(st.seed);
+  G.world = generateWorld(st.seed, st.geo?.biome || "temperate");
   R.clearTerrainCache();
   G.r3d?.setWorld(G.world);
   G.mobs = []; G.shots = []; G.fx = []; G.trail = [];
@@ -121,6 +126,7 @@ async function startGame(st, isNew = false) {
   UI.renderHud();
   if (isNew) {
     await UI.cinematic(CHAPTERS[0].title, CHAPTERS[0].text, { palette: ["#0e0e14", "#3a2e2e", "#d0753a"] });
+    await UI.spawnReveal();
     UI.toast("💡 나무·돌·섬유를 모아 [제작]에서 돌도끼를 만드세요", "info");
   }
   G.save();
@@ -261,8 +267,11 @@ function spawnMobs(dt) {
   else if (t === T.RAD) pick = ["enemy", Math.random() < 0.5 ? "mutant" : "rad_rat"];
   else if (night && Math.random() < 0.55) pick = ["enemy", Math.random() < 0.6 ? "mutant" : "feral_dog"];
   else if (t === T.RUIN) pick = Math.random() < 0.5 ? ["enemy", "rad_rat"] : Math.random() < 0.5 + ch * 0.03 ? ["enemy", "raider"] : ["animal", "dog"];
-  else if (t === T.GRASS) pick = ["animal", ["deer", "goat", "chicken", "horse", "cow", "boar"][Math.floor(Math.random() * 6)]];
-  else pick = Math.random() < 0.5 ? ["animal", ["dog", "boar", "chicken", "goat", "wolf", "horse"][Math.floor(Math.random() * (ch >= 3 ? 6 : 4))]] : ["enemy", Math.random() < 0.6 ? "rad_rat" : "feral_dog"];
+  else if (t === T.GRASS || t === T.SAND || t === T.SNOW || Math.random() < 0.5) {
+    // 지역 야생동물: 그 땅에 사는 동물만 나타난다(사막엔 염소·개, 툰드라엔 늑대·사슴…)
+    const list = (BIOMES[G.world.biome] || BIOMES.temperate).animals.filter((a) => ch >= 3 || a !== "wolf");
+    pick = ["animal", list[Math.floor(Math.random() * list.length)]];
+  } else pick = ["enemy", Math.random() < 0.6 ? "rad_rat" : "feral_dog"];
   if (pick[1] === "raider" && ch < 2) pick = ["enemy", "rad_rat"];
   G.mobs.push(mobAt(pick[1], pick[0], x, y));
 }

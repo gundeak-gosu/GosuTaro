@@ -5,13 +5,14 @@ import * as Shop from "./shop.js";
 import * as MG from "./minigames.js";
 import {
   ITEMS, RECIPES, BUILDINGS, BASE_LEVELS, RESEARCH, ANIMALS, VEHICLES, ROLES, JOBS, DIFFICULTY,
-  CHAPTERS, ERAS, OLYMPIC_EVENTS, OLYMPICS, SHOP, STATS, ENDINGS, QUALITY, AFFIXES,
+  CHAPTERS, ERAS, OLYMPIC_EVENTS, OLYMPICS, SHOP, STATS, ENDINGS, QUALITY, AFFIXES, BIOMES, WEATHER,
 } from "./data.js";
 import { drawCharacter, drawCinematic } from "./render.js";
 import { makeRng } from "./rng.js";
 import { exportAll, importAll, saveGame, saveAccount } from "./storage.js";
 import * as Net from "./net.js";
 import * as Ic from "./icons.js";
+import * as Earth from "./earth.js";
 
 let G = null;
 export function bindUI(g) { G = g; }
@@ -488,6 +489,7 @@ export function openMenu() {
       <button class="btn" id="save">💾 지금 저장</button>
       <button class="btn" id="exp">📤 저장 코드 내보내기 (기기 변경)</button>
       <button class="btn" id="imp">📥 저장 코드 가져오기</button>
+      <button class="btn" id="globe">🌍 세계 지도 · 내 위치</button>
       <button class="btn" id="news">📢 공지 · 🏛️ 명예의 전당</button>
       <button class="btn" id="rename">✏️ 랭킹 이름 변경 (하루 1회)</button>
       <button class="btn" id="help">❓ 조작법·도움말</button>
@@ -497,6 +499,7 @@ export function openMenu() {
   m.querySelector("#exp").onclick = () => { const code = exportAll(st, G.acc); m.close(); const mm = modal(`<h3>저장 코드</h3><textarea readonly class="code">${code}</textarea><p class="muted">다른 기기에서 [가져오기]에 붙여넣으세요.</p>`); mm.querySelector("textarea").select(); };
   m.querySelector("#imp").onclick = () => { m.close(); const mm = modal(`<h3>저장 코드 붙여넣기</h3><textarea class="code" id="code"></textarea><button class="btn primary" id="go">불러오기</button>`); mm.querySelector("#go").onclick = () => { const o = importAll(mm.querySelector("#code").value); if (!o) return toast("올바르지 않은 코드", "bad"); saveGame(o.st); saveAccount(o.acc); location.reload(); }; };
   m.querySelector("#help").onclick = () => { m.close(); help(); };
+  m.querySelector("#globe").onclick = () => { m.close(); openWorldMap(); };
   m.querySelector("#news").onclick = async () => {
     m.close();
     const [ns, hof] = await Promise.all([Net.notices().catch(() => []), Net.hallOfFame().catch(() => [])]);
@@ -521,6 +524,35 @@ export function help() {
   <li><b>내구도</b>: 도구·무기·옷은 쓸수록 닳아 부서집니다. 작업대에서 수리하면 최대 내구도가 조금씩 줄어듭니다.</li>
   <li><b>죽음</b>: 목숨은 하나. 부활 수단이 없으면 세계가 초기화되지만 <b>혈통 경험치</b>는 남아 다음 생애가 더 강해집니다. 성인이 된 자녀가 있다면 왕국을 계승할 수 있습니다.</li>
   <li><b>꺼져 있는 동안</b>: 캐릭터는 기지에서 쉬고(굶지 않음), 기지는 최대 8시간분 생산·부패가 진행됩니다.</li></ul>`);
+}
+
+// ---------------- 지구: 낙하 지점 / 세계 지도 ----------------
+function geoCard(g) {
+  const temps = [0, 1, 2, 3].map((i) => Math.round(S.seasonTemp(g, i)));
+  return `<div class="card"><b>${Ic.icon("ui.globe", 20)} ${esc(g.region)} · ${BIOMES[g.biome].name}</b><br>
+    <small>${Earth.fmtCoord(g.lat, g.lon)} · 옛 ${esc(g.city.name)}에서 ${g.city.km.toLocaleString()}km${g.coast ? " · 해안" : " · 내륙"}${g.south ? " · 남반구" : ""}</small><br>
+    <small class="muted">계절 기온(핵겨울 포함): ${temps.map((t, i) => `${["봄", "여름", "가을", "겨울"][i]} ${t}℃`).join(" · ")} · 강수 ${g.P > 0.8 ? "매우 많음" : g.P > 0.45 ? "보통" : g.P > 0.22 ? "적음" : "거의 없음"}</small></div>`;
+}
+export function spawnReveal() {
+  const g = S.geoOf(G.st);
+  return new Promise((resolve) => {
+    const m = modal(`<h2>${Ic.icon("ui.globe", 26)} 낙하 지점</h2>
+      <canvas id="earth" class="earthmap" width="720" height="360"></canvas>
+      ${geoCard(g)}
+      <p class="story">수많은 생존자가 지구 곳곳에서 눈을 떴다. 당신이 깨어난 곳은 <b>${esc(g.region)}</b>의 ${BIOMES[g.biome].name}. 땅과 날씨는 다르지만, 살아남아 나라를 세워야 한다는 사실은 모두에게 같다.</p>
+      <button class="btn primary big" id="ok">이곳에서 살아남는다</button>`, { wide: true, noClose: true, onClose: resolve });
+    const ctx = m.querySelector("#earth").getContext("2d");
+    let t = 0;
+    const anim = () => { if (!m.isConnected) return; t += 1; Earth.drawEarthMap(ctx, 720, 360, [{ lat: g.lat, lon: g.lon, r: 6 + Math.abs(Math.sin(t / 15)) * 10 }]); if (t < 600) requestAnimationFrame(anim); };
+    anim();
+    m.querySelector("#ok").onclick = () => m.close();
+  });
+}
+export function openWorldMap() {
+  const g = S.geoOf(G.st);
+  const m = modal(`<h2>${Ic.icon("ui.globe", 26)} 세계 지도</h2><canvas id="earth" class="earthmap" width="720" height="360"></canvas>${geoCard(g)}
+    <p class="muted small">지구 전체가 하나의 세계입니다. 다른 생존자들도 지구 어딘가에서 왕국을 세우고 있습니다. 에필로그의 '세계 재건 원정'으로 주변 땅을 되살릴 수 있습니다(세계 복구율 ${G.st.story.restore}%).</p>`, { wide: true });
+  Earth.drawEarthMap(m.querySelector("#earth").getContext("2d"), 720, 360, [{ lat: g.lat, lon: g.lon, r: 8 + G.st.story.restore / 10 }]);
 }
 
 // ---------------- 이벤트 모달 ----------------
@@ -592,7 +624,8 @@ export function renderHud() {
       <div class="bars sm"><span>${Ic.icon("ui.temp", 14)}${Math.round(p.warmth)}℃</span>${p.rad > 0 ? `<span class="${p.rad >= 100 ? "no" : ""}">${Ic.icon("ui.rad", 14)}${Math.round(p.rad)}</span>` : ""}${p.sick > 0 ? '<span class="no">🤢배탈</span>' : ""}${st.buffs.xp ? '<span class="ok">📘XP+50%</span>' : ""}</div>
     </div>
     <div class="hud-r">
-      <div>${sea.icon} ${S.day(st)}일차 ${S.clockStr(st)}</div>
+      <div>${Ic.icon("w." + (st.weather?.id || "clear"), 18)} ${WEATHER[st.weather?.id || "clear"].name} · ${sea.name} ${S.day(st)}일차 ${S.clockStr(st)}</div>
+      <div class="small muted">${Ic.icon("ui.globe", 14)} ${esc(S.geoOf(st).region)} · ${BIOMES[S.geoOf(st).biome]?.name}</div>
       <div><span title="보석">${Ic.icon("ui.gem", 16)}${acc.gems}</span> <span title="금화">${Ic.icon("ui.coin", 16)}${Math.floor(st.gold)}</span></div>
     </div>
     <div class="goal" id="goalBox">📖 ${S.chapter(st).hint}</div>`;

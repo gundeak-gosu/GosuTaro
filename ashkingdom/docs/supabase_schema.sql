@@ -41,6 +41,29 @@ end $$;
 drop trigger if exists ashk_players_guard on ashk_players;
 create trigger ashk_players_guard before insert or update on ashk_players for each row execute function ashk_players_guard();
 
+-- ---------- 공유 지구: 구역 예약(새 생애당 1회 쓰기) ----------
+-- cell = '행:열:구역행:구역열' (0.5° 격자 × 64×64). 같은 구역에 두 왕국이 생기지 않게 유니크.
+create table if not exists ashk_regions (
+  cell text primary key check (cell ~ '^[0-9]{1,3}:[0-9]{1,3}:[0-9]{1,2}:[0-9]{1,2}$'),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  biome text not null check (biome in ('temperate','rainforest','savanna','desert','steppe','taiga','tundra')),
+  client_ver int not null,
+  claimed_at timestamptz not null default now()
+);
+alter table ashk_regions enable row level security;
+create policy "regions read" on ashk_regions for select using (true);
+create policy "regions insert own" on ashk_regions for insert with check (user_id = auth.uid());
+-- 하루 3번 넘게 새 구역을 잡는 계정은 거부(새 생애 남발·구역 선점 방지)
+create or replace function ashk_regions_guard() returns trigger language plpgsql as $$
+begin
+  if (select min_client_ver from ashk_config where id = 1) > new.client_ver then raise exception 'client too old'; end if;
+  if (select count(*) from ashk_regions where user_id = auth.uid() and claimed_at > now() - interval '1 day') >= 3 then raise exception 'too many claims'; end if;
+  new.user_id := auth.uid(); new.claimed_at := now();
+  return new;
+end $$;
+drop trigger if exists ashk_regions_guard on ashk_regions;
+create trigger ashk_regions_guard before insert on ashk_regions for each row execute function ashk_regions_guard();
+
 -- ---------- 랭킹 기록: (유저, 시즌, 종목)당 한 줄 ----------
 -- kind: 올림픽 종목 id(shooting/sprint/…) 또는 'war'(영토 점수)
 create table if not exists ashk_records (

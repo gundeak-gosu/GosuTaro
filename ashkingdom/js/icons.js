@@ -170,6 +170,23 @@ const B = {
 };
 for (const [k, v] of Object.entries(B)) D["b." + k] = v;
 
+// 날씨
+const cloud = (c = "#b8b4ac", y = 0) => Pth(`M14 ${40 + y} Q8 ${40 + y} 10 ${32 + y} Q12 ${24 + y} 22 ${26 + y} Q26 ${14 + y} 38 ${18 + y} Q50 ${16 + y} 50 ${28 + y} Q58 ${30 + y} 54 ${40 + y} Z`, c);
+Object.assign(D, {
+  "w.clear": C(32, 32, 13, P.amber) + [0, 45, 90, 135, 180, 225, 270, 315].map((a) => L(`M${32 + Math.cos((a * Math.PI) / 180) * 18} ${32 + Math.sin((a * Math.PI) / 180) * 18} L${32 + Math.cos((a * Math.PI) / 180) * 25} ${32 + Math.sin((a * Math.PI) / 180) * 25}`, 3, P.amber)).join(""),
+  "w.cloudy": cloud(),
+  "w.rain": cloud("#9aa0a4", -6) + L("M20 44 L16 54 M32 44 L28 54 M44 44 L40 54", 3, P.water),
+  "w.storm": cloud("#6e737a", -6) + Pth("M34 38 L26 50 H32 L28 60 L42 46 H36 L40 38 Z", P.amber),
+  "w.snow": cloud("#d8dde2", -6) + [20, 32, 44].map((x) => C(x, 50, 3, "#fff")).join(""),
+  "w.blizzard": cloud("#c8cdd2", -8) + L("M8 46 H40 M14 54 H52", 3, "#fff") + [24, 40].map((x) => C(x, 50, 2.5, "#fff")).join(""),
+  "w.fog": L("M10 22 H54 M6 32 H50 M14 42 H58 M10 52 H46", 5, "#a8a49c"),
+  "w.heatwave": C(32, 26, 12, P.red) + L("M14 46 q6 -6 12 0 t12 0 t12 0 M14 54 q6 -6 12 0 t12 0 t12 0", 3, P.amber),
+  "w.sandstorm": L("M8 24 Q30 16 44 24 T58 26 M6 36 Q24 30 40 36 T56 38 M10 48 Q30 42 46 48", 4, "#c8b07a"),
+  "w.ashfall": cloud("#55504b", -8) + [18, 28, 38, 46].map((x, i) => R(x, 46 + (i % 2) * 6, 4, 4, "#8a857c", 1)).join(""),
+  "w.radstorm": cloud("#5a6a3a", -8) + C(32, 48, 8, P.rad) + C(32, 48, 2, P.ink),
+  "ui.globe": C(32, 32, 24, P.water) + Pth("M18 20 Q24 14 30 18 Q34 26 26 30 Q20 34 22 42 Q14 38 12 30 Z", P.leaf) + Pth("M38 14 Q48 16 52 26 Q46 30 40 26 Q36 20 38 14 Z", P.leaf) + Pth("M36 38 Q44 36 46 44 Q42 52 36 50 Z", P.leaf),
+});
+
 // 직업·동물(동일 원형 메달 위)
 const medal = (inner, ring = P.gold) => C(32, 32, 26, "#3a2f26") + `<circle cx="32" cy="32" r="26" fill="none" stroke="${ring}" stroke-width="3"/>` + `<g transform="translate(12 12) scale(.625)">${inner}</g>`;
 Object.assign(D, {

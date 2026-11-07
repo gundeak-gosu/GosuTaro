@@ -6,7 +6,7 @@
 // assets/models/*.glb 가 있으면 전문 3D 모델로 교체할 수 있게 loadCustomModel() 훅을 둔다(기획서 §15).
 // =====================================================================
 import * as THREE from "three";
-import { ITEMS, ANIMALS, VEHICLES, BUILDINGS, BASE_LEVELS } from "./data.js";
+import { ITEMS, ANIMALS, VEHICLES, BUILDINGS, BASE_LEVELS, BIOMES, WEATHER } from "./data.js";
 import { TILE, WORLD_W, WORLD_H, T } from "./world.js";
 import { baseLayout } from "./render.js";
 import * as Ic from "./icons.js";
@@ -498,8 +498,10 @@ export class Field3D {
     if (this.terrain) { this.scene.remove(this.terrain, this.water, this.nodeGroup, this.poiGroup); }
     const N = WORLD_W;
     const hgt = new Float32Array((N + 1) * (N + 1));
-    const colors = { 0: "#77705f", 1: "#5b7a3e", 2: "#5d5d61", 3: "#4e5a4a", 4: "#6d8a35", 5: "#6a625a", 6: "#7d6a50", 7: "#3f3c39" };
-    const H = { 0: 0.05, 1: 0.1, 2: 0.02, 3: -0.9, 4: 0.0, 5: 0.9, 6: 0, 7: 0 };
+    const BI = BIOMES[world.biome] || BIOMES.temperate;
+    const cold = world.biome === "tundra" || world.biome === "taiga";
+    const colors = { 0: world.biome === "desert" ? "#a8936a" : cold ? "#7a776e" : "#77705f", 1: BI.grass, 2: "#5d5d61", 3: "#4e5a4a", 4: "#6d8a35", 5: cold ? "#78736c" : "#6a625a", 6: "#7d6a50", 7: "#3f3c39", 8: "#c8b07a", 9: "#e3e7ea" };
+    const H = { 0: 0.05, 1: 0.1, 2: 0.02, 3: -0.9, 4: 0.0, 5: 0.9, 6: 0, 7: 0, 8: 0.12, 9: 0.1 };
     const tileT = (x, y) => world.tiles[Math.max(0, Math.min(N - 1, y)) * N + Math.max(0, Math.min(N - 1, x))];
     const g = new THREE.PlaneGeometry(N, N, N, N);
     g.rotateX(-Math.PI / 2);
@@ -548,8 +550,16 @@ export class Field3D {
   // ---------- 자원 노드(인스턴싱) ----------
   buildNodes(world) {
     this.nodeGroup = new THREE.Group(); this.scene.add(this.nodeGroup);
+    // 나무 모양은 지역마다: 침엽수(원뿔)·정글(크고 짙음)·아카시아(넓고 납작)·관목(마른 덤불)·왜성목(작음)
+    const TS = { broad: [geo("canopy", () => new THREE.IcosahedronGeometry(0.9, 1)), "#5d6e3a", 2.3, 2.2],
+      conifer: [geo("conifer", () => new THREE.ConeGeometry(0.8, 2.6, 7)), "#2f4a2e", 2.4, 2.0],
+      jungle: [geo("jungle", () => new THREE.IcosahedronGeometry(1.3, 1)), "#2e6a2a", 3.0, 3.0],
+      acacia: [geo("acacia", () => { const g = new THREE.IcosahedronGeometry(1.2, 1); g.scale(1.3, 0.35, 1.3); return g; }), "#7a8a3a", 2.4, 2.3],
+      scrub: [geo("scrub", () => new THREE.IcosahedronGeometry(0.55, 0)), "#7a6a42", 0.9, 0.8],
+      dwarf: [geo("dwarf", () => new THREE.IcosahedronGeometry(0.45, 0)), "#4a5a3a", 0.8, 0.7] };
+    const ts = TS[(BIOMES[world.biome] || BIOMES.temperate).tree] || TS.broad;
     const parts = {
-      tree: [[cyl(0.07, 0.16, 2.2, 7), mat("#4a3726", { r: 0.95, flat: true }), 1.1], [geo("canopy", () => new THREE.IcosahedronGeometry(0.9, 1)), mat("#5d6e3a", { r: 0.95, flat: true }), 2.3]],
+      tree: [[cyl(0.07, 0.16, ts[3], 7), mat("#4a3726", { r: 0.95, flat: true }), ts[3] / 2], [ts[0], mat(ts[1], { r: 0.95, flat: true }), ts[2]]],
       rock: [[geo("rock", () => new THREE.DodecahedronGeometry(0.55, 0)), mat("#7d766e", { r: 0.9, flat: true }), 0.25]],
       scrap: [[box(0.7, 0.35, 0.5), mat("#6e4a32", { r: 0.7, m: 0.5, flat: true }), 0.18], [cyl(0.22, 0.22, 0.6, 10), mat("#5a6a6e", { r: 0.5, m: 0.6 }), 0.3]],
       bush: [[geo("bush", () => new THREE.IcosahedronGeometry(0.45, 1)), mat("#4f6e34", { r: 1, flat: true }), 0.3]],
@@ -786,7 +796,8 @@ export class Field3D {
     const hour = (st.time.min % 1440) / 60;
     const sm = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
     const dayK = sm(4.5, 7.5, hour) * (1 - sm(18, 20.5, hour)); // 새벽·노을 전환이 있는 낮 곡선
-    const winter = G.seasonId === "winter";
+    const wid = st.weather?.id || "clear", W = WEATHER[wid] || WEATHER.clear;
+    const winter = G.seasonId === "winter" || wid === "snow" || wid === "blizzard";
     const sunCol = new THREE.Color().setHSL(0.08, 0.6, 0.55 + dayK * 0.25);
     this.sun.color.copy(sunCol);
     this.sun.intensity = 0.2 + dayK * 2.6;
@@ -796,19 +807,23 @@ export class Field3D {
     this.sun.position.set(px + Math.cos(ang) * 20, py + 6 + Math.max(0.2, Math.sin(ang)) * 22, pz + 12);
     this.sun.target.position.set(px, py, pz);
     this.hemi.intensity = 0.3 + dayK * 0.9;
-    const fogDay = winter ? new THREE.Color(0xb8bcc4) : new THREE.Color(0xa49482);
+    const skyByWeather = { storm: 0x5e646a, rain: 0x7e8488, sandstorm: 0xb8925a, ashfall: 0x7a7570, radstorm: 0x7a8a50, fog: 0xa8aaa8, heatwave: 0xd2b48a, blizzard: 0xd8dde2 };
+    const fogDay = new THREE.Color(skyByWeather[wid] ?? (winter ? 0xb8bcc4 : this.world.biome === "desert" ? 0xc8b08a : this.world.biome === "rainforest" ? 0x8a9a80 : 0xa49482));
     const fogNight = new THREE.Color(0x10131c);
     const fogC = fogNight.clone().lerp(fogDay, dayK);
     if (G.inRad) fogC.lerp(new THREE.Color(0x6a8a3a), 0.35);
     this.scene.fog.color.copy(fogC);
-    this.scene.fog.near = 18 + dayK * 8; this.scene.fog.far = 38 + dayK * 26;
+    const fogK = 1 - (W.fog || 0) * 0.65; // 날씨 시야
+    this.scene.fog.near = (18 + dayK * 8) * fogK; this.scene.fog.far = (38 + dayK * 26) * fogK + 6;
+    this.sun.intensity *= wid === "storm" || wid === "blizzard" ? 0.45 : wid === "rain" || wid === "snow" || wid === "fog" ? 0.7 : 1;
     this.scene.background = fogC;
     this.torch.position.set(px, py + 1.8, pz + 0.5);
     this.torch.intensity = (1 - dayK) * 6;
     if (this.fireSpot) { this.fire.position.copy(this.fireSpot); this.fire.intensity = (0.6 + (1 - dayK) * 6) * (0.85 + Math.sin(G.t * 13) * 0.1 + Math.sin(G.t * 7.3) * 0.05); } else this.fire.intensity = 0;
 
     // ---------- 날씨 입자 ----------
-    this.weather(dt, px, py, pz, winter ? "snow" : G.inRad ? "rad" : "ash");
+    const kind = wid === "rain" || wid === "storm" ? "rain" : wid === "snow" ? "snow" : wid === "blizzard" ? "blizzard" : wid === "sandstorm" ? "sand" : wid === "radstorm" || G.inRad ? "rad" : wid === "ashfall" ? "ashfall" : "ash";
+    this.weather(dt, px, py, pz, kind);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -823,13 +838,14 @@ export class Field3D {
       this.scene.add(this.parts);
     }
     const m = this.parts.material;
-    m.color.set(kind === "snow" ? 0xf2f4ff : kind === "rad" ? 0xaaff5a : 0xc8c0b4);
-    m.size = kind === "snow" ? 0.12 : 0.06;
+    const look = { snow: [0xf2f4ff, 0.12, 1.6, 0.2], blizzard: [0xffffff, 0.14, 3.5, 9], rain: [0x9fb8c8, 0.07, 14, 0.8], sand: [0xc8a86a, 0.09, 0.4, 11], rad: [0xaaff5a, 0.07, 0.5, 0.4], ashfall: [0x8a857c, 0.1, 0.9, 0.6], ash: [0xc8c0b4, 0.05, 0.5, 0.4] }[kind];
+    m.color.set(look[0]); m.size = look[1];
+    m.opacity = kind === "ash" ? 0.45 : 0.85;
     const a = this.parts.geometry.attributes.position.array;
-    const fall = kind === "snow" ? 1.6 : 0.5;
+    const fall = look[2], wind = look[3];
     for (let i = 0; i < a.length; i += 3) {
       a[i + 1] -= fall * dt * (0.6 + (i % 7) / 7);
-      a[i] += Math.sin(this.camPos.x + i) * dt * 0.3 + (kind === "snow" ? 0 : dt * 0.4);
+      a[i] += Math.sin(this.camPos.x + i) * dt * 0.3 + wind * dt;
       if (a[i + 1] < 0) { a[i + 1] = 14; a[i] = (Math.random() - 0.5) * 40; a[i + 2] = (Math.random() - 0.5) * 34; }
     }
     this.parts.geometry.attributes.position.needsUpdate = true;

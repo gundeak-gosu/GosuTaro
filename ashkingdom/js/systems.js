@@ -5,6 +5,7 @@
 import {
   VERSION, TIME, DIFFICULTY, JOBS, ITEMS, RECIPES, BUILDINGS, BASE_LEVELS, RESEARCH, ANIMALS,
   VEHICLES, ROLES, STORY_COMPANIONS, SURVIVOR_NAMES, CHAPTERS, ENDINGS, XP_CURVE, ENEMIES, QUALITY, AFFIXES,
+  BIOMES, SEASON_NAMES, WEATHER, NUCLEAR_WINTER,
 } from "./data.js";
 import { makeRng } from "./rng.js";
 
@@ -43,7 +44,10 @@ export function hasSkill(state, id) {
 }
 
 // =========================== 새 게임 ===========================
-export function newGame({ name, gender, job, difficulty, seed, account, look }) {
+// 위치 정보가 없는 옛 세이브/테스트용 기본값: 서울 근교 온대림
+export const DEFAULT_GEO = { id: "legacy", lat: 37.5, lon: 127.0, T0: 12, A: 11, P: 0.6, cont: 0.5, biome: "temperate", coast: false, region: "동아시아", city: { name: "서울", km: 20 }, south: false };
+
+export function newGame({ name, gender, job, difficulty, seed, account, look, geo }) {
   if (!JOBS[job]) throw new Error("unknown job " + job);
   if (!DIFFICULTY[difficulty]) throw new Error("unknown difficulty " + difficulty);
   const jd = JOBS[job];
@@ -77,6 +81,8 @@ export function newGame({ name, gender, job, difficulty, seed, account, look }) 
     revive: { usedThisChapter: 0 },
     gold: 0,
     world: { depleted: {} },
+    geo: geo || DEFAULT_GEO,
+    weather: { id: "clear" },
     stats: { kills: 0, crafted: 0, gathered: 0, daysSurvived: 0, xpEarned: 0 },
     nextRaidDay: DIFFICULTY[difficulty].raidEveryDays + 2,
     family: { spouse: null, children: [] },
@@ -90,6 +96,7 @@ export function newGame({ name, gender, job, difficulty, seed, account, look }) 
   st.player.hp = st.player.maxHp;
   // 기본 속옷 상태(맨몸) → 시작 옷: 누더기 셔츠·바지
   for (const [id, q] of jd.start) addItem(st, st.inv, id, q);
+  for (const [id, q] of BIOMES[st.geo.biome]?.start || []) addItem(st, st.inv, id, q); // 지역 생존 최소 준비물
   addItem(st, st.inv, "rag_shirt", 1); equipFromInv(st, "rag_shirt");
   addItem(st, st.inv, "rag_pants", 1); equipFromInv(st, "rag_pants");
   log(st, `${DIFFICULTY[difficulty].name} 난이도 · ${jd.name} ${st.player.name}의 생존이 시작됩니다.`);
@@ -105,8 +112,50 @@ export function log(st, msg, kind = "info") {
 // =========================== 시간 ===========================
 export const day = (st) => Math.floor(st.time.min / 1440) + 1;
 export const hourOf = (st) => Math.floor((st.time.min % 1440) / 60);
-export const isNight = (st) => { const h = hourOf(st); return h >= 20 || h < 6; };
-export const season = (st) => TIME.seasons[Math.floor((day(st) - 1) / TIME.daysPerSeason) % 4];
+export const geoOf = (st) => st.geo || DEFAULT_GEO;
+export const seasonIndex = (st) => Math.floor((day(st) - 1) / TIME.daysPerSeason) % 4;
+const SEASON_F = [0, 1, 0, -1]; // 봄·여름·가을·겨울 → 연교차 계수
+// 위치 기반 계절 기온(핵겨울 보정 포함). 극한값은 생존 가능한 범위로 제한(난이도 흐름 유지).
+export function seasonTemp(geo, si) { return clamp(geo.T0 + geo.A * SEASON_F[si] + NUCLEAR_WINTER, -30, 40); }
+export const season = (st) => {
+  const g = geoOf(st), si = seasonIndex(st), base = TIME.seasons[si];
+  const temp = seasonTemp(g, si);
+  const names = SEASON_NAMES[g.biome] || SEASON_NAMES.default;
+  return { ...base, name: names[si], temp, spoil: clamp(0.7 + temp / 40, 0.45, 1.45), icon: temp < 0 ? "❄️" : temp > 26 ? "☀️" : base.icon };
+};
+// 낮 길이: 위도가 높을수록 여름엔 길고 겨울엔 짧다(극지 백야·극야). 게임성을 위해 6~18시간으로 제한.
+export function daylight(st) {
+  const g = geoOf(st);
+  const k = Math.min(1, Math.abs(g.lat) / 66);
+  return clamp(12 + k * 6 * SEASON_F[seasonIndex(st)], 6, 18);
+}
+export const isNight = (st) => { const h = (st.time.min % 1440) / 60, dl = daylight(st); return h < 12 - dl / 2 || h >= 12 + dl / 2; };
+export const weather = (st) => WEATHER[st.weather?.id] || WEATHER.clear;
+
+// ---------- 지역 난이도 정규화 ----------
+// 같은 '생존 압박'이 되도록 배고픔·갈증 소모를 자동 보정한다. 지역의 성격(사막=갈증, 툰드라=추위)은 남는다.
+export function climatePressure(geo, kMul = 1) {
+  const b = BIOMES[geo.biome] || BIOMES.temperate;
+  let tot = 0, n = 0;
+  for (let si = 0; si < 4; si++) for (const night of [0, 1]) {
+    let T = seasonTemp(geo, si) - (night ? 8 : 0);
+    T += Math.min(8, Math.max(0, 18 - T)); // 판잣집(Lv2)
+    T += Math.min(15, Math.max(0, 22 - T)); // 모닥불
+    const warm = 5 + (b.start.some(([i]) => i === "leather") ? 18 : 0) * 0.6; // 지역 준비물로 만든 옷(평균 착용률 60%)
+    const amb = T < 18 ? Math.min(T + warm, Math.max(T, 24)) : T;
+    const hunger = 3 * b.needs.hunger * kMul * (amb < 0 ? 1.3 : 1);
+    const thirst = 4.2 * b.needs.thirst * kMul * (seasonTemp(geo, si) > 28 ? 1.3 : 1);
+    const cold = amb < 0 ? -amb / 6 : 0;
+    tot += hunger + thirst + cold * 3; n++;
+  }
+  return tot / n;
+}
+const REF = climatePressure(DEFAULT_GEO);
+export function needsNormalizer(geo) {
+  const g = geo || DEFAULT_GEO;
+  if (g._k === undefined) Object.defineProperty(g, "_k", { value: clamp(REF / climatePressure(g), 0.7, 1.2), enumerable: false });
+  return g._k;
+}
 export const diff = (st) => DIFFICULTY[st.difficulty];
 export const clockStr = (st) => {
   const m = Math.floor(st.time.min) % 1440;
@@ -425,7 +474,7 @@ export function hasPower(st) { return powerSupply(st) >= powerDemand(st) && powe
 
 // =========================== 생존 수치 ===========================
 export function ambientTemp(st, atBase, nearFire) {
-  let t = season(st).temp;
+  let t = season(st).temp + (atBase ? Math.max(0, weather(st).temp) : weather(st).temp); // 날씨: 실내에선 추위만 막아 줌
   if (isNight(st)) t -= 8;
   if (atBase) t += Math.min(6 + st.base.lv, Math.max(0, 18 - t)); // 벽과 지붕: 추울 때만 데워 준다
   if (nearFire) t += Math.min(15, Math.max(0, 22 - t)); // 모닥불: 쾌적 온도까지만
@@ -441,12 +490,15 @@ export function tick(st, minutes, ctx = {}) {
   const d = diff(st);
   const dayBefore = day(st);
   st.time.min += minutes;
-  const needMul = d.needs * (ctx.sleeping ? 0.5 : 1);
+  const g = geoOf(st), bio = BIOMES[g.biome] || BIOMES.temperate, w = weather(st);
+  const outdoors = !ctx.atBase;
+  const needMul = d.needs * (ctx.sleeping ? 0.5 : 1) * needsNormalizer(g);
 
-  // 배고픔/갈증
+  // 배고픔/갈증 (지역 특성 × 정규화 × 날씨)
   const coldFactor = p.warmth < 0 ? 1.3 : 1;
-  p.hunger = clamp(p.hunger - 3 * h * needMul * coldFactor * (p.sick > 0 ? 1.3 : 1), 0, 100);
-  p.thirst = clamp(p.thirst - 4.2 * h * needMul * (season(st).id === "summer" ? 1.3 : 1), 0, 100);
+  const sea = season(st);
+  p.hunger = clamp(p.hunger - 3 * h * needMul * bio.needs.hunger * coldFactor * (p.sick > 0 ? 1.3 : 1), 0, 100);
+  p.thirst = clamp(p.thirst - 4.2 * h * needMul * bio.needs.thirst * (sea.temp > 28 ? 1.3 : 1) * (outdoors ? w.thirst || 1 : 1), 0, 100);
 
   // 체온
   const base = ambientTemp(st, ctx.atBase, ctx.nearFire);
@@ -459,9 +511,10 @@ export function tick(st, minutes, ctx = {}) {
   if (p.thirst <= 0) dmg += 5 * h;
 
   // 방사능
-  if (ctx.inRad) {
+  const radIn = (ctx.inRad ? 8 : 0) + (outdoors ? w.rad || 0 : 0);
+  if (radIn > 0) {
     const prot = Math.min(0.95, equipStat(st, "rad") + (JOBS[p.job].perks.radRes || 0));
-    p.rad = clamp(p.rad + 8 * h * (1 - prot) * d.enemy, 0, 150);
+    p.rad = clamp(p.rad + radIn * h * (1 - prot) * d.enemy, 0, 150);
   } else p.rad = clamp(p.rad - 0.5 * h, 0, 150);
   if (p.rad >= 100) dmg += 4 * h;
 
@@ -516,6 +569,17 @@ export function dailyUpdate(st, d) {
   const events = [];
   const rng = makeRng(st.seed + d * 7919);
   st.stats.daysSurvived++;
+  // 오늘의 날씨: 지역 날씨표에서 추첨(영하에선 비가 눈으로)
+  {
+    const table = (BIOMES[geoOf(st).biome] || BIOMES.temperate).weather;
+    let r = rng.next() * Object.values(table).reduce((a, b) => a + b, 0), id = "clear";
+    for (const [k, v] of Object.entries(table)) { r -= v; if (r <= 0) { id = k; break; } }
+    const t = season(st).temp;
+    if (t < 1 && (id === "rain" || id === "storm")) id = id === "storm" ? "blizzard" : "snow";
+    if (t > 3 && (id === "snow" || id === "blizzard")) id = id === "blizzard" ? "storm" : "rain";
+    st.weather = { id, day: d };
+    if (id !== "clear" && id !== "cloudy") log(st, `🌦️ 오늘의 날씨: ${WEATHER[id].name}`);
+  }
   gainXp(st, 10);
 
   // 계절 알림
@@ -539,10 +603,11 @@ export function dailyUpdate(st, d) {
     if (!def.prod) continue;
     let mult = 1;
     if (b.id === "farm") {
-      if (season(st).id === "winter" && !hasSkill(st, "eden")) continue;
+      if (season(st).temp < 2 && !hasSkill(st, "eden")) continue; // 얼어붙은 땅에선 수확 없음
       mult *= 1 + (JOBS[st.player.job].perks.farm || 0) + 0.5 * Math.min(farmers, countB(st, "farm")) / Math.max(1, countB(st, "farm")) + 0.25 * Math.min(cows, 2);
     }
     if (b.id === "purifier" && hasSkill(st, "purify")) mult *= 2;
+    if (b.id === "rain_collector") mult *= weather(st).water ? 2 : BIOMES[geoOf(st).biome]?.name === "사막" ? 0.5 : 1;
     for (const [id, q] of Object.entries(def.prod)) storeToBase(st, id, Math.round(q * mult));
   }
 
@@ -1054,6 +1119,7 @@ export function moveSpeed(st) {
   if (m?.type === "animal") s *= ANIMALS[m.kind].mount;
   if (m?.type === "vehicle") s *= VEHICLES[m.id].mount;
   if (st.player.hunger <= 0 || st.player.thirst <= 0) s *= 0.7;
+  s *= weather(st).move || 1;
   return s;
 }
 

@@ -3,7 +3,7 @@
 import * as S from "../js/systems.js";
 import * as O from "../js/olympics.js";
 import * as Shop from "../js/shop.js";
-import { DUNGEONS, JOBS, DIFFICULTY, ITEMS, RECIPES, BUILDINGS, BASE_LEVELS, CHAPTERS, RESEARCH, ANIMALS, OLYMPIC_EVENTS, STORY_COMPANIONS, ENDINGS } from "../js/data.js";
+import { BIOMES, DUNGEONS, JOBS, DIFFICULTY, ITEMS, RECIPES, BUILDINGS, BASE_LEVELS, CHAPTERS, RESEARCH, ANIMALS, OLYMPIC_EVENTS, STORY_COMPANIONS, ENDINGS } from "../js/data.js";
 import { generateWorld, WORLD_W, WORLD_H, T, TILE, isBlocked } from "../js/world.js";
 import { makeRng } from "../js/rng.js";
 
@@ -138,6 +138,75 @@ test("제작 품질: 같은 레시피라도 결과가 다르고 능력치에 반
   eq(S.itemLabel(a), "날카로운 전설의 창");
 });
 
+// ---------------- 지구(공유 세계) ----------------
+const E = await import("../js/earth.js");
+test("지구: 실제 지리(육지/바다) 판정", () => {
+  for (const [n, a, o] of [["서울", 37.5, 127], ["사하라", 23, 10], ["아마존", -3, -60], ["페어뱅크스", 64.8, -147.7], ["추코트카", 66, -175], ["파리", 48.8, 2.3], ["호주", -25, 134]]) ok(E.isLand(a, o), n);
+  for (const [n, a, o] of [["태평양", 0, -150], ["대서양", 30, -40], ["인도양", -20, 80]]) ok(!E.isLand(a, o), n);
+});
+test("지구: 기후 분류가 현실과 맞음", () => {
+  const b = (a, o) => E.climate(a, o).biome;
+  eq(b(23, 10), "desert"); eq(b(-3, -60), "rainforest"); eq(b(48.8, 2.3), "temperate"); eq(b(37.5, 127), "temperate");
+  ok(["taiga", "tundra"].includes(b(65, 100))); eq(b(46, 103), "steppe");
+  eq(E.climate(31, -99).region, "북아메리카"); eq(E.climate(37.5, 127).city.name, "서울");
+});
+test("지구: 낙하 지점은 항상 육지·시작 가능 군계, 같은 시드 = 같은 지점, 여러 군계에 고르게", () => {
+  const seen = {};
+  for (let i = 0; i < 400; i++) { const sp = E.randomSpawn(i); ok(E.isLand(sp.lat, sp.lon), sp.id); ok(BIOMES[sp.biome].spawn, sp.biome); seen[sp.biome] = 1; }
+  eq(E.randomSpawn(77).id, E.randomSpawn(77).id);
+  ok(Object.keys(seen).length >= 6, Object.keys(seen).join());
+});
+test("지구: 1억 명이 시작해도 겹침이 드묾(구역 수 ≥ 2억)", () => {
+  let land = 0; for (let r = 0; r < 360; r++) for (let c = 0; c < 720; c++) if (E.landAt(r, c)) land++;
+  ok(land * E.SUB * E.SUB > 2e8, String(land * E.SUB * E.SUB));
+});
+test("지구: 어느 지역이든 생존 압박(난이도) 동일 ±10%", () => {
+  const ref = S.climatePressure(S.DEFAULT_GEO);
+  for (let i = 0; i < 300; i++) { const g = E.randomSpawn(1000 + i); const p = S.climatePressure(g, S.needsNormalizer(g)); ok(Math.abs(p / ref - 1) <= 0.1, `${g.biome} ${p}`); }
+});
+test("지구: 군계별 지형 — 사막엔 모래, 툰드라엔 눈, 모든 군계에 기지 근처 물·초반 자원", () => {
+  for (const bio of Object.keys(BIOMES).filter((k) => BIOMES[k].spawn)) {
+    const w = generateWorld(5, bio);
+    const near = w.nodes.filter((n) => Math.abs(n.tx - w.cx) <= 8 && Math.abs(n.ty - w.cy) <= 8);
+    for (const t of ["tree", "rock", "bush"]) ok(near.some((n) => n.type === t), `${bio} ${t}`);
+    let water = false; for (let y = -11; y <= 11; y++) for (let x = -11; x <= 11; x++) if (w.tiles[(w.cy + y) * WORLD_W + w.cx + x] === T.WATER) water = true;
+    ok(water, bio + " water");
+  }
+  const cnt = (w, t) => w.tiles.filter((x) => x === t).length;
+  ok(cnt(generateWorld(5, "desert"), T.SAND) > 1000); ok(cnt(generateWorld(5, "tundra"), T.SNOW) > 1000);
+});
+test("지구: 같은 좌표면 같은 지형(공유 세계)", () => {
+  const a = E.randomSpawn(42), b = E.randomSpawn(42);
+  eq(generateWorld(a.seed, a.biome).tiles.join(""), generateWorld(b.seed, b.biome).tiles.join(""));
+});
+test("지구: 위도별 낮 길이(고위도 여름은 길고 겨울은 짧음), 남반구도 현지 계절", () => {
+  const st = fresh().st;
+  st.geo = E.climate(65, 25);
+  st.time.min = 1440 * 8 + 600; const summer = S.daylight(st);
+  st.time.min = 1440 * 22 + 600; const winter = S.daylight(st);
+  ok(summer > 16 && winter < 8, `${summer} ${winter}`);
+  st.geo = E.climate(0, 22); ok(Math.abs(S.daylight(st) - 12) < 1);
+});
+test("지구: 날씨는 지역 날씨표에서 나오고 영하에선 비 대신 눈", () => {
+  const st = fresh().st;
+  st.geo = E.climate(23, 10); // 사막
+  const seen = new Set(); for (let d = 2; d < 120; d++) { st.time.min = 1440 * (d - 1) + 60; S.dailyUpdate(st, d); seen.add(st.weather.id); }
+  ok(seen.has("sandstorm") || seen.has("heatwave"), [...seen].join());
+  ok(!seen.has("snow") && !seen.has("blizzard"));
+});
+for (const bio of ["desert", "tundra", "rainforest"]) test(`지구: ${bio}에서도 무과금 생존 흐름(물·음식 확보 시 7일 생존)`, () => {
+  const { st } = fresh("soldier", "normal");
+  st.geo = { ...S.DEFAULT_GEO, ...(bio === "desert" ? E.climate(23, 10) : bio === "tundra" ? E.climate(68, 160) : E.climate(-3, -60)) };
+  S.addItem(st, st.inv, "canned_food", 30); S.addItem(st, st.inv, "water_clean", 40);
+  st.base.buildings.push({ uid: "f", id: "campfire" });
+  for (let hr = 0; hr < 24 * 7 && !st.dead; hr++) {
+    S.tick(st, 60, { atBase: true, nearFire: true });
+    if (st.player.hunger < 50) S.useItem(st, st.inv.findIndex((x) => x.id === "canned_food"));
+    if (st.player.thirst < 50) S.useItem(st, st.inv.findIndex((x) => x.id === "water_clean"));
+  }
+  ok(!st.dead, `${bio} died: ${st.dead?.cause}`);
+});
+
 // ---------------- 생존/부패/내구도 ----------------
 test("새 게임: 체력 가득, 옷 착용, 시작 아이템", () => {
   for (const job of Object.keys(JOBS)) for (const d of Object.keys(DIFFICULTY)) {
@@ -147,18 +216,18 @@ test("새 게임: 체력 가득, 옷 착용, 시작 아이템", () => {
     ok(st.inv.length > 0);
   }
 });
-test("부패: 생고기 상온 24h → 썩음, 저장고(0.4)에선 아직 신선", () => {
+test("부패: 생고기 상온 약 하루 반 → 썩음(기온 8℃), 저장고(0.4)에선 아직 신선", () => {
   const { st } = fresh("soldier");
   S.build(st, "crate"); // 비용 부족 → 실패해야 함
   eq(S.hasBuilding(st, "crate"), false);
   st.base.buildings.push({ uid: "c1", id: "cellar", storage: [] });
   S.addItem(st, st.inv, "raw_meat", 3);
   S.storeToBase(st, "raw_meat", 3);
-  for (let i = 0; i < 25; i++) S.tick(st, 60, { atBase: true, nearFire: true });
+  for (let i = 0; i < 28; i++) S.tick(st, 60, { atBase: true, nearFire: true });
   eq(S.count(st.inv, "raw_meat"), 0, "bag meat should rot");
   ok(S.count(st.inv, "rotten_food") >= 3, "rotten produced");
   const cel = st.base.buildings[0].storage.find((s) => s.id === "raw_meat");
-  ok(cel && cel.fresh > 0.4 && cel.fresh < 0.7, "cellar fresh " + cel?.fresh);
+  ok(cel && cel.fresh > 0.45 && cel.fresh < 0.75, "cellar fresh " + cel?.fresh);
 });
 test("부패: 요리사 직업은 25% 느리게, 핵겨울엔 더 느리게", () => {
   const a = fresh("cook").st, b = fresh("soldier").st;

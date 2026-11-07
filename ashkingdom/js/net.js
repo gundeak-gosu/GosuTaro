@@ -51,6 +51,24 @@ async function session() {
   return n.auth;
 }
 
+// ---------- 0) 낙하 지점 예약: 새 생애마다 딱 1번 쓰기 ----------
+// 같은 구역에 이미 다른 왕국이 있으면(유니크 충돌) 다른 곳을 다시 뽑는다. 서버가 없으면 그냥 무작위.
+export async function claimSpawn(roll) {
+  let sp = roll();
+  if (!enabled()) return sp;
+  try {
+    const a = await session();
+    for (let i = 0; i < 4; i++) {
+      try {
+        await api("/rest/v1/ashk_regions", { method: "POST", token: a.token, prefer: "return=minimal", body: { cell: sp.id, biome: sp.biome, client_ver: CLIENT_VER } });
+        stats.sent++;
+        return sp;
+      } catch (e) { if (e.status !== 409) throw e; sp = roll(); }
+    }
+  } catch { /* 오프라인으로 진행 */ }
+  return sp;
+}
+
 // ---------- 1) 기록 보내기 (랭킹 화면 열 때만 호출) ----------
 // rec: { season, kind, bracket, score }
 export async function submitRecord(rec) {

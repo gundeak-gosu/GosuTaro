@@ -1,13 +1,13 @@
 // 월드 생성 — 시드로부터 결정적으로 생성하므로 저장 파일에는 '고갈된 자원 노드'만 저장한다.
 // (저장 용량 최소화 + 서버 저장 비용 최소화)
 import { makeRng, valueNoise2D, hashStr } from "./rng.js";
-import { POIS, POI_RULES } from "./data.js";
+import { POIS, POI_RULES, BIOMES } from "./data.js";
 
 export const TILE = 32;
 export const WORLD_W = 128;
 export const WORLD_H = 128;
 
-export const T = { ASH: 0, GRASS: 1, RUIN: 2, WATER: 3, RAD: 4, ROCK: 5, BASE: 6, ROAD: 7 };
+export const T = { ASH: 0, GRASS: 1, RUIN: 2, WATER: 3, RAD: 4, ROCK: 5, BASE: 6, ROAD: 7, SAND: 8, SNOW: 9 };
 export const TILE_INFO = {
   0: { name: "잿빛 황무지", color: "#6f6a60" },
   1: { name: "되살아난 숲", color: "#4f6b3a" },
@@ -17,6 +17,8 @@ export const TILE_INFO = {
   5: { name: "바위 지대", color: "#57504a" },
   6: { name: "기지", color: "#7a6a52" },
   7: { name: "옛 도로", color: "#3d3b39" },
+  8: { name: "모래", color: "#c8b07a" },
+  9: { name: "눈밭", color: "#e3e7ea" },
 };
 
 export const NODE_TYPES = {
@@ -29,7 +31,10 @@ export const NODE_TYPES = {
   car: { name: "버려진 차", icon: "🚗", hp: 5, respawnH: 120 },
 };
 
-export function generateWorld(seed) {
+// biome: 낙하 지점의 생물군계. 같은 좌표(시드)+같은 군계 = 같은 지형.
+export function generateWorld(seed, biome = "temperate") {
+  const B = BIOMES[biome] || BIOMES.temperate;
+  const TL = B.tiles, NM = B.nodes;
   const s = typeof seed === "string" ? hashStr(seed) : seed;
   const n1 = valueNoise2D(s), n2 = valueNoise2D(s ^ 0x9e3779b9), n3 = valueNoise2D(s ^ 0x85ebca6b);
   const rng = makeRng(s ^ 0x1234567);
@@ -42,11 +47,14 @@ export function generateWorld(seed) {
       const m = n2(x / 18, y / 18);
       const r = n3(x / 11, y / 11);
       let t = T.ASH;
-      if (e < 0.24) t = T.WATER;
-      else if (e > 0.78) t = T.ROCK;
+      const n4 = n3(x / 7 + 50, y / 7 + 50);
+      if (e < TL.water) t = T.WATER;
+      else if (e > TL.rock) t = T.ROCK;
       else if (r > 0.74) t = T.RAD;
-      else if (m > 0.6) t = T.GRASS;
-      else if (m < 0.3) t = T.RUIN;
+      else if (TL.snow && n4 < TL.snow) t = T.SNOW;
+      else if (TL.sand && n4 < TL.sand) t = T.SAND;
+      else if (m > TL.grass) t = T.GRASS;
+      else if (m < TL.ruin) t = T.RUIN;
       // 가장자리는 물(세계의 끝 — 에필로그에서 '원정'으로 확장)
       if (x < 2 || y < 2 || x >= WORLD_W - 2 || y >= WORLD_H - 2) t = T.WATER;
       tiles[y * WORLD_W + x] = t;
@@ -110,11 +118,16 @@ export function generateWorld(seed) {
       if (Math.abs(x - cx) < 4 && Math.abs(y - cy) < 4) continue;
       const roll = rng.next();
       let type = null;
-      if (t === T.GRASS) type = roll < 0.12 ? "tree" : roll < 0.17 ? "bush" : roll < 0.2 ? "herb" : null;
-      else if (t === T.ASH) type = roll < 0.035 ? "tree" : roll < 0.06 ? "rock" : roll < 0.075 ? "bush" : roll < 0.078 ? "crate" : null;
-      else if (t === T.RUIN) type = roll < 0.045 ? "scrap" : roll < 0.052 ? "crate" : roll < 0.06 ? "car" : null;
-      else if (t === T.ROCK) type = roll < 0.12 ? "rock" : null;
-      else if (t === T.RAD) type = roll < 0.05 ? "herb" : roll < 0.08 ? "scrap" : roll < 0.09 ? "crate" : null;
+      const k = (base, key) => base * (NM[key] ?? 1);
+      // 누적 확률표: 군계별 배율(나무 많은 숲, 고철 많은 사막…)
+      const pick = (list) => { let acc = 0; for (const [ty, p] of list) { acc += p; if (roll < acc) return ty; } return null; };
+      if (t === T.GRASS) type = pick([["tree", k(0.12, "tree")], ["bush", k(0.05, "bush")], ["herb", k(0.03, "herb")]]);
+      else if (t === T.ASH) type = pick([["tree", k(0.035, "tree")], ["rock", k(0.025, "rock")], ["bush", k(0.015, "bush")], ["crate", 0.003]]);
+      else if (t === T.RUIN) type = pick([["scrap", k(0.045, "scrap")], ["crate", 0.007], ["car", k(0.008, "scrap")]]);
+      else if (t === T.ROCK) type = pick([["rock", k(0.12, "rock")]]);
+      else if (t === T.RAD) type = pick([["herb", k(0.05, "herb")], ["scrap", k(0.03, "scrap")], ["crate", 0.01]]);
+      else if (t === T.SAND) type = pick([["rock", k(0.02, "rock")], ["scrap", k(0.015, "scrap")], ["bush", k(0.01, "bush")], ["car", 0.004]]);
+      else if (t === T.SNOW) type = pick([["tree", k(0.03, "tree")], ["rock", k(0.03, "rock")], ["bush", k(0.008, "bush")], ["crate", 0.003]]);
       if (type) nodes.push({ id: nid++, type, tx: x, ty: y });
     }
   }
@@ -122,7 +135,12 @@ export function generateWorld(seed) {
   const guarantee = [["tree", 5, 3], ["tree", -5, 4], ["rock", 4, -5], ["rock", -4, -5], ["bush", 6, 0], ["bush", -6, -1], ["scrap", 0, 7], ["crate", 1, -7], ["tree", 7, -3], ["herb", -7, 2]];
   for (const [type, dx, dy] of guarantee) nodes.push({ id: nid++, type, tx: cx + dx, ty: cy + dy });
 
-  return { seed: s, tiles, nodes, pois, cx, cy };
+  // 어느 지역이든 기지 근처에 물웅덩이 보장(사막의 오아시스 등) — 초반 흐름을 같게
+  let hasWater = false;
+  for (let y = -11; y <= 11 && !hasWater; y++) for (let x = -11; x <= 11; x++) if (tiles[(cy + y) * WORLD_W + cx + x] === T.WATER) { hasWater = true; break; }
+  if (!hasWater) for (let y = -1; y <= 1; y++) for (let x = -2; x <= 2; x++) setT(tiles, cx + 9 + x, cy - 3 + y, T.WATER);
+
+  return { seed: s, tiles, nodes, pois, cx, cy, biome };
 }
 
 function inside(x, y) { return x >= 0 && y >= 0 && x < WORLD_W && y < WORLD_H; }

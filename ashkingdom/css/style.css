@@ -123,6 +123,7 @@ details { margin-top: 12px; color: var(--muted); font-size: 13px; }
 .pick small { width: 48px; color: var(--muted); }
 .sw { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--line); }
 
+.earthmap { width: 100%; aspect-ratio: 2 / 1; border-radius: 10px; border: 1px solid var(--line); display: block; background: #1e2c34; }
 /* 아이콘 세트 */
 svg.gi { display: inline-block; vertical-align: middle; flex: none; }
 .gi-fb { display: inline-block; min-width: 1em; }

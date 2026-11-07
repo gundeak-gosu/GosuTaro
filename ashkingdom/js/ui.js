@@ -87,10 +87,13 @@ export function cinematic(title, text, scene = {}) {
       const frame = (now) => { if (!run) return; t += (now - last) / 1000; last = now; drawCinematic(ctx, innerWidth, innerHeight, G.st, t, scene); requestAnimationFrame(frame); };
       requestAnimationFrame(frame);
     }
+    // 성우 내레이션(일레븐랩스 음성) — 설정에서 끌 수 있고, 파일이 없으면 조용히 넘어간다
+    let vo = null;
+    if (scene.voice && G.acc.settings.voice !== false) { try { vo = new Audio(scene.voice); vo.volume = 0.95; vo.play().catch(() => {}); } catch { vo = null; } }
     const p = el.querySelector("p");
     let i = 0;
     const iv = setInterval(() => { p.textContent = text.slice(0, ++i); if (i >= text.length) clearInterval(iv); }, 28);
-    el.querySelector("button").onclick = () => { if (i < text.length) { i = text.length; p.textContent = text; return; } run = false; clearInterval(iv); el.remove(); G.paused = Math.max(0, G.paused - 1); resolve(); };
+    el.querySelector("button").onclick = () => { if (i < text.length) { i = text.length; p.textContent = text; return; } run = false; clearInterval(iv); if (vo) { vo.pause(); vo = null; } el.remove(); G.paused = Math.max(0, G.paused - 1); resolve(); };
   });
 }
 
@@ -667,12 +670,14 @@ export function openSettings() {
     <h3>그래픽</h3><div class="seg"><button class="btn ${s.gfx !== "hd" ? "on" : ""}" data-gfx="pixel">픽셀 화면(가볍고 빠름)</button><button class="btn ${s.gfx === "hd" ? "on" : ""}" data-gfx="hd">고화질 3D</button></div>
     <small class="muted">필드 화면 스타일입니다. '자세히 보기'와 이야기 장면은 항상 고화질로 보입니다.</small>
     <h3>소리</h3><div class="seg"><button class="btn ${s.sound !== false ? "on" : ""}" data-snd="1">효과음 켜기</button><button class="btn ${s.sound === false ? "on" : ""}" data-snd="0">끄기</button></div>
+    <h3>이야기 음성</h3><div class="seg"><button class="btn ${s.voice !== false ? "on" : ""}" data-vo="1">켜기</button><button class="btn ${s.voice === false ? "on" : ""}" data-vo="0">끄기</button></div>
     <h3>배경음악</h3><div class="seg"><button class="btn ${s.music !== false ? "on" : ""}" data-mus="1">켜기</button><button class="btn ${s.music === false ? "on" : ""}" data-mus="0">끄기</button></div>
     <h3>조작</h3><div class="seg"><button class="btn ${s.joyRight ? "" : "on"}" data-joy="left">조이스틱 왼쪽</button><button class="btn ${s.joyRight ? "on" : ""}" data-joy="right">오른쪽</button></div>
     <h3>튜토리얼</h3><button class="btn" id="tut">처음 안내 다시 보기</button>`);
   const re = () => { m.close(); G.applySettings(); openSettings(); };
   m.querySelectorAll("[data-gfx]").forEach((b) => (b.onclick = () => { s.gfx = b.dataset.gfx; re(); }));
   m.querySelectorAll("[data-snd]").forEach((b) => (b.onclick = () => { s.sound = b.dataset.snd === "1"; Sfx.setEnabled(s.sound); Sfx.play("click"); re(); }));
+  m.querySelectorAll("[data-vo]").forEach((b) => (b.onclick = () => { s.voice = b.dataset.vo === "1"; re(); }));
   m.querySelectorAll("[data-mus]").forEach((b) => (b.onclick = () => { s.music = b.dataset.mus === "1"; re(); }));
   m.querySelectorAll("[data-joy]").forEach((b) => (b.onclick = () => { s.joyRight = b.dataset.joy === "right"; re(); }));
   m.querySelector("#tut").onclick = () => { G.st.tut = 0; m.close(); toast("처음 안내를 다시 시작합니다", "good"); };

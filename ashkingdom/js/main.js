@@ -146,7 +146,7 @@ async function startGame(st, isNew = false) {
   if (st.tut === undefined) st.tut = isNew ? 0 : 99; // 옛 세이브는 튜토리얼 생략
   G.applySettings();
   if (isNew) {
-    await UI.cinematic(CHAPTERS[0].title, CHAPTERS[0].text, { palette: ["#0e0e14", "#3a2e2e", "#d0753a"] });
+    await UI.cinematic(CHAPTERS[0].title, CHAPTERS[0].text, { palette: ["#0e0e14", "#3a2e2e", "#d0753a"], voice: "assets/voice/ch0.mp3" });
     await UI.spawnReveal();
   }
   G.tutStart = { x: st.player.x, y: st.player.y };
@@ -595,7 +595,7 @@ async function handleStory() {
       G.save();
     } else {
       const ch = CHAPTERS[o];
-      await UI.cinematic(ch.title, ch.text, { palette: o % 2 ? ["#141820", "#3b3a45", "#a06a40"] : ["#1b1512", "#4a3326", "#c7743b"] });
+      await UI.cinematic(ch.title, ch.text, { palette: o % 2 ? ["#141820", "#3b3a45", "#a06a40"] : ["#1b1512", "#4a3326", "#c7743b"], voice: `assets/voice/ch${o}.mp3` });
     }
   }
   storyBusy = false;

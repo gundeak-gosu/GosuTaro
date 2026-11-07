@@ -14,3 +14,9 @@
 - 원본 GLB 각 13MB → 텍스처를 1024px WebP로 변환해 각 약 2.7MB(메시·뼈대 24개·애니메이션은 그대로).
   `npx @gltf-transform/cli optimize in.glb out.glb --compress false --simplify false --texture-compress webp --texture-size 1024`
 - 원본(13MB)은 힉스필드 계정의 생성 기록에서 다시 받을 수 있습니다.
+
+## 동작(모션) 추가 방법
+- `anims/<이름>.glb` 를 넣고 `anims/manifest.json` 의 `clips` 에 이름을 추가하면 자동으로 쓰입니다.
+- 이름: `idle`(대기) `run`(달리기) `attack`(근접 공격) `shoot`(사격) `gather`(채집) `pickup`(줍기) `hit`(피격) `death`(사망) `ride`(승마) `cheer`(환호) `swim`(수영). `walk`(걷기)는 기본 모델에 포함.
+- 모든 모델이 같은 뼈대 이름(Hips, Spine…, RightHand 등 24개)을 쓰므로 **동작 하나를 모든 캐릭터·의상 모델이 공유**합니다.
+- 손 방향 교정: 원본 이미지가 손바닥이 앞을 향한 자세라, 아래팔·손을 80° 비틀어 자연스럽게 보정합니다(`GlbHuman.WRIST_FIX`).

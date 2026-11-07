@@ -432,6 +432,9 @@ function makeVehicle(id) {
 // (사실적 이미지 → Meshy 3D 변환 + 휴머노이드 뼈대 + 걷기 애니메이션). 없으면 절차적 휴머노이드로 대체.
 // =====================================================================
 const HERO = { M: null, F: null };
+// 게임 동작 목록(파일 이름). walk 는 기본 모델에 들어 있음
+export const ANIM_NAMES = ["idle", "run", "attack", "shoot", "gather", "pickup", "hit", "death", "ride", "cheer", "swim"];
+const CLIPS = {};
 let SkelUtils = null, heroLoading = null;
 export function preloadHeroes(base = "assets/characters/") {
   if (heroLoading) return heroLoading;
@@ -441,14 +444,23 @@ export function preloadHeroes(base = "assets/characters/") {
       SkelUtils = SU;
       const loader = new GLTFLoader();
       await Promise.all(["M", "F"].map(async (g) => { try { HERO[g] = await loader.loadAsync(`${base}hero_${g}.glb`); } catch { HERO[g] = null; } }));
+      // 추가 동작: assets/characters/anims/<이름>.glb (같은 뼈대 이름 → 모든 캐릭터 모델이 공유). 없는 건 건너뜀
+      let have = [];
+      try { const r = await fetch(`${base}anims/manifest.json`); if (r.ok) have = (await r.json()).clips || []; } catch { /* 목록 없음 */ }
+      await Promise.all(ANIM_NAMES.filter((n) => have.includes(n)).map(async (n) => {
+        try { const gl = await loader.loadAsync(`${base}anims/${n}.glb`); if (gl.animations?.[0]) { const c = gl.animations[0].clone(); c.name = n; CLIPS[n] = c; } } catch { /* 없음 */ }
+      }));
     } catch { /* 로더 실패 → 절차적 캐릭터 유지 */ }
     return { M: !!HERO.M, F: !!HERO.F };
   })();
   return heroLoading;
 }
 export const heroAvailable = (g) => !!HERO[g];
+export const setWristFix = (deg, sign) => { GlbHuman.WRIST_FIX = { deg, sign }; }; // 조정·테스트용
 
+const _q = new THREE.Quaternion();
 class GlbHuman {
+  static WRIST_FIX = { deg: 80, sign: 1 };
   constructor(gender) {
     const gl = HERO[gender];
     this.root = new THREE.Group();
@@ -461,15 +473,38 @@ class GlbHuman {
     const k = (gender === "F" ? 1.66 : 1.76) / h;
     model.scale.multiplyScalar(k);
     model.position.y = -box.min.y * k;
+    this.bones = {};
     model.traverse((o) => {
       if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; }
+      if (o.isBone) this.bones[o.name] = o;
       if (o.isBone && !this.hand && /right.?hand|hand.?r$|r.?hand/i.test(o.name) && !/index|thumb|middle|ring|pinky/i.test(o.name)) this.hand = o;
     });
     this.root.add(model);
     this.mixer = new THREE.AnimationMixer(model);
     const clip = gl.animations?.[0];
     if (clip) { this.action = this.mixer.clipAction(clip); this.action.play(); this.action.timeScale = 0; }
+    this.acts = {};
+    for (const [n, c] of Object.entries(CLIPS)) { const a = this.mixer.clipAction(c); a.setEffectiveWeight(0); if (["attack", "shoot", "gather", "pickup", "hit", "death", "cheer"].includes(n)) { a.setLoop(THREE.LoopOnce); a.clampWhenFinished = n === "death"; } a.play(); this.acts[n] = a; }
+    this.state = "walk";
     this.heldId = null; this.swing = 0; this.k = k;
+  }
+  // 원본 이미지가 손바닥이 앞을 향한 자세라 모델 손이 '뒤집혀' 보인다 →
+  // 애니메이션 적용 후 매 프레임, 아래팔(60%)·손(40%)을 뼈 방향 축으로 비틀어 손바닥이 허벅지를 향하게 교정
+  fixWrists() {
+    const fix = GlbHuman.WRIST_FIX;
+    if (!fix) return;
+    for (const side of ["Left", "Right"]) {
+      const fore = this.bones[side + "ForeArm"], hand = this.bones[side + "Hand"];
+      if (!fore || !hand) continue;
+      const ang = (side === "Left" ? 1 : -1) * fix.deg * Math.PI / 180;
+      for (const [b, share] of [[fore, 0.6], [hand, 0.4]]) {
+        // 뼈의 길이 방향(로컬 좌표에서 자식 쪽) = 비틀기 축
+        const child = b === fore ? hand : null;
+        const axis = child ? child.position.clone().normalize() : (this._handAxis ||= fore === hand ? new THREE.Vector3(0, 1, 0) : hand.position.clone().normalize());
+        _q.setFromAxisAngle(axis, ang * share * fix.sign);
+        b.quaternion.multiply(_q);
+      }
+    }
   }
   setHeld(id) {
     if (!this.hand || id === this.heldId) return;
@@ -477,8 +512,26 @@ class GlbHuman {
     this.heldId = id; this.held = null;
     if (id) { this.held = heldItem(id); this.held.scale.setScalar(1 / this.k / (this.hand.getWorldScale(new THREE.Vector3()).x / this.k || 1)); this.hand.add(this.held); }
   }
-  animate(dt, { moving = 0, speed = 1, attack = false } = {}) {
+  // 동작 파일이 있으면 상태별로 부드럽게 전환(0.25초 크로스페이드)
+  play(name) {
+    const a = this.acts[name];
+    if (!a || this.state === name) return !!a;
+    for (const [n, x] of Object.entries(this.acts)) x.setEffectiveWeight(n === name ? 1 : 0);
+    if (a.loop === THREE.LoopOnce) { a.reset(); a.play(); }
+    if (this.action) this.action.setEffectiveWeight(0);
+    this.state = name;
+    return true;
+  }
+  animate(dt, { moving = 0, speed = 1, attack = false, riding = false } = {}) {
     if (attack) this.swing = 0.35;
+    const want = riding ? "ride" : attack ? (this.heldId && ITEMS[this.heldId]?.ranged ? "shoot" : "attack") : moving ? (speed > 1.3 ? "run" : "walk") : "idle";
+    if (want !== "walk" && this.acts[want]) {
+      this.play(want);
+      this.mixer.update(dt);
+      this.fixWrists();
+      return;
+    }
+    if (this.state !== "walk") { for (const x of Object.values(this.acts)) x.setEffectiveWeight(0); if (this.action) this.action.setEffectiveWeight(1); this.state = "walk"; }
     if (this.action) {
       const want = moving ? speed : 0;
       this.action.timeScale += (want - this.action.timeScale) * Math.min(1, dt * 10);
@@ -488,6 +541,7 @@ class GlbHuman {
       }
       this.mixer.update(dt);
     }
+    this.fixWrists();
     if (this.swing > 0) { this.swing -= dt; this.root.rotation.z = Math.sin((1 - this.swing / 0.35) * Math.PI) * 0.06; } else this.root.rotation.z = 0;
   }
 }
@@ -520,7 +574,7 @@ export class Rider {
     } else body.position.set(0, 0, 0);
   }
   animate(dt, moving, speed, attack) {
-    if (this.glb) this.glb.animate(dt, { moving: this.mountObj ? 0 : moving, speed, attack });
+    if (this.glb) this.glb.animate(dt, { moving: this.mountObj ? 0 : moving, speed, attack, riding: !!this.mountObj });
     else this.human.animate(dt, { moving: this.mountObj ? 0 : moving, speed, riding: !!this.mountObj, attack });
     if (this.mountObj?.animate) this.mountObj.animate(dt, moving, speed);
   }

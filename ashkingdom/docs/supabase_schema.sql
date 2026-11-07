@@ -70,7 +70,7 @@ create table if not exists ashk_records (
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   season text not null check (season ~ '^S[0-9]{3,6}$'),
   kind text not null check (kind in ('shooting','sprint','wrestling','cooking','horse','build','quiz','war')),
-  bracket int not null check (bracket between 4 and 8),
+  bracket int not null check (bracket between 1 and 8), -- 국가 급수(1~7)
   score int not null check (score >= 0),
   client_ver int not null,
   updated_at timestamptz not null default now(),
@@ -94,7 +94,7 @@ begin
   if new.client_ver < minv then raise exception 'client too old'; end if;
   if new.season <> cur then raise exception 'not current season'; end if;
   -- 점수 상한: 게임 공식(능력치×10 + 레벨×2 + 말 보너스) × 최대 1.3배를 브래킷별로 넉넉히
-  cap := case when new.kind = 'war' then 14 * 30 else 600 + new.bracket * 250 end;
+  cap := case when new.kind = 'war' then 14 * 30 else 800 + new.bracket * 300 end;
   if new.score > cap then raise exception 'score out of range'; end if;
   if tg_op = 'UPDATE' then
     if old.updated_at > now() - interval '55 minutes' then raise exception 'too frequent'; end if;
@@ -112,6 +112,103 @@ create trigger ashk_records_guard before insert or update on ashk_records for ea
 create or replace view ashk_board with (security_invoker = true) as
   select r.season, r.kind, r.bracket, r.score, coalesce(p.name, '생존자') as name
   from ashk_records r left join ashk_players p on p.user_id = r.user_id;
+
+-- ---------- 국가 카드: 나라급이 된 왕국의 '한 줄' (전쟁 매칭·급별 순위) ----------
+-- 위치는 0.5° 칸 중심(약 50km)으로 뭉갠 값만 저장 → 정확한 위치는 서버도 모른다
+create table if not exists ashk_kingdoms (
+  user_id uuid primary key default auth.uid() references auth.users(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 12),
+  lat numeric(5,1) not null check (lat between -90 and 90 and mod(lat * 2, 1) = 0),
+  lon numeric(5,1) not null check (lon between -180 and 180 and mod(lon * 2, 1) = 0),
+  continent text not null check (continent in ('asia','europe','africa','namerica','samerica','oceania')),
+  grade int not null check (grade between 1 and 7),
+  power int not null check (power between 0 and 20000),
+  level int not null check (level between 1 and 60),
+  client_ver int not null,
+  updated_at timestamptz not null default now()
+);
+create index if not exists ashk_kingdoms_match on ashk_kingdoms (grade, lat, lon);
+create index if not exists ashk_kingdoms_rank on ashk_kingdoms (grade, power desc);
+alter table ashk_kingdoms enable row level security;
+create policy "kingdoms read" on ashk_kingdoms for select using (true);
+create policy "kingdoms insert own" on ashk_kingdoms for insert with check (user_id = auth.uid());
+create policy "kingdoms update own" on ashk_kingdoms for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- 급수 = 국력 구간(클라이언트 GRADES 와 동일). 급수·국력이 안 맞거나 급격히 뛰면 거부
+create or replace function ashk_grade_of(p int) returns int language sql immutable as $$
+  select case when p >= 5600 then 7 when p >= 4000 then 6 when p >= 2800 then 5 when p >= 1900 then 4 when p >= 1200 then 3 when p >= 700 then 2 else 1 end;
+$$;
+create or replace function ashk_kingdoms_guard() returns trigger language plpgsql as $$
+begin
+  if (select min_client_ver from ashk_config where id = 1) > new.client_ver then raise exception 'client too old'; end if;
+  if new.grade <> ashk_grade_of(new.power) then raise exception 'grade mismatch'; end if;
+  if tg_op = 'UPDATE' then
+    if old.updated_at > now() - interval '55 minutes' then raise exception 'too frequent'; end if;
+    if new.power > old.power * 2 + 500 then raise exception 'implausible jump'; end if;
+  end if;
+  new.user_id := auth.uid(); new.updated_at := now();
+  return new;
+end $$;
+drop trigger if exists ashk_kingdoms_guard on ashk_kingdoms;
+create trigger ashk_kingdoms_guard before insert or update on ashk_kingdoms for each row execute function ashk_kingdoms_guard();
+
+-- ---------- 올림픽 조 편성: 64개국, 대륙 할당(아시아20·유럽12·아프리카10·북미10·남미7·오세아니아5) ----------
+create table if not exists ashk_olympic_groups (
+  id bigserial primary key,
+  season text not null,
+  grade int not null,
+  created_at timestamptz not null default now()
+);
+create table if not exists ashk_olympic_members (
+  season text not null,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  group_id bigint not null references ashk_olympic_groups(id) on delete cascade,
+  continent text not null,
+  grade int not null,
+  primary key (season, user_id)
+);
+create index if not exists ashk_olympic_members_group on ashk_olympic_members (group_id);
+alter table ashk_olympic_groups enable row level security;
+alter table ashk_olympic_members enable row level security;
+create policy "groups read" on ashk_olympic_groups for select using (true);
+create policy "members read" on ashk_olympic_members for select using (true);
+-- 쓰기는 아래 RPC(security definer)로만
+
+create or replace function ashk_quota(c text) returns int language sql immutable as $$
+  select case c when 'asia' then 20 when 'europe' then 12 when 'africa' then 10 when 'namerica' then 10 when 'samerica' then 7 else 5 end;
+$$;
+
+-- 시즌당 1번 호출: 같은 급 → ±1급 → ±2급 순으로 '내 대륙 자리가 남은 조'에 배정, 없으면 새 조. (빈자리는 클라이언트가 봇으로 채움)
+create or replace function ashk_join_olympics(p_season text) returns bigint language plpgsql security definer set search_path = public as $$
+declare
+  me ashk_kingdoms;
+  gid bigint;
+  dg int;
+begin
+  if p_season <> 'S' || floor(extract(epoch from now()) / 86400 / 14)::int then raise exception 'not current season'; end if;
+  select * into me from ashk_kingdoms where user_id = auth.uid();
+  if me is null then raise exception 'not a nation yet'; end if;
+  select group_id into gid from ashk_olympic_members where season = p_season and user_id = auth.uid();
+  if gid is not null then return gid; end if;
+  for dg in 0..2 loop
+    select g.id into gid from ashk_olympic_groups g
+      where g.season = p_season and abs(g.grade - me.grade) = dg
+        and (select count(*) from ashk_olympic_members m where m.group_id = g.id) < 64
+        and (select count(*) from ashk_olympic_members m where m.group_id = g.id and m.continent = me.continent) < ashk_quota(me.continent)
+      order by g.id limit 1 for update skip locked;
+    exit when gid is not null;
+  end loop;
+  if gid is null then insert into ashk_olympic_groups (season, grade) values (p_season, me.grade) returning id into gid; end if;
+  insert into ashk_olympic_members (season, user_id, group_id, continent, grade) values (p_season, auth.uid(), gid, me.continent, me.grade);
+  return gid;
+end $$;
+revoke all on function ashk_join_olympics(text) from public;
+grant execute on function ashk_join_olympics(text) to authenticated;
+
+-- 조원 목록(이름·대륙·급수) — 최대 64행
+create or replace view ashk_group_view with (security_invoker = true) as
+  select m.season, m.group_id, m.user_id, m.continent, m.grade, coalesce(k.name, '생존자') as name, k.power, k.level
+  from ashk_olympic_members m left join ashk_kingdoms k on k.user_id = m.user_id;
 
 -- ---------- 공지 (최근 10개만 조회) ----------
 create table if not exists ashk_notices (

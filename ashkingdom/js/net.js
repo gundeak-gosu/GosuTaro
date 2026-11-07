@@ -115,6 +115,71 @@ export async function openRanking(records, season, bracket) {
   return out;
 }
 
+// ---------- 국가 카드(나라급부터): 화면 열 때만, 안 바뀌면 생략, 1시간에 1번 ----------
+export async function publishKingdom(card) {
+  const n = load();
+  const prev = n.card;
+  const same = prev && prev.grade === card.grade && Math.abs(prev.power - card.power) < Math.max(20, prev.power * 0.03) && prev.lat === card.lat && prev.lon === card.lon && prev.name === card.name;
+  if (same) { stats.skipped++; return "unchanged"; }
+  if (prev && now() - prev.at < HOUR) { stats.skipped++; return "throttled"; }
+  if (enabled()) {
+    const a = await session();
+    await api("/rest/v1/ashk_kingdoms?on_conflict=user_id", { method: "POST", token: a.token, prefer: "resolution=merge-duplicates,return=minimal", body: { name: card.name.slice(0, 12), lat: card.lat, lon: card.lon, continent: card.continent, grade: card.grade, power: card.power, level: card.level, client_ver: CLIENT_VER } });
+    stats.sent++;
+  }
+  n.card = { ...card, at: now() }; save(n);
+  return enabled() ? "sent" : "offline";
+}
+
+async function cached(key, ttl, fetcher) {
+  const n = load(); n.cache = n.cache || {};
+  const c = n.cache[key];
+  if (c && now() - c.at < ttl) { stats.cached++; return c.v; }
+  if (!enabled()) return c?.v ?? null;
+  const v = await fetcher();
+  n.cache[key] = { at: now(), v };
+  // 오래된 캐시 정리
+  for (const [k, x] of Object.entries(n.cache)) if (now() - x.at > 3 * DAY) delete n.cache[k];
+  save(n); stats.fetched++;
+  return v;
+}
+
+// 전쟁 후보: 같은 급 ±2, 위도 ±40° 상자 안 최대 60개국 (1시간 캐시) — 실제 선택은 matchmaking.findWarOpponents
+export function fetchNeighbors(card) {
+  const la = Math.round(card.lat / 10) * 10;
+  return cached(`nb|${card.grade}|${la}`, HOUR, () => api(`/rest/v1/ashk_kingdoms?select=user_id,name,lat,lon,continent,grade,power,level&grade=gte.${card.grade - 2}&grade=lte.${card.grade + 2}&lat=gte.${la - 40}&lat=lte.${la + 40}&order=updated_at.desc&limit=60`)
+    .then((rows) => rows.map((r) => ({ ...r, id: r.user_id, lat: +r.lat, lon: +r.lon }))));
+}
+
+// 급별 순위: 같은 급 상위 100 (1시간 캐시)
+export function fetchGradeBoard(grade) {
+  return cached(`gb|${grade}`, HOUR, () => api(`/rest/v1/ashk_kingdoms?select=user_id,name,continent,grade,power,level&grade=eq.${grade}&order=power.desc&limit=100`)
+    .then((rows) => rows.map((r) => ({ ...r, id: r.user_id }))));
+}
+
+// 올림픽 조 배정: 시즌당 1번만 서버 호출
+export async function joinOlympics(season) {
+  const n = load();
+  if (n.group?.season === season) return n.group.id;
+  if (!enabled()) return null;
+  const a = await session();
+  const id = await api("/rest/v1/rpc/ashk_join_olympics", { method: "POST", token: a.token, body: { p_season: season } });
+  n.group = { season, id }; save(n); stats.sent++;
+  return id;
+}
+
+// 조원(최대 64) + 그들의 시즌 기록 (1시간 캐시)
+export function fetchGroup(season, groupId) {
+  return cached(`grp|${season}|${groupId}`, HOUR, async () => {
+    const members = await api(`/rest/v1/ashk_group_view?season=eq.${season}&group_id=eq.${groupId}&select=user_id,name,continent,grade,power,level&limit=64`);
+    const ids = members.map((m) => m.user_id);
+    const recs = ids.length ? await api(`/rest/v1/ashk_records?season=eq.${season}&user_id=in.(${ids.join(",")})&select=user_id,kind,score`) : [];
+    const scores = {};
+    for (const r of recs) (scores[r.user_id] = scores[r.user_id] || {})[r.kind] = r.score;
+    return { members: members.map((m) => ({ ...m, id: m.user_id })), scores };
+  });
+}
+
 // ---------- 공지: 최근 10개, 1시간 캐시 ----------
 export async function notices() {
   const n = load();
@@ -154,6 +219,8 @@ export async function rename(name) {
   n.renamedAt = now(); n.name = name; save(n);
   return { ok: true };
 }
+
+export function myId() { return load().auth?.uid || null; }
 
 // 테스트용
 export function _reset() { try { localStorage.removeItem(K); } catch { /* */ } for (const k of Object.keys(stats)) stats[k] = 0; }

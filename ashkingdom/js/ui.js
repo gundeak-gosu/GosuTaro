@@ -13,6 +13,7 @@ import { exportAll, importAll, saveGame, saveAccount } from "./storage.js";
 import * as Net from "./net.js";
 import * as Ic from "./icons.js";
 import * as Earth from "./earth.js";
+import * as MM from "./matchmaking.js";
 
 let G = null;
 export function bindUI(g) { G = g; }
@@ -369,82 +370,137 @@ export function openStory() {
 }
 
 // ---------------- 재건 올림픽 + 영토 전쟁 ----------------
-export function openOlympics() {
+const CONT_LABEL = MM.CONTINENTS;
+const gradeName = (g) => MM.GRADES[g - 1]?.name || "-";
+function nationHeader(st) {
+  const cp = S.combatPower(st), np = MM.nationPower(st, cp), gr = MM.gradeOf(np), nx = MM.nextGrade(np);
+  return { cp, np, gr, nx, html: `<div class="card"><b>🏳️ ${gr.name}</b> <small>${gr.g}급 · 국력 ${np.toLocaleString()}${nx ? ` · 다음 ${nx.name}까지 ${(nx.min - np).toLocaleString()}` : " · 최고 등급"}</small><br><small class="muted">${esc(S.geoOf(st).region)}${CONT_LABEL[MM.continentOf(S.geoOf(st).region)] !== S.geoOf(st).region ? ` (${CONT_LABEL[MM.continentOf(S.geoOf(st).region)]})` : ""} · 전투력 ${cp} · 주민 ${st.companions.length} · 성 Lv.${st.base.lv}</small></div>` };
+}
+
+// 올림픽·전쟁·급별 순위 — 나라급부터
+export function openOlympics(tab = "olympics") {
   const st = G.st, acc = G.acc;
-  const unlocked = st.base.lv >= OLYMPICS.unlockBaseLv;
-  if (!unlocked) return modal(`<h2>${Ic.icon("ui.olympics", 26)} 재건 올림픽</h2><p>거점이 <b>목책 요새(Lv.${OLYMPICS.unlockBaseLv})</b>가 되면 비슷한 레벨의 생존자들과 겨루는 시즌제 올림픽과 영토 전쟁이 열립니다.</p><p class="muted">종목: ${OLYMPIC_EVENTS.map((e) => e.icon + e.name).join(" · ")}</p>`);
+  if (!MM.isNation(st)) {
+    const ok1 = st.base.lv >= MM.NATION_REQ.baseLv, ok2 = st.companions.length >= MM.NATION_REQ.residents;
+    return modal(`<h2>${Ic.icon("ui.olympics", 26)} 나라가 되면 열립니다</h2>
+      <p>세계 곳곳의 왕국과 겨루려면 먼저 '나라'로 인정받아야 합니다.</p>
+      <div class="card"><div class="${ok1 ? "ok" : ""}">${ok1 ? "✅" : "⬜"} 거점 목책 요새(Lv.${MM.NATION_REQ.baseLv}) — 현재 Lv.${st.base.lv}</div><div class="${ok2 ? "ok" : ""}">${ok2 ? "✅" : "⬜"} 주민 ${MM.NATION_REQ.residents}명 — 현재 ${st.companions.length}명</div></div>
+      <p class="muted small">나라가 되면 국력에 따라 ${MM.GRADES.map((g) => g.name).join(" → ")} 7개 급수로 나뉘고, 같은 급수끼리 올림픽·전쟁·순위를 겨룹니다.</p>`);
+  }
   const sid = O.rollSeason(acc);
   const today = S.todayStr();
-  const ov = O.overall(acc, st.base.lv);
-  const last = O.unclaimedSeason(acc);
-  const ents = O.entrantList(st);
+  const H = nationHeader(st);
+  const g = S.geoOf(st);
+  const me = { id: "me", name: st.player.name, lat: Math.round(g.lat * 2) / 2, lon: Math.round(g.lon * 2) / 2, continent: MM.continentOf(g.region), grade: H.gr.g, power: H.np, level: st.player.level };
+  const card = MM.kingdomCard(st, H.cp);
+  if (!st.__tampered) Net.publishKingdom(card).catch(() => {}); // 화면을 열 때만, 바뀐 경우 1시간 1회
   const left = Math.ceil((O.seasonEndsAt() - Date.now()) / 86400000);
-  const m = modal(`<h2>${Ic.icon("ui.olympics", 26)} 재건 올림픽 <small>시즌 ${sid.slice(1)} · ${left}일 남음 · 브래킷 Lv.${st.base.lv}</small></h2>
+  const last = O.unclaimedSeason(acc);
+  const tabs = { olympics: "🏟️ 올림픽", war: "⚔️ 전쟁", rank: "🏆 급별 순위" };
+  const m = modal(`<h2>${Ic.icon("ui.olympics", 26)} 세계 무대 <small>시즌 ${sid.slice(1)} · ${left}일 남음</small></h2>${H.html}
     ${last ? `<div class="card gold">지난 시즌 보상이 있습니다! <button class="btn primary" id="claimS">받기</button></div>` : ""}
-    <div class="card">종합 순위 <b>${ov.overallRank}위</b> / 64 · 포인트 ${ov.pts}<br><small class="muted">1위 💎${O.rewardFor(1).gems}+${ITEMS.royal_robe.name} · 3위내 💎${O.rewardFor(3).gems} · 10위내 💎${O.rewardFor(10).gems}. 종목당 하루 ${O.TRIES_PER_DAY}회, 최고 기록만 반영.</small></div>
-    <label class="muted">출전 선수: <select id="ent">${ents.map((e) => `<option value="${e.uid}">${esc(e.name)}</option>`).join("")}</select></label>
-    <div class="rlist">${ov.per.map(({ ev, rank, best }) => `<div class="recipe"><span class="ic">${ev.icon}</span><div><b>${ev.name}</b> <small>${best ? `최고 ${best}점 · ${rank}위` : "미참가"} · 오늘 ${O.triesLeft(acc, ev.id, today)}회</small><small class="muted">${Object.entries(ev.w).map(([k, w]) => STATS.find((s) => s.id === k).name + Math.round(w * 100) + "%").join(" ")}${ev.needAnimal ? " · 말 필요" : ""}</small></div>
-      <div class="acts"><button class="btn sm" data-auto="${ev.id}">맡기기</button><button class="btn sm primary" data-man="${ev.id}">직접</button></div></div>`).join("")}</div>
-    <h3>🌐 전국 순위 <small id="netState">${Net.enabled() ? "불러오는 중…" : "오프라인 모드 — 같은 브래킷의 시뮬레이션 라이벌과 경쟁"}</small></h3>
-    <div id="netBoard" class="muted small"></div>
-    <h3>⚔️ 영토 전쟁 (비동기 PvP)</h3>
-    <div class="card">비슷한 전투력(±15%)의 다른 왕국 방어 기록에 도전합니다. 상대는 실시간 접속이 필요 없습니다(서버 비용 최소화).<br><button class="btn" id="war">상대 찾기</button> <small class="muted">하루 3회 · 승리 시 금화·영토 점수</small></div>`, { wide: true });
-  const re = () => { m.close(); G.afterAction(); openOlympics(); };
-  // 랭킹 화면을 열 때만 기록을 보낸다(바뀐 것만, 종류별 1시간 1회) — 받기도 1시간 캐시·상위 100명
-  if (acc.war?.season !== sid) acc.war = { date: "", n: 0, score: 0, season: sid };
-  const recs = OLYMPIC_EVENTS.filter((ev) => acc.olympics.entries[ev.id]?.best).map((ev) => ({ kind: ev.id, score: acc.olympics.entries[ev.id].best }));
-  if (acc.war.score) recs.push({ kind: "war", score: acc.war.score });
-  if (Net.enabled() && !st.__tampered && recs.length) Net.openRanking(recs, sid, st.base.lv).then((boards) => {
-    const el = m.querySelector("#netBoard"); if (!el) return;
-    m.querySelector("#netState").textContent = boards.error ? `연결 실패(캐시 표시): ${boards.error}` : "1시간마다 갱신";
-    el.innerHTML = recs.map((r) => { const rows = boards[r.kind] || []; const my = rows.findIndex((x) => x.score <= r.score); const ev = OLYMPIC_EVENTS.find((e) => e.id === r.kind); return `<div>${ev ? ev.icon + ev.name : "⚔️ 영토"}: 내 기록 ${r.score} · ${my >= 0 ? `약 ${my + 1}위` : rows.length >= 100 ? "100위 밖" : `${rows.length + 1}위`} / 1위 ${esc(rows[0]?.name || "-")} ${rows[0]?.score ?? ""}</div>`; }).join("");
-  }).catch(() => {}); ents.find((e) => e.uid === m.querySelector("#ent").value);
-  m.querySelector("#claimS")?.addEventListener("click", () => { const r = O.claimSeason(acc, st.base.lv, JOBS[st.player.job].perks.prize || 0); if (r) { st.gold += r.gold; toast(`시즌 ${r.rank}위! 💎${r.gems} 금화${r.gold}`, "good"); if (r.item) S.giveItem(st, r.item, 1); } re(); });
-  m.querySelectorAll("[data-auto]").forEach((b) => (b.onclick = () => {
-    const ev = OLYMPIC_EVENTS.find((e) => e.id === b.dataset.auto);
-    const e = entrant(); const extra = O.eventExtra(st, ev);
-    if (extra < 0) return toast("말이 있어야 출전할 수 있습니다", "bad");
-    const sc = O.autoScore(sid + today, ev, e, extra);
-    const r = O.submit(acc, st, ev.id, e.uid, sc, today);
-    toast(r.ok ? `${ev.name}: ${sc}점 (${r.rank}위)${r.improved ? " 신기록!" : ""}` : r.why, r.ok ? "good" : "bad");
-    re();
-  }));
-  m.querySelectorAll("[data-man]").forEach((b) => (b.onclick = async () => {
-    const ev = OLYMPIC_EVENTS.find((e) => e.id === b.dataset.man);
-    const e = entrant(); const extra = O.eventExtra(st, ev);
-    if (extra < 0) return toast("말이 있어야 출전할 수 있습니다", "bad");
-    if (O.triesLeft(acc, ev.id, today) <= 0) return toast("오늘 도전 횟수를 모두 썼습니다", "bad");
-    m.close();
-    const p = st.player;
-    let res;
-    if (ev.minigame === "shooter") res = await MG.shooter({ title: "🎯 사격 종목", enemyCount: 16, enemyHp: 20, enemyAtk: 4, playerHp: 100, playerDmg: 12, fireRate: 3.5, duration: 30, look: p.look, equip: p.equip, gender: p.gender });
-    else if (ev.minigame === "race") res = await MG.race({ title: ev.name, look: p.look, equip: p.equip, gender: p.gender, mount: ev.needAnimal ? { kind: "horse" } : null });
-    else if (ev.id === "quiz") res = await MG.quiz({ title: "📚 구세계 퀴즈" });
-    else res = await MG.timing({ title: `${ev.icon} ${ev.name}`, labels: ev.id === "cooking" ? ["손질", "불 조절", "플레이팅"] : ev.id === "build" ? ["기초", "골조", "지붕"] : ["샅바", "들배지기", "마무리"] });
-    const sc = O.manualScore(ev, e, res.perf, extra);
-    const r = O.submit(acc, st, ev.id, e.uid, sc, today);
-    toast(r.ok ? `${ev.name}: ${sc}점 (${r.rank}위)${r.improved ? " 신기록!" : ""}` : r.why, "good");
-    G.afterAction(); openOlympics();
-  }));
-  m.querySelector("#war").onclick = async () => {
-    const t = S.todayStr();
-    if (acc.war.date !== t) Object.assign(acc.war, { date: t, n: 0 });
-    if (acc.war.n >= 3) return toast("오늘 전쟁 횟수를 모두 썼습니다", "bad");
-    const myPow = S.combatPower(st);
-    const rng = makeRng(`${sid}|war|${t}|${acc.war.n}`);
-    const foePow = Math.round(myPow * rng.range(0.85, 1.15));
-    const foeName = `${rng.pick(["북부", "강변", "철의", "푸른", "잿빛", "남쪽"])} ${rng.pick(["왕국", "연합", "자치령", "공국"])}`;
-    const go = await choice("⚔️ 영토 전쟁", `상대: <b>${foeName}</b> (전투력 ${foePow})<br>내 전투력: ${myPow}<br>직접 지휘(사격전)하거나 자동 전투를 맡길 수 있습니다.`, [{ label: "직접 지휘", value: "man", cls: "primary" }, { label: "자동 전투", value: "auto" }, { label: "취소", value: null }], { closable: true });
-    if (!go) return;
-    acc.war.n++;
-    m.close();
-    let win;
-    if (go === "man") { const r = await G.playShooter({ title: `⚔️ vs ${foeName}`, enemyCount: 14, enemyHp: 40, enemyAtk: 9, duration: 35 }, foePow); win = r.win; }
-    else win = rng.next() < Math.max(0.05, Math.min(0.95, 0.5 + (myPow / foePow - 1) * 2));
-    if (win) { const g = Math.round(foePow * 0.8); st.gold += g; acc.war.score += 10; toast(`승리! 금화 +${g}, 영토 점수 ${acc.war.score}`, "good"); }
-    else toast("패배… 방어선을 보강하세요", "bad");
-    G.afterAction(); openOlympics();
-  };
+    <div class="tabs">${Object.entries(tabs).map(([k, v]) => `<button class="tab ${k === tab ? "on" : ""}" data-tab="${k}">${v}</button>`).join("")}</div>
+    <div id="pane"><p class="muted">불러오는 중…</p></div>
+    <p class="muted small" id="netNote">${Net.enabled() ? "서버 연결: 기록은 이 화면을 열 때만, 1시간에 한 번 갱신됩니다." : "오프라인 모드: 같은 급수의 봇 국가들과 겨룹니다(서버 연결 시 실제 국가로 대체)."}</p>`, { wide: true });
+  const pane = m.querySelector("#pane");
+  const re = (t = tab) => { m.close(); G.afterAction(); openOlympics(t); };
+  m.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => re(b.dataset.tab)));
+  m.querySelector("#claimS")?.addEventListener("click", () => { const r = O.claimSeason(acc, H.gr.g, JOBS[st.player.job].perks.prize || 0); if (r) { st.gold += r.gold; toast(`시즌 조 ${r.rank}위! 💎${r.gems} 금화 ${r.gold}`, "good"); if (r.item) S.giveItem(st, r.item, 1); } re(); });
+  const fail = (e) => { pane.innerHTML = `<p class="no">연결 실패: ${esc(e.message || e)}</p>`; };
+  const row = (k, extra = "") => `<div class="krow ${k.me ? "me" : ""}"><span>${extra}</span><b>${esc(k.name)}</b>${k.bot ? ' <span class="badge bot">봇</span>' : ""} <small class="muted">${CONT_LABEL[k.continent] || ""} · ${gradeName(k.grade)} · Lv.${k.level ?? "-"} · 국력 ${(k.power ?? 0).toLocaleString()}</small></div>`;
+
+  if (tab === "olympics") (async () => {
+    // 1) 조 편성: 서버(시즌당 1회) 또는 오프라인 규칙. 같은 급 → ±1급 → ±2급 → 봇
+    let members, scores = {}, how;
+    if (Net.enabled() && !st.__tampered) {
+      const gid = await Net.joinOlympics(sid);
+      const grp = await Net.fetchGroup(sid, gid);
+      const myUid = Net.myId();
+      const real = grp.members.map((x) => (x.id === myUid ? { ...me } : x));
+      if (!real.some((x) => x.me || x.id === "me")) real.push(me);
+      members = MM.fillGroupWithBots({ id: "G" + gid, grade: me.grade }, real, sid);
+      scores = grp.scores; how = `실제 국가 ${real.length - 1} + 봇 ${members.length - real.length}`;
+    } else {
+      const pool = MM.simulatedPool(sid, me.grade);
+      members = MM.composeGroupOffline(me, pool, sid);
+      how = "오프라인 — 같은 급수 봇 국가";
+    }
+    const stn = O.groupStandings(sid, members, "me", acc.olympics.entries, scores);
+    acc.olympics.rank = stn.myRank; acc.olympics.grade = me.grade;
+    const contCount = Object.keys(MM.QUOTA).map((c) => `${CONT_LABEL[c]} ${members.filter((x) => x.continent === c).length}`).join(" · ");
+    const dgCount = members.filter((x) => !x.bot && x.grade !== me.grade && x.id !== "me").length;
+    const ents = O.entrantList(st);
+    const played = OLYMPIC_EVENTS.some((ev) => acc.olympics.entries[ev.id]?.best);
+    pane.innerHTML = `<div class="card"><b>${played ? `내 조 순위 ${stn.myRank}위` : "아직 출전 전"}</b> / ${members.length}개국 <small class="muted">(${how}${dgCount ? ` · 다른 급수 ${dgCount}` : ""})</small><br><small>${contCount}</small><br>
+      <small class="muted">1위 💎${O.rewardFor(1).gems}+${ITEMS.royal_robe.name} · 3위 내 💎${O.rewardFor(3).gems} · 10위 내 💎${O.rewardFor(10).gems}. 종목당 하루 ${O.TRIES_PER_DAY}회, 최고 기록만 반영.</small></div>
+      <label class="muted">출전 선수: <select id="ent">${ents.map((e) => `<option value="${e.uid}">${esc(e.name)}</option>`).join("")}</select></label>
+      <div class="rlist">${OLYMPIC_EVENTS.map((ev) => { const r = stn.myEv[ev.id]; return `<div class="recipe"><span class="ic">${ev.icon}</span><div><b>${ev.name}</b> <small>${r ? `최고 ${r.best}점 · 조 ${r.rank}위` : "미참가"} · 오늘 ${O.triesLeft(acc, ev.id, today)}회</small><small class="muted">${Object.entries(ev.w).map(([k, w]) => STATS.find((x) => x.id === k).name + Math.round(w * 100) + "%").join(" ")}${ev.needAnimal ? " · 말 필요" : ""}</small></div>
+        <div class="acts"><button class="btn sm" data-auto="${ev.id}">맡기기</button><button class="btn sm primary" data-man="${ev.id}">직접</button></div></div>`; }).join("")}</div>
+      <h3>조 순위표</h3><div class="klist">${stn.rows.slice(0, 10).map((k, i) => row(k, `${i + 1}`)).join("")}${stn.myRank > 10 ? `<div class="muted">…</div>${row(stn.rows[stn.myRank - 1], String(stn.myRank))}` : ""}</div>`;
+    const entrant = () => ents.find((e) => e.uid === pane.querySelector("#ent").value);
+    const recs = () => OLYMPIC_EVENTS.filter((ev) => acc.olympics.entries[ev.id]?.best).map((ev) => ({ kind: ev.id, score: acc.olympics.entries[ev.id].best }));
+    if (Net.enabled() && !st.__tampered && recs().length) Net.openRanking(recs(), sid, me.grade).catch(() => {});
+    pane.querySelectorAll("[data-auto]").forEach((b) => (b.onclick = () => {
+      const ev = OLYMPIC_EVENTS.find((e) => e.id === b.dataset.auto);
+      const e = entrant(); const extra = O.eventExtra(st, ev);
+      if (extra < 0) return toast("말이 있어야 출전할 수 있습니다", "bad");
+      const sc = O.autoScore(sid + today, ev, e, extra);
+      const r = O.submit(acc, st, ev.id, e.uid, sc, today);
+      toast(r.ok ? `${ev.name}: ${sc}점${r.improved ? " 신기록!" : ""}` : r.why, r.ok ? "good" : "bad");
+      re("olympics");
+    }));
+    pane.querySelectorAll("[data-man]").forEach((b) => (b.onclick = async () => {
+      const ev = OLYMPIC_EVENTS.find((e) => e.id === b.dataset.man);
+      const e = entrant(); const extra = O.eventExtra(st, ev);
+      if (extra < 0) return toast("말이 있어야 출전할 수 있습니다", "bad");
+      if (O.triesLeft(acc, ev.id, today) <= 0) return toast("오늘 도전 횟수를 모두 썼습니다", "bad");
+      m.close();
+      const p = st.player;
+      let res;
+      if (ev.minigame === "shooter") res = await MG.shooter({ title: "🎯 사격 종목", enemyCount: 16, enemyHp: 20, enemyAtk: 4, playerHp: 100, playerDmg: 12, fireRate: 3.5, duration: 30, look: p.look, equip: p.equip, gender: p.gender });
+      else if (ev.minigame === "race") res = await MG.race({ title: ev.name, look: p.look, equip: p.equip, gender: p.gender, mount: ev.needAnimal ? { kind: "horse" } : null });
+      else if (ev.id === "quiz") res = await MG.quiz({ title: "📚 구세계 퀴즈" });
+      else res = await MG.timing({ title: `${ev.icon} ${ev.name}`, labels: ev.id === "cooking" ? ["손질", "불 조절", "플레이팅"] : ev.id === "build" ? ["기초", "골조", "지붕"] : ["샅바", "들배지기", "마무리"] });
+      const sc = O.manualScore(ev, e, res.perf, extra);
+      const r = O.submit(acc, st, ev.id, e.uid, sc, today);
+      toast(r.ok ? `${ev.name}: ${sc}점${r.improved ? " 신기록!" : ""}` : r.why, "good");
+      G.afterAction(); openOlympics("olympics");
+    }));
+  })().catch(fail);
+
+  if (tab === "war") (async () => {
+    // 2) 전쟁: 주위의 비슷한 급수 → 반경 확대 → ±1급 → ±2급 → 근처 봇
+    const pool = Net.enabled() && !st.__tampered ? (await Net.fetchNeighbors(card)) || [] : MM.nearbyBotPool(me, sid);
+    if (acc.war?.season !== sid) acc.war = { date: "", n: 0, score: 0, season: sid };
+    if (acc.war.date !== today) Object.assign(acc.war, { date: today, n: 0 });
+    const found = MM.findWarOpponents(me, pool, `${sid}|${today}|${acc.war.n}`);
+    pane.innerHTML = `<div class="card">⚔️ 오늘 남은 출정 <b>${3 - acc.war.n}</b>회 · 시즌 영토 점수 <b>${acc.war.score}</b><br><small class="muted">상대 탐색: ${found.step}. 상대가 접속해 있을 필요는 없습니다(방어 기록과 싸움).</small></div>
+      <div class="klist">${found.list.map((k, i) => `<div class="krow"><span>${i + 1}</span><b>${esc(k.name)}</b>${k.bot ? ' <span class="badge bot">봇</span>' : ""} <small class="muted">${k.dir}쪽 ${k.km.toLocaleString()}km · ${gradeName(k.grade)} · 국력 ${k.power.toLocaleString()}</small> <button class="btn sm danger" data-foe="${i}" ${acc.war.n >= 3 ? "disabled" : ""}>출정</button></div>`).join("")}</div>`;
+    pane.querySelectorAll("[data-foe]").forEach((b) => (b.onclick = async () => {
+      const foe = found.list[+b.dataset.foe];
+      const go = await choice("⚔️ 출정", `<b>${esc(foe.name)}</b> (${gradeName(foe.grade)}, 국력 ${foe.power})<br>${foe.dir}쪽 ${foe.km}km<br>직접 지휘(사격전)하거나 자동 전투를 맡길 수 있습니다.`, [{ label: "직접 지휘", value: "man", cls: "primary" }, { label: "자동 전투", value: "auto" }, { label: "취소", value: null }], { closable: true });
+      if (!go) return;
+      acc.war.n++;
+      m.close();
+      const foeCombat = Math.round(foe.power * (H.cp / Math.max(1, H.np)));
+      let win;
+      if (go === "man") { const r = await G.playShooter({ title: `⚔️ vs ${foe.name}`, enemyCount: 14, enemyHp: 40, enemyAtk: 9, duration: 35 }, foeCombat); win = r.win; }
+      else win = makeRng(`${sid}|${today}|${acc.war.n}|auto`).next() < Math.max(0.05, Math.min(0.95, 0.5 + (H.np / Math.max(1, foe.power) - 1) * 2));
+      if (win) { const gold = Math.round(foe.power * 0.5); st.gold += gold; acc.war.score += 10 + Math.max(0, foe.grade - me.grade) * 5; toast(`승리! 금화 +${gold}, 영토 점수 ${acc.war.score}`, "good"); }
+      else toast("패배… 방어선을 보강하세요", "bad");
+      G.afterAction(); openOlympics("war");
+    }));
+  })().catch(fail);
+
+  if (tab === "rank") (async () => {
+    // 3) 급별 순위: 같은 급수 안에서의 국력 순위와 레벨
+    const board = Net.enabled() && !st.__tampered ? ((await Net.fetchGradeBoard(me.grade)) || []).filter((k) => k.id !== Net.myId()) : MM.simulatedPool(sid, me.grade).filter((k) => k.grade === me.grade);
+    const rk = MM.gradeRanking(me, board);
+    const byGrade = MM.GRADES.map((x) => `<span class="chip ${x.g === me.grade ? "" : "dim"}">${x.g}급 ${x.name} <small>${x.min.toLocaleString()}+</small></span>`).join("");
+    pane.innerHTML = `<div class="card"><b>${gradeName(me.grade)} 안에서 ${rk.rank}위</b> / ${rk.total}개국 · 내 레벨 Lv.${me.level} · 국력 ${me.power.toLocaleString()}</div>
+      <div class="chips">${byGrade}</div>
+      <h3>${gradeName(me.grade)} 상위 국가</h3><div class="klist">${rk.top.slice(0, 20).map((k, i) => row(k, String(i + 1))).join("")}${rk.rank > 20 ? `<div class="muted">…</div>${row(rk.top[rk.rank - 1] || { ...me, me: true }, String(rk.rank))}` : ""}</div>`;
+  })().catch(fail);
 }
 
 // ---------------- 상점 ----------------

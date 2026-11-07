@@ -207,6 +207,83 @@ for (const bio of ["desert", "tundra", "rainforest"]) test(`지구: ${bio}에서
   ok(!st.dead, `${bio} died: ${st.dead?.cause}`);
 });
 
+// ---------------- 나라급 · 매칭 ----------------
+const MM = await import("../js/matchmaking.js");
+test("나라급: 거점 Lv4 + 주민 5명부터, 국력으로 7개 급수", () => {
+  const { st } = fresh(); st.base.lv = 4;
+  eq(MM.isNation(st), false);
+  for (let i = 0; i < 5; i++) st.companions.push(S.randomSurvivor(makeRng(i)));
+  eq(MM.isNation(st), true);
+  eq(MM.gradeOf(0).g, 1); eq(MM.gradeOf(700).g, 2); eq(MM.gradeOf(5599).g, 6); eq(MM.gradeOf(99999).g, 7);
+  const sum = Object.values(MM.QUOTA).reduce((a, b) => a + b, 0); eq(sum, MM.GROUP_SIZE);
+});
+test("전쟁: 가까운 같은 급 우선 → 없으면 ±1급 → 그래도 없으면 근처 봇", () => {
+  const me = { id: "me", lat: 37.5, lon: 127, grade: 3, continent: "asia", power: 1500 };
+  const near3 = { id: "a", name: "A", lat: 36, lon: 128, grade: 3, power: 1400, continent: "asia" };
+  const far3 = { id: "b", name: "B", lat: 48, lon: 2, grade: 3, power: 1400, continent: "europe" };
+  const near4 = { id: "c", name: "C", lat: 35, lon: 129, grade: 4, power: 2000, continent: "asia" };
+  let r = MM.findWarOpponents(me, [near3, far3, near4], "s", 1);
+  eq(r.list[0].id, "a"); eq(r.step, "근처의 같은 급");
+  r = MM.findWarOpponents(me, [far3, near4], "s", 1);
+  eq(r.list[0].id, "c"); eq(r.step, "한 급 위·아래");
+  r = MM.findWarOpponents(me, [], "s", 3);
+  eq(r.list.length, 3); ok(r.list.every((k) => k.bot && k.grade === 3 && k.km < 2500), JSON.stringify(r.list.map((k) => k.km)));
+});
+test("올림픽 조: 64개국·대륙 할당 준수, 같은 급 우선, 없으면 ±1급 조에 합류", () => {
+  const groups = [];
+  const conts = Object.keys(MM.QUOTA);
+  for (let i = 0; i < 300; i++) MM.assignGroup({ id: "p" + i, continent: conts[i % 6], grade: 3 + (i % 3 === 0 ? 1 : 0) }, groups);
+  for (const g of groups) {
+    ok(g.members.length <= 64);
+    for (const c of conts) ok(g.members.filter((m) => m.continent === c).length <= MM.QUOTA[c], `${g.id} ${c}`);
+  }
+  const lone = MM.assignGroup({ id: "x", continent: "oceania", grade: 5 }, groups);
+  ok(lone.dg === 1 || lone.group.grade === 5, "±1급 합류 또는 새 조");
+  const r = MM.assignGroup({ id: "y", continent: "asia", grade: 3 }, [{ id: "g", grade: 3, members: [] }]);
+  eq(r.dg, 0);
+});
+{
+  const fs = await import("fs");
+  const main = fs.readFileSync(new URL("../js/main.js", import.meta.url), "utf8");
+  const r3d = fs.readFileSync(new URL("../js/r3d.js", import.meta.url), "utf8");
+  const { TILE_INFO } = await import("../js/world.js");
+  test("타일 색 정의 누락 없음(미니맵·3D·2D)", () => {
+    for (const t of Object.values(T)) {
+      ok(main.includes(` ${t}: [`), `minimap ${t}`);
+      ok(new RegExp(`[{ ]${t}: `).test(r3d.slice(r3d.indexOf("const colors ="), r3d.indexOf("const colors =") + 400)), `3d ${t}`);
+      ok(TILE_INFO[t], `2d ${t}`);
+    }
+  });
+}
+test("올림픽: 시즌 초반엔 봇도 일부 종목만 참가, 끝날 무렵엔 거의 전부", () => {
+  const ev = OLYMPIC_EVENTS[0], season = "S1483", start = 1483 * 14 * 86400000;
+  let early = 0, late = 0;
+  for (let i = 0; i < 200; i++) { const b = { id: "b" + i, grade: 3 }; if (O.botParticipates(season, ev, b, start + 3600e3)) early++; if (O.botParticipates(season, ev, b, start + 13.5 * 86400000)) late++; }
+  ok(early < 70 && late > 180, `${early} ${late}`);
+});
+test("올림픽 조(오프라인): 항상 64개국, 대륙 비율 정확, 빈자리는 봇", () => {
+  const me = { id: "me", name: "나", lat: 37.5, lon: 127, continent: "asia", grade: 4, power: 2000, level: 20 };
+  const grp = MM.composeGroupOffline(me, MM.simulatedPool("S1", 4), "S1");
+  eq(grp.length, 64);
+  for (const [c, q] of Object.entries(MM.QUOTA)) eq(grp.filter((m) => m.continent === c).length, q, c);
+  ok(grp.filter((m) => m.bot && m.id !== "me").every((m) => Math.abs(m.grade - 4) <= 2));
+  ok(grp.filter((m) => m.id !== "me").filter((m) => m.grade === 4).length > 30, "같은 급 위주");
+  const stn = O.groupStandings("S1", grp, "me", { quiz: { best: 400 } });
+  ok(stn.myRank >= 1 && stn.myRank <= 64);
+  eq(O.groupStandings("S1", grp, "me", {}).rows[0].id, O.groupStandings("S1", grp, "me", {}).rows[0].id, "결정적");
+});
+test("급별 순위: 같은 급 안에서 국력 순", () => {
+  const me = { id: "me", grade: 2, power: 1000 };
+  const pool = [{ id: "a", grade: 2, power: 1100 }, { id: "b", grade: 2, power: 900 }, { id: "c", grade: 3, power: 5000 }];
+  const r = MM.gradeRanking(me, pool);
+  eq(r.rank, 2); eq(r.total, 3);
+});
+test("국가 카드: 위치는 0.5° 단위로 뭉개서(약 50km) 저장", () => {
+  const { st } = fresh(); st.geo = E.climate(37.567, 126.978);
+  const c = MM.kingdomCard(st, 500);
+  eq(c.lat * 2 % 1, 0); eq(c.lon * 2 % 1, 0); eq(c.continent, "asia");
+});
+
 // ---------------- 생존/부패/내구도 ----------------
 test("새 게임: 체력 가득, 옷 착용, 시작 아이템", () => {
   for (const job of Object.keys(JOBS)) for (const d of Object.keys(DIFFICULTY)) {

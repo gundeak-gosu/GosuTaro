@@ -712,13 +712,13 @@ function poiImg(id) { if (!poiImgs[id]) { poiImgs[id] = new Image(); poiImgs[id]
 let miniCache = null;
 function drawMinimap() {
   const size = Math.min(120, VW * 0.26);
-  if (!miniCache || miniCache.seed !== G.world.seed) {
+  if (!miniCache || miniCache.seed !== G.world.seed || miniCache.biome !== G.world.biome) {
     const c = document.createElement("canvas"); c.width = c.height = WORLD_W;
     const g = c.getContext("2d"); const img = g.createImageData(WORLD_W, WORLD_H);
-    const cols = { 0: [111, 106, 96], 1: [79, 107, 58], 2: [90, 90, 94], 3: [47, 79, 99], 4: [92, 122, 46], 5: [87, 80, 74], 6: [122, 106, 82], 7: [61, 59, 57] };
-    for (let i = 0; i < WORLD_W * WORLD_H; i++) { const c3 = cols[G.world.tiles[i]]; img.data.set([...c3, 255], i * 4); }
+    const cols = { 0: [111, 106, 96], 1: [79, 107, 58], 2: [90, 90, 94], 3: [47, 79, 99], 4: [92, 122, 46], 5: [87, 80, 74], 6: [122, 106, 82], 7: [61, 59, 57], 8: [200, 176, 122], 9: [227, 231, 234] };
+    for (let i = 0; i < WORLD_W * WORLD_H; i++) { const c3 = cols[G.world.tiles[i]] || cols[0]; img.data.set([...c3, 255], i * 4); }
     g.putImageData(img, 0, 0);
-    miniCache = { seed: G.world.seed, c };
+    miniCache = { seed: G.world.seed, biome: G.world.biome, c };
   }
   const x0 = VW - size - 10, y0 = 92;
   ctx.globalAlpha = 0.85;

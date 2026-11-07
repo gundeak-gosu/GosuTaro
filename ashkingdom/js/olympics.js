@@ -50,6 +50,43 @@ export function manualScore(ev, entrant, perf, extra = 0) {
 }
 
 // 같은 브래킷(거점 레벨)의 라이벌 63명 — 서버 연결 시 실제 유저 기록으로 대체
+// 급수(1~7)별 평균 능력치·레벨 — 봇 국가 대표선수 기준
+export const gradeStat = (g) => 6 + g * 2.2;
+export const gradeLevel = (g) => 6 + g * 6;
+
+// 봇 국가의 종목 점수(시즌·종목·봇 id 로 결정 → 모든 기기·서버에서 같은 값)
+export function botEventScore(season, ev, bot) {
+  const rng = makeRng(`${season}|${ev.id}|${bot.id}`);
+  const stats = {};
+  for (const k of ["str", "agi", "vit", "int", "cha", "cra"]) stats[k] = Math.round(gradeStat(bot.grade) * rng.range(0.7, 1.35));
+  const level = Math.round(gradeLevel(bot.grade) * rng.range(0.7, 1.3));
+  return Math.round(baseScore(ev, stats, level, ev.needAnimal ? 40 : 0) * (1 + (rng.next() * 2 - 1) * OLYMPICS.luckBand));
+}
+
+// 조(64개국) 순위표: 나 / 실제 국가(서버 기록) / 봇
+// members: [{id, name, continent, grade, bot}], realScores: {id: {eventId: score}}
+// 봇도 시즌 동안 점점 참가한다(시즌 초반에 봇만 모든 종목 기록을 갖고 있으면 불공정)
+export function botParticipates(season, ev, bot, now = Date.now()) {
+  const start = Number(String(season).slice(1)) * OLYMPICS.seasonRealDays * 86400000;
+  const frac = Number.isFinite(start) && start > 0 ? Math.max(0, Math.min(1, (now - start) / (OLYMPICS.seasonRealDays * 86400000))) : 1;
+  const r = makeRng(`${season}|${ev.id}|${bot.id}|join`).next();
+  return r < Math.min(1, 0.2 + frac * 0.95);
+}
+
+export function groupStandings(season, members, myId, myEntries, realScores = {}, now = Date.now()) {
+  const pts = new Map(members.map((m) => [m.id, 0]));
+  const myEv = {};
+  for (const ev of OLYMPIC_EVENTS) {
+    const sc = members.map((m) => [m.id, m.id === myId ? (myEntries[ev.id]?.best ?? -1) : m.bot ? (botParticipates(season, ev, m, now) ? botEventScore(season, ev, m) : -1) : (realScores[m.id]?.[ev.id] ?? -1)]);
+    const sorted = sc.filter(([, v]) => v >= 0).sort((a, b) => b[1] - a[1]);
+    sorted.forEach(([id], i) => pts.set(id, pts.get(id) + (65 - (i + 1))));
+    const mine = sorted.findIndex(([id]) => id === myId);
+    myEv[ev.id] = mine >= 0 ? { rank: mine + 1, best: myEntries[ev.id].best } : null;
+  }
+  const rows = members.map((m) => ({ ...m, pts: pts.get(m.id), me: m.id === myId })).sort((a, b) => b.pts - a.pts);
+  return { rows, myRank: rows.findIndex((r) => r.me) + 1, myEv };
+}
+
 export function rivals(season, ev, bracket, n = 63) {
   const rng = makeRng(`${season}|${ev.id}|B${bracket}`);
   const out = [];
@@ -57,8 +94,8 @@ export function rivals(season, ev, bracket, n = 63) {
     const g = rng.chance(0.5) ? "M" : "F";
     const job = rng.pick(Object.keys(JOBS));
     const stats = {};
-    for (const k of ["str", "agi", "vit", "int", "cha", "cra"]) stats[k] = Math.round((5 + bracket * 1.5) * rng.range(0.7, 1.35));
-    const level = Math.round(bracket * 4 * rng.range(0.7, 1.3));
+    for (const k of ["str", "agi", "vit", "int", "cha", "cra"]) stats[k] = Math.round(gradeStat(bracket) * rng.range(0.7, 1.35));
+    const level = Math.round(gradeLevel(bracket) * rng.range(0.7, 1.3));
     const extra = ev.needAnimal ? 40 : 0;
     const score = Math.round(baseScore(ev, stats, level, extra) * (1 + (rng.next() * 2 - 1) * OLYMPICS.luckBand));
     out.push({ name: `${rng.pick(SURVIVOR_NAMES[g])} (${JOBS[job].name})`, score, rival: true });
@@ -74,7 +111,8 @@ export function rankOf(season, ev, bracket, myScore) {
 export function rollSeason(account, now = Date.now()) {
   const sid = seasonId(now);
   if (account.olympics.season !== sid) {
-    if (account.olympics.season) account.olympics.history.push({ season: account.olympics.season, entries: account.olympics.entries });
+    if (account.olympics.season) account.olympics.history.push({ season: account.olympics.season, entries: account.olympics.entries, rank: account.olympics.rank, grade: account.olympics.grade });
+    account.olympics.rank = null; account.olympics.group = null;
     if (account.olympics.history.length > 12) account.olympics.history.shift();
     account.olympics.season = sid;
     account.olympics.entries = {};
@@ -141,7 +179,7 @@ export function unclaimedSeason(account) {
 export function claimSeason(account, bracket, prizeBonus = 0) {
   const last = unclaimedSeason(account);
   if (!last) return null;
-  const { overallRank } = overall(account, bracket, Date.now(), last);
+  const overallRank = last.rank || overall(account, last.grade || bracket, Date.now(), last).overallRank; // 조 순위(마지막으로 본 값)
   const rw = rewardFor(overallRank, prizeBonus);
   last.claimed = true;
   account.gems += rw.gems;

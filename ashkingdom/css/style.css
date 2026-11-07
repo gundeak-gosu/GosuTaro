@@ -124,6 +124,12 @@ details { margin-top: 12px; color: var(--muted); font-size: 13px; }
 .sw { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--line); }
 
 .earthmap { width: 100%; aspect-ratio: 2 / 1; border-radius: 10px; border: 1px solid var(--line); display: block; background: #1e2c34; }
+.klist { display: flex; flex-direction: column; gap: 4px; }
+.krow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+.krow > span:first-child { min-width: 22px; color: var(--accent); font-weight: 700; }
+.krow.me { border-color: var(--accent); background: #33281c; }
+.krow .btn { margin-left: auto; }
+.badge.bot { background: #4a4a52; color: #ddd; }
 /* 아이콘 세트 */
 svg.gi { display: inline-block; vertical-align: middle; flex: none; }
 .gi-fb { display: inline-block; min-width: 1em; }

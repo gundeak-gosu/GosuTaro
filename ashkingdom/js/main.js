@@ -9,6 +9,7 @@ import * as R from "./render.js";
 import { loadAccount, saveAccount, loadGame, saveGame, deleteGame } from "./storage.js";
 import { passActive, claimPassDaily, watchAd as accWatchAd, adsLeft } from "./shop.js";
 import { makeRng } from "./rng.js";
+import * as Ic from "./icons.js";
 
 const G = {
   st: null, acc: loadAccount(), world: null, paused: 0,
@@ -73,7 +74,7 @@ function create() {
         <div><input id="nm" maxlength="10" placeholder="이름 (최대 10자)" value="${esc(sel.name)}">
         <div class="seg">${[["M", "남자"], ["F", "여자"]].map(([g, n]) => `<button class="btn ${sel.gender === g ? "on" : ""}" data-g="${g}">${n}</button>`).join("")}</div>
         <small class="muted">성별은 외형만 다르며 능력치는 같습니다.</small></div></div>
-      <h3>직업</h3><div class="jobs">${Object.entries(JOBS).map(([id, j]) => { const l = S.legacyOf(G.acc, id); return `<button class="job ${sel.job === id ? "on" : ""}" data-j="${id}"><span class="ic">${j.icon}</span><b>${j.name}</b>${l.level ? `<span class="badge">혈통 ${l.level}</span>` : ""}<small>${j.desc}</small></button>`; }).join("")}</div>
+      <h3>직업</h3><div class="jobs">${Object.entries(JOBS).map(([id, j]) => { const l = S.legacyOf(G.acc, id); return `<button class="job ${sel.job === id ? "on" : ""}" data-j="${id}"><span class="ic">${Ic.icon("job." + id, 40, j.icon)}</span><b>${j.name}</b>${l.level ? `<span class="badge">혈통 ${l.level}</span>` : ""}<small>${j.desc}</small></button>`; }).join("")}</div>
       <h3>난이도</h3><div class="diffs">${Object.values(DIFFICULTY).map((d) => `<button class="job ${sel.difficulty === d.id ? "on" : ""}" data-d="${d.id}"><b>${d.name}</b><small>${d.desc}</small></button>`).join("")}</div>
       <button class="btn primary big" id="go">대피소 문을 연다</button></div>`;
     const look = { skin: "#d9a982", hair: sel.gender === "F" ? "long" : "short", hairColor: "#2b211b" };
@@ -220,6 +221,10 @@ function moveJoy(e) {
   G.input.x = dx / max; G.input.y = dy / max;
 }
 document.getElementById("act").addEventListener("pointerdown", (e) => { e.preventDefault(); G.input.action = true; });
+// 메뉴/행동 버튼 아이콘을 통일된 SVG 세트로
+const MENU_IC = { bag: "ui.bag", craft: "ui.craft", base: "ui.base", people: "ui.people", animals: "ui.animals", story: "ui.story", olympics: "ui.olympics", shop: "ui.shop", menu: "ui.menu" };
+document.querySelectorAll("[data-open]").forEach((b) => { const lab = b.querySelector("span").outerHTML; b.innerHTML = Ic.icon(MENU_IC[b.dataset.open], 26) + lab; });
+document.getElementById("act").innerHTML = Ic.icon("ui.hand", 40);
 document.querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => {
   if (!G.st || G.paused) return;
   ({ bag: UI.openBag, craft: UI.openCraft, base: () => UI.openBase(), people: UI.openPeople, animals: UI.openAnimals, story: UI.openStory, olympics: UI.openOlympics, shop: UI.openShop, menu: UI.openMenu })[b.dataset.open]();
@@ -692,6 +697,8 @@ function drawHint(cam) {
   ctx.fillStyle = "#fff"; ctx.fillText(txt, hx - cam.x - w / 2 + 24, hy - cam.y + 1);
 }
 
+const poiImgs = {};
+function poiImg(id) { if (!poiImgs[id]) { poiImgs[id] = new Image(); poiImgs[id].src = Ic.dataURI("poi." + id, 32); } return poiImgs[id]; }
 // 미니맵 (저해상도 캐시)
 let miniCache = null;
 function drawMinimap() {
@@ -711,7 +718,10 @@ function drawMinimap() {
   ctx.strokeStyle = "rgba(255,255,255,.4)"; ctx.strokeRect(x0, y0, size, size);
   const sc = size / (WORLD_W * TILE);
   ctx.font = "10px sans-serif";
-  for (const q of Object.values(G.world.pois)) { ctx.fillText(q.icon, x0 + q.tx * TILE * sc - 5, y0 + q.ty * TILE * sc + 4); }
+  for (const q of Object.values(G.world.pois)) {
+    const img = poiImg(q.id);
+    if (img.complete && img.naturalWidth) ctx.drawImage(img, x0 + q.tx * TILE * sc - 8, y0 + q.ty * TILE * sc - 8, 16, 16);
+  }
   ctx.fillStyle = "#ffd36b"; ctx.fillRect(x0 + G.world.cx * TILE * sc - 2, y0 + G.world.cy * TILE * sc - 2, 4, 4);
   ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(x0 + G.st.player.x * sc, y0 + G.st.player.y * sc, 2.5, 0, Math.PI * 2); ctx.fill();
 }

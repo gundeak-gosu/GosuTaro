@@ -9,6 +9,7 @@ import * as THREE from "three";
 import { ITEMS, ANIMALS, VEHICLES, BUILDINGS, BASE_LEVELS } from "./data.js";
 import { TILE, WORLD_W, WORLD_H, T } from "./world.js";
 import { baseLayout } from "./render.js";
+import * as Ic from "./icons.js";
 
 export function webglAvailable() {
   try { const c = document.createElement("canvas"); return !!(window.WebGLRenderingContext && (c.getContext("webgl2") || c.getContext("webgl"))); } catch { return false; }
@@ -59,18 +60,29 @@ function getNoiseTex() {
   return noiseTex;
 }
 
-function labelSprite(text, color = "#fff", scale = 1) {
+// 라벨 스프라이트: [아이콘(SVG 세트)] + 텍스트. 아이콘은 비동기 로드 후 텍스처 갱신.
+function labelSprite(text, color = "#fff", scale = 1, iconKey = null) {
   const c = document.createElement("canvas");
   const g = c.getContext("2d");
   g.font = "bold 44px sans-serif";
-  const w = Math.ceil(g.measureText(text).width) + 40;
-  c.width = w; c.height = 72;
-  g.font = "bold 44px sans-serif";
-  g.fillStyle = "rgba(0,0,0,.55)"; g.beginPath(); g.roundRect(0, 6, w, 60, 30); g.fill();
-  g.fillStyle = color; g.textBaseline = "middle"; g.fillText(text, 20, 38);
+  const iw = iconKey ? 64 : 0;
+  const tw = text ? Math.ceil(g.measureText(text).width) : 0;
+  const w = tw + iw + (text ? 40 : 16);
+  c.width = w; c.height = 76;
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const paint = (img) => {
+    g.clearRect(0, 0, w, 76);
+    g.fillStyle = "rgba(29,23,18,.78)"; g.beginPath(); g.roundRect(0, 6, w, 64, 32); g.fill();
+    g.strokeStyle = "rgba(224,162,74,.55)"; g.lineWidth = 3; g.stroke();
+    if (img) g.drawImage(img, 10, 8, 60, 60);
+    g.font = "bold 44px sans-serif"; g.fillStyle = color; g.textBaseline = "middle";
+    if (text) g.fillText(text, iw + 18, 40);
+    t.needsUpdate = true;
+  };
+  paint(null);
+  if (iconKey && Ic.has(iconKey)) { const img = new Image(); img.onload = () => paint(img); img.src = Ic.dataURI(iconKey, 64); }
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthWrite: false, transparent: true }));
-  s.scale.set((w / 72) * 0.6 * scale, 0.6 * scale, 1);
+  s.scale.set((w / 76) * 0.6 * scale, 0.6 * scale, 1);
   s.renderOrder = 10;
   return s;
 }
@@ -620,7 +632,7 @@ export class Field3D {
         for (const z of [-0.7, 0.7]) { const w = mesh(cyl(0.45, 0.45, 0.08, 14), wood, 0.75, 0.45, z); w.rotation.z = Math.PI / 2; g.add(w); const w2 = w.clone(); w2.position.x = -0.75; g.add(w2); }
         const can = mesh(cyl(0.9, 0.9, 2.1, 14, 1, true), mat("#c9b48a", { ds: true }), 0, 1.3, 0); can.rotation.x = Math.PI / 2; can.scale.set(0.85, 1, 0.6); g.add(can);
       }
-      const lb = labelSprite(`${q.icon} ${q.name}`, "#ffe2a8", 1.4);
+      const lb = labelSprite(q.name, "#ffe2a8", 1.4, "poi." + q.id);
       lb.position.y = q.id === "radio_tower" ? 10 : q.id === "ash_fortress" ? 9.5 : 4;
       g.add(lb);
       g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
@@ -895,7 +907,7 @@ function buildingModel(b, st) {
       if (b.id === "workbench") { g.clear(); put(g, mesh(box(1, 0.08, 0.6), wood, 0, 0.75, 0)); for (const [x, z] of [[-0.42, -0.24], [0.42, -0.24], [-0.42, 0.24], [0.42, 0.24]]) put(g, mesh(box(0.07, 0.75, 0.07), dark, x, 0.37, z)); put(g, mesh(box(0.25, 0.1, 0.12), metal, 0.2, 0.84, 0)); }
     }
   }
-  const icon = labelSprite(def.icon, "#fff", 0.9);
+  const icon = labelSprite("", "#fff", 0.9, "b." + b.id);
   icon.position.y = b.id === "watchtower" ? 3.9 : 2.0;
   g.add(icon);
   return g;

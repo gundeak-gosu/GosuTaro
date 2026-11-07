@@ -11,6 +11,7 @@ import { drawCharacter, drawCinematic } from "./render.js";
 import { makeRng } from "./rng.js";
 import { exportAll, importAll, saveGame, saveAccount } from "./storage.js";
 import * as Net from "./net.js";
+import * as Ic from "./icons.js";
 
 let G = null;
 export function bindUI(g) { G = g; }
@@ -21,7 +22,8 @@ const mountOf = (p) => (p.mount ? (p.mount.type === "animal" ? { kind: p.mount.k
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-const icon = (id) => ITEMS[id]?.icon ?? "❔";
+const icon = (id, sz = 20) => Ic.icon(id, sz, ITEMS[id]?.icon ?? "?");
+const bicon = (id, sz = 30) => Ic.icon("b." + id, sz, BUILDINGS[id]?.icon);
 const costStr = (c) => Object.entries(c).map(([k, v]) => `${icon(k)}${v}`).join(" ");
 const costHave = (c) => Object.entries(c).map(([k, v]) => { const h = S.countAll(G.st, k); return `<span class="${h >= v ? "ok" : "no"}">${icon(k)}${h}/${v}</span>`; }).join(" ");
 
@@ -109,7 +111,7 @@ function slotHtml(s, idx, extra = "") {
   const fr = s.fresh;
   const qc = s.q !== undefined && s.q !== 1 ? `style="box-shadow: inset 0 0 0 2px ${QUALITY[s.q].color}"` : "";
   return `<button class="slot ${fr !== undefined ? (fr > 0.7 ? "f-good" : fr > 0.3 ? "f-mid" : "f-bad") : ""}" data-idx="${idx}" ${extra} ${qc} title="${esc(S.itemLabel(s))}">
-    <span class="ic">${it.icon}</span>${s.qty > 1 ? `<span class="q">${s.qty}</span>` : ""}
+    <span class="ic">${icon(s.id, 34)}</span>${s.qty > 1 ? `<span class="q">${s.qty}</span>` : ""}
     ${durPct !== null ? `<span class="bar"><i style="width:${durPct * 100}%;background:${durPct > 0.5 ? "#7ed957" : durPct > 0.2 ? "#f2c14e" : "#e5534b"}"></i></span>` : ""}
     ${fr !== undefined ? `<span class="bar fresh"><i style="width:${Math.max(0, fr) * 100}%"></i></span>` : ""}
   </button>`;
@@ -122,7 +124,7 @@ export function openBag() {
   const slots = ["head", "body", "legs", "feet", "back", "hand"];
   const slotName = { head: "머리", body: "몸", legs: "다리", feet: "발", back: "등", hand: "손" };
   const m = modal(`
-    <h2>🎒 가방 <small>${st.inv.length}/${S.bagSize(st)}칸</small></h2>
+    <h2>${Ic.icon("ui.bag", 26)} 가방 <small>${st.inv.length}/${S.bagSize(st)}칸</small></h2>
     <div class="bag-top">
       <div class="doll-wrap"><canvas id="doll" width="180" height="220"></canvas><button class="btn sm" id="detailBtn">🔍 자세히 보기·꾸미기</button></div>
       <div class="equip">${slots.map((sl) => { const e = p.equip[sl]; return `<div class="eq" data-slot="${sl}"><small>${slotName[sl]}</small>${e ? `${slotHtml(e, -1, `data-eq="${sl}"`)}<span class="nm" style="color:${QUALITY[e.q ?? 1].color}">${esc(S.itemLabel(e))}</span>` : `<span class="empty">비어 있음</span>`}</div>`; }).join("")}</div>
@@ -156,7 +158,7 @@ export function openBag() {
     if (s.dur !== undefined && s.dur < s.maxDur && S.hasStation(st, "workbench") && G.atBase) acts.push([`수리 (${costStr(S.repairCost(s.id))}, 최대내구 -10%)`, () => { if (!S.repair(st, s)) toast("재료 또는 작업대가 없습니다", "bad"); }]);
     if (G.atBase && S.allStorage(st).length) acts.push(["창고에 보관", () => { if (s.dur !== undefined) { const b2 = S.allStorage(st).find((x) => x.storage.length < BUILDINGS[x.id].storage.slots); if (b2) { b2.storage.push(s); st.inv.splice(i, 1); } } else { const n = S.storeToBase(st, s.id, s.qty, s.fresh ?? 1); s.qty -= n; if (s.qty <= 0) st.inv.splice(st.inv.indexOf(s), 1); } }]);
     acts.push(["버리기", () => st.inv.splice(i, 1)]);
-    info.innerHTML = `<b style="color:${QUALITY[s.q ?? 1].color}">${it.icon} ${esc(S.itemLabel(s))}</b> ${s.qty > 1 ? "×" + s.qty : ""} ${s.dur !== undefined ? `· 내구도 ${Math.ceil(s.dur)}/${s.maxDur}` : ""} ${s.fresh !== undefined ? `· ${S.freshLabel(s.fresh)} (${Math.round(s.fresh * 100)}%)` : ""}<br><small>${itemTip(s)}</small><div class="acts">${acts.map((a, k) => `<button class="btn sm" data-a="${k}">${a[0]}</button>`).join("")}</div>`;
+    info.innerHTML = `<b style="color:${QUALITY[s.q ?? 1].color}">${icon(s.id, 22)} ${esc(S.itemLabel(s))}</b> ${s.qty > 1 ? "×" + s.qty : ""} ${s.dur !== undefined ? `· 내구도 ${Math.ceil(s.dur)}/${s.maxDur}` : ""} ${s.fresh !== undefined ? `· ${S.freshLabel(s.fresh)} (${Math.round(s.fresh * 100)}%)` : ""}<br><small>${itemTip(s)}</small><div class="acts">${acts.map((a, k) => `<button class="btn sm" data-a="${k}">${a[0]}</button>`).join("")}</div>`;
     info.querySelectorAll("[data-a]").forEach((x) => (x.onclick = () => { acts[+x.dataset.a][1](); run = false; m.close(); openBag(); }));
   }));
   m.querySelectorAll("[data-eq]").forEach((b) => (b.onclick = () => { if (!S.unequip(st, b.dataset.eq)) toast("가방이 가득 찼습니다", "bad"); run = false; m.close(); openBag(); }));
@@ -201,7 +203,7 @@ export function openCraft() {
   const groups = { null: "맨손", campfire: "모닥불", workbench: "작업대", forge: "대장간", kitchen: "주방", smokehouse: "훈제실", lab: "연구소" };
   const list = RECIPES.filter((r) => S.researched(st, r.research));
   const qo = S.qualityOdds(st, "workbench"), ao = S.affixOdds(st, "workbench");
-  const m = modal(`<h2>🛠️ 제작</h2><p class="muted">시설이 필요한 제작은 기지 안에서만 가능합니다. 기지 창고의 재료도 자동으로 사용됩니다.</p>
+  const m = modal(`<h2>${Ic.icon("ui.craft", 26)} 제작</h2><p class="muted">시설이 필요한 제작은 기지 안에서만 가능합니다. 기지 창고의 재료도 자동으로 사용됩니다.</p>
     <div class="card"><b>🎲 제작 품질 확률</b> <small class="muted">(손재주 ${st.player.stats.cra}${JOBS[st.player.job].perks.luck ? " · 행운" : ""} · 혈통 ${st.player.legacyLevel} · 작업대 기준, 대장간은 더 좋음)</small><br>
     ${QUALITY.map((q, i) => `<span style="color:${q.color}">${q.name || "보통"} ${(qo[i] * 100).toFixed(1)}%</span>`).join(" · ")}<br>
     <small>좋은 특성 <span class="ok">${(ao.good * 100).toFixed(0)}%</span> · 나쁜 특성 <span class="no">${(ao.bad * 100).toFixed(0)}%</span> — 손재주를 올리면 좋은 결과가 늘고 나쁜 결과가 줄어듭니다. 소모품은 솜씨에 따라 '대성공'으로 1개 더.</small></div>
@@ -211,10 +213,10 @@ export function openCraft() {
       const has = k === "null" || S.hasStation(st, k);
       return `<h3>${name} ${has ? "" : '<small class="no">(미건설)</small>'}</h3><div class="rlist">${rs.map((r) => {
         const can = has && S.canAfford(st, r.in) && (k === "null" || G.atBase);
-        return `<div class="recipe ${can ? "" : "dim"}"><span class="ic">${icon(r.out[0])}</span><div><b>${ITEMS[r.out[0]].name}${r.out[1] > 1 ? " ×" + r.out[1] : ""}</b><small>${costHave(r.in)}</small><small class="muted">${itemTip({ id: r.out[0] })}</small></div><button class="btn sm" data-r="${r.id}" ${can ? "" : "disabled"}>제작</button></div>`;
+        return `<div class="recipe ${can ? "" : "dim"}"><span class="ic">${icon(r.out[0], 34)}</span><div><b>${ITEMS[r.out[0]].name}${r.out[1] > 1 ? " ×" + r.out[1] : ""}</b><small>${costHave(r.in)}</small><small class="muted">${itemTip({ id: r.out[0] })}</small></div><button class="btn sm" data-r="${r.id}" ${can ? "" : "disabled"}>제작</button></div>`;
       }).join("")}</div>`;
     }).join("")}
-    <h3>탈것</h3><div class="rlist">${Object.entries(VEHICLES).map(([id, v]) => `<div class="recipe"><span class="ic">${v.icon}</span><div><b>${v.name}</b><small>${costHave(v.cost)}</small><small class="muted">이동 ×${v.mount} · 연구: ${RESEARCH.find((r) => r.id === v.research).name}</small></div><button class="btn sm" data-v="${id}" ${st.vehicles.includes(id) ? "disabled" : ""}>${st.vehicles.includes(id) ? "보유" : "제작"}</button></div>`).join("")}</div>`, { wide: true });
+    <h3>탈것</h3><div class="rlist">${Object.entries(VEHICLES).map(([id, v]) => `<div class="recipe"><span class="ic">${Ic.icon("v." + id, 34, v.icon)}</span><div><b>${v.name}</b><small>${costHave(v.cost)}</small><small class="muted">이동 ×${v.mount} · 연구: ${RESEARCH.find((r) => r.id === v.research).name}</small></div><button class="btn sm" data-v="${id}" ${st.vehicles.includes(id) ? "disabled" : ""}>${st.vehicles.includes(id) ? "보유" : "제작"}</button></div>`).join("")}</div>`, { wide: true });
   m.querySelectorAll("[data-r]").forEach((b) => (b.onclick = () => { const r = S.craft(st, b.dataset.r, { atBase: G.atBase }); toast(!r.ok ? r.why : r.quality?.label ? `${r.quality.q >= 3 ? "🌟 " : ""}${r.quality.label} 제작!${r.quality.af ? (AFFIXES[r.quality.af].good ? " (좋은 특성!)" : " (나쁜 특성…)") : ""}` : r.quality?.bonus ? `대성공! ${ITEMS[r.id].name} ×${r.q}` : `${ITEMS[r.id].name} ×${r.q} 제작!`, !r.ok ? "bad" : r.quality?.q === 0 || (r.quality?.af && !AFFIXES[r.quality.af].good) ? "warn" : "good"); m.close(); G.afterAction(); openCraft(); }));
   m.querySelectorAll("[data-v]").forEach((b) => (b.onclick = () => { const r = S.buildVehicle(st, b.dataset.v); toast(r.ok ? "제작 완료!" : r.why, r.ok ? "good" : "bad"); m.close(); openCraft(); }));
 }
@@ -229,14 +231,14 @@ export function openBase(tab = "build") {
   if (tab === "build") {
     body = `<div class="card"><b>🏰 ${L.name} (Lv.${st.base.lv})</b> · 부지 ${st.base.buildings.length}/${L.slots} · 주민 ${st.companions.length}/${S.residentCap(st)}
       ${next ? `<div>다음: <b>${next.name}</b> — ${costHave(S.baseUpgradeCost(st))}</div><button class="btn primary" id="upg" ${why ? "disabled" : ""}>거점 확장</button> ${why ? `<small class="no">${why}</small>` : ""}` : "<div>최대 레벨 — 새 수도</div>"}</div>
-      <h3>건설된 시설</h3><div class="chips">${st.base.buildings.map((b) => `<span class="chip">${BUILDINGS[b.id].icon} ${BUILDINGS[b.id].name}${b.id === "generator" ? (b.fueled ? " ⚡" : " ⛽없음") : ""}<button class="mini" data-demo="${b.uid}" title="철거(재료 절반 회수)">✕</button></span>`).join("") || '<span class="muted">아직 없음</span>'}</div>
+      <h3>건설된 시설</h3><div class="chips">${st.base.buildings.map((b) => `<span class="chip">${bicon(b.id, 20)} ${BUILDINGS[b.id].name}${b.id === "generator" ? (b.fueled ? " ⚡" : " ⛽없음") : ""}<button class="mini" data-demo="${b.uid}" title="철거(재료 절반 회수)">✕</button></span>`).join("") || '<span class="muted">아직 없음</span>'}</div>
       <h3>건설 가능</h3><div class="rlist">${Object.entries(BUILDINGS).filter(([, d]) => d.baseLv <= st.base.lv + 1).map(([id, d]) => {
         const w = S.canBuild(st, id);
-        return `<div class="recipe ${w ? "dim" : ""}"><span class="ic">${d.icon}</span><div><b>${d.name}</b> <small>${S.countB(st, id)}/${d.max}</small><small>${costHave(S.buildCost(st, id))}</small><small class="muted">${buildingDesc(d)}${w ? ` — <span class="no">${w}</span>` : ""}</small></div><button class="btn sm" data-b="${id}" ${w ? "disabled" : ""}>건설</button></div>`;
+        return `<div class="recipe ${w ? "dim" : ""}"><span class="ic">${bicon(id, 34)}</span><div><b>${d.name}</b> <small>${S.countB(st, id)}/${d.max}</small><small>${costHave(S.buildCost(st, id))}</small><small class="muted">${buildingDesc(d)}${w ? ` — <span class="no">${w}</span>` : ""}</small></div><button class="btn sm" data-b="${id}" ${w ? "disabled" : ""}>건설</button></div>`;
       }).join("")}</div>`;
   } else if (tab === "storage") {
     const stores = S.allStorage(st);
-    body = stores.length ? stores.map((b) => `<div class="card"><b>${BUILDINGS[b.id].icon} ${BUILDINGS[b.id].name}</b> <small>${b.storage.length}/${BUILDINGS[b.id].storage.slots}칸 · 부패 속도 ×${S.storageMult(st, b).toFixed(2)}${BUILDINGS[b.id].storage.needPower && !S.hasPower(st) ? ' <span class="no">정전!</span>' : ""}</small>
+    body = stores.length ? stores.map((b) => `<div class="card"><b>${bicon(b.id, 22)} ${BUILDINGS[b.id].name}</b> <small>${b.storage.length}/${BUILDINGS[b.id].storage.slots}칸 · 부패 속도 ×${S.storageMult(st, b).toFixed(2)}${BUILDINGS[b.id].storage.needPower && !S.hasPower(st) ? ' <span class="no">정전!</span>' : ""}</small>
       <div class="grid">${b.storage.map((s, i) => slotHtml(s, i, `data-b="${b.uid}"`)).join("") || '<span class="muted">비어 있음</span>'}</div></div>`).join("") + `<p class="muted">보관 방식에 따라 썩는 속도가 다릅니다: 가방 ×1 · 상자 ×0.8 · 지하저장고 ×0.4 · 냉장고 ×0.15(전력 필요). 요리사 주민은 기지 음식 부패를 더 늦춥니다. 주민은 하루 1개씩 가장 상하기 직전인 음식부터 먹습니다.</p>`
       : `<p>창고가 없습니다. 나무 상자를 먼저 지으세요.</p>`;
   } else if (tab === "research") {
@@ -255,7 +257,7 @@ export function openBase(tab = "build") {
       <div class="card">🔥 모닥불 근처에선 따뜻합니다. 핵겨울엔 기지 밖 체감온도가 영하로 떨어집니다.</div>
       <div class="card">⛽ 발전기 연료: 기지 창고에 연료(🛢️)가 있으면 하루 1개씩 자동 소비. 꺼지면 냉장고가 멈춥니다.</div>`;
   }
-  const m = modal(`<h2>🏰 기지</h2><div class="tabs">${Object.entries(tabs).map(([k, v]) => `<button class="tab ${k === tab ? "on" : ""}" data-tab="${k}">${v}</button>`).join("")}</div>${body}`, { wide: true });
+  const m = modal(`<h2>${Ic.icon("ui.base", 26)} 기지</h2><div class="tabs">${Object.entries(tabs).map(([k, v]) => `<button class="tab ${k === tab ? "on" : ""}" data-tab="${k}">${v}</button>`).join("")}</div>${body}`, { wide: true });
   const re = (t = tab) => { m.close(); G.afterAction(); openBase(t); };
   m.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => re(b.dataset.tab)));
   m.querySelector("#upg")?.addEventListener("click", async () => { const r = S.upgradeBase(st); if (r.ok) { m.close(); G.afterAction(); await cinematic(`🏰 ${BASE_LEVELS[st.base.lv - 1].name}`, `기지가 커졌다. 성벽은 높아지고, 사람들의 목소리도 커졌다. 이제 ${BASE_LEVELS[st.base.lv - 1].slots}개의 시설을 세울 수 있다.`, { palette: ["#1d2433", "#4a4a5e", "#b7884f"] }); openBase(); } else toast(r.why, "bad"); });
@@ -297,7 +299,7 @@ function buildingDesc(d) {
 // ---------------- 동료/가족 ----------------
 export function openPeople() {
   const st = G.st;
-  const m = modal(`<h2>👥 동료·주민 <small>${st.companions.length}/${S.residentCap(st)}</small></h2>
+  const m = modal(`<h2>${Ic.icon("ui.people", 26)} 동료·주민 <small>${st.companions.length}/${S.residentCap(st)}</small></h2>
     <p class="muted">동행(최대 2명)은 함께 싸우고, 기지에 있으면 역할을 수행합니다. 매일 말을 걸거나 선물하면 호감도가 오르고, 100이 되면 결혼할 수 있습니다. 아이는 28일(게임) 후 어른이 됩니다.</p>
     ${st.companions.map((c) => {
       const r = ROLES[c.role];
@@ -336,12 +338,12 @@ export function openPeople() {
 // ---------------- 동물/탈것 ----------------
 export function openAnimals() {
   const st = G.st;
-  const m = modal(`<h2>🐾 동물·탈것 <small>${st.animals.length}/${S.penCapacity(st)}</small></h2>
+  const m = modal(`<h2>${Ic.icon("ui.animals", 26)} 동물·탈것 <small>${st.animals.length}/${S.penCapacity(st)}</small></h2>
     <p class="muted">야생 동물에게 먹이를 들고 다가가 [행동]을 누르면 길들이기 미니게임. 우리에 있으면 매일 먹이를 먹고 생산(달걀·우유)하며, 같은 종 2마리 이상이면 번식합니다. 말은 '승마' 연구 후 탈 수 있습니다.</p>
-    ${st.animals.map((a) => { const d = ANIMALS[a.type]; return `<div class="person"><div class="pp">${d.icon}</div><div class="pi"><b>${esc(a.name)}</b> <small>${a.task === "follow" ? "🚶 동행" : "🏠 우리"}${a.fed === false ? ' · <span class="no">굶주림</span>' : ""}</small>
+    ${st.animals.map((a) => { const d = ANIMALS[a.type]; return `<div class="person"><div class="pp">${Ic.icon("a." + a.type, 40, d.icon)}</div><div class="pi"><b>${esc(a.name)}</b> <small>${a.task === "follow" ? "🚶 동행" : "🏠 우리"}${a.fed === false ? ' · <span class="no">굶주림</span>' : ""}</small>
       <small class="muted">${d.prod ? "생산 " + Object.entries(d.prod).map(([k, v]) => icon(k) + v).join(" ") + " · " : ""}${d.combat ? "전투 " + d.combat + " · " : ""}${d.mount ? "탈것 ×" + d.mount + " · " : ""}먹이 ${icon(d.food)}</small>
       <div class="acts"><button class="btn sm" data-at="${a.uid}">${a.task === "follow" ? "우리로" : "데리고 다니기"}</button>${d.mount ? `<button class="btn sm" data-ride="${a.uid}">${st.player.mount?.uid === a.uid ? "내리기" : "타기"}</button>` : ""}<button class="btn sm danger" data-sl="${a.uid}">도축</button></div></div></div>`; }).join("") || '<p class="muted">아직 길들인 동물이 없습니다.</p>'}
-    <h3>탈것</h3>${st.vehicles.map((v) => `<button class="btn" data-veh="${v}">${VEHICLES[v].icon} ${VEHICLES[v].name} ${st.player.mount?.id === v ? "(내리기)" : "타기"}</button>`).join(" ") || '<p class="muted">제작 메뉴에서 자전거·오토바이를 만들 수 있습니다.</p>'}`, { wide: true });
+    <h3>탈것</h3>${st.vehicles.map((v) => `<button class="btn" data-veh="${v}">${Ic.icon("v." + v, 22)} ${VEHICLES[v].name} ${st.player.mount?.id === v ? "(내리기)" : "타기"}</button>`).join(" ") || '<p class="muted">제작 메뉴에서 자전거·오토바이를 만들 수 있습니다.</p>'}`, { wide: true });
   const re = () => { m.close(); openAnimals(); };
   m.querySelectorAll("[data-at]").forEach((b) => (b.onclick = () => { const a = st.animals.find((x) => x.uid === b.dataset.at); if (a.task === "follow") a.task = "pen"; else if (st.animals.filter((x) => x.task === "follow").length < 1) a.task = "follow"; else toast("동물 동행은 1마리까지", "bad"); re(); }));
   m.querySelectorAll("[data-ride]").forEach((b) => (b.onclick = () => { if (st.player.mount?.uid === b.dataset.ride) S.mount(st, null); else if (!S.mount(st, { type: "animal", uid: b.dataset.ride })) toast("'승마' 연구가 필요합니다", "bad"); re(); }));
@@ -358,7 +360,7 @@ export function openStory() {
   const m = modal(`<h2>📖 ${ch.title}</h2><p class="story">${ch.text}</p>
     <div class="card"><b>목표</b>${parts.map(([t, ok]) => `<div class="${ok ? "ok" : ""}">${ok ? "✅" : "⬜"} ${t}</div>`).join("")}<small class="muted">💡 ${ch.hint}</small></div>
     <h3>지난 이야기</h3><div class="chips">${CHAPTERS.slice(0, st.story.chapter).map((c) => `<span class="chip">✔ ${c.title}</span>`).join("")}</div>
-    <h3>🧬 혈통 (직업별, 죽어도 유지)</h3><div class="rlist">${jobs.map(([id, j]) => { const l = S.legacyOf(acc, id); return `<div class="recipe"><span class="ic">${j.icon}</span><div><b>${j.name} 혈통 Lv.${l.level}</b><small class="muted">누적 ${l.xp.toLocaleString()} XP · ${l.runs}번의 생애 · 최고 ${l.bestChapter}장</small><small>${j.skills.map((s) => `<span class="${s.lv <= l.level ? "ok" : "muted"}">${s.name}(Lv${s.lv})</span>`).join(" · ")}</small></div></div>`; }).join("")}</div>
+    <h3>🧬 혈통 (직업별, 죽어도 유지)</h3><div class="rlist">${jobs.map(([id, j]) => { const l = S.legacyOf(acc, id); return `<div class="recipe"><span class="ic">${Ic.icon("job." + id, 34, j.icon)}</span><div><b>${j.name} 혈통 Lv.${l.level}</b><small class="muted">누적 ${l.xp.toLocaleString()} XP · ${l.runs}번의 생애 · 최고 ${l.bestChapter}장</small><small>${j.skills.map((s) => `<span class="${s.lv <= l.level ? "ok" : "muted"}">${s.name}(Lv${s.lv})</span>`).join(" · ")}</small></div></div>`; }).join("")}</div>
     <h3>🏆 엔딩 도감 ${acc.endings.length}/16</h3><div class="chips">${jobs.map(([id, j]) => ["mercy", "tyrant"].map((pth) => { const got = acc.endings.includes(`${j.ending}:${pth}`); return `<span class="chip ${got ? "" : "dim"}">${got ? ENDINGS[j.ending][pth][0] : "???"} <small>${j.name}·${pth === "mercy" ? "자비" : "강압"}</small></span>`; }).join("")).join("")}</div>
     <p class="muted">업보(선택의 무게): ${st.karma >= 0 ? "자비로운" : "강압적인"} 지도자 (${st.karma}) — 엔딩이 달라집니다. · ${st.generation}대째 · 생존 ${st.stats.daysSurvived}일</p>
     <h3>최근 기록</h3><div class="log">${st.log.slice(-14).reverse().map((l) => `<div class="${l.kind}">${esc(l.msg)}</div>`).join("")}</div>`, { wide: true });
@@ -369,14 +371,14 @@ export function openStory() {
 export function openOlympics() {
   const st = G.st, acc = G.acc;
   const unlocked = st.base.lv >= OLYMPICS.unlockBaseLv;
-  if (!unlocked) return modal(`<h2>🏟️ 재건 올림픽</h2><p>거점이 <b>목책 요새(Lv.${OLYMPICS.unlockBaseLv})</b>가 되면 비슷한 레벨의 생존자들과 겨루는 시즌제 올림픽과 영토 전쟁이 열립니다.</p><p class="muted">종목: ${OLYMPIC_EVENTS.map((e) => e.icon + e.name).join(" · ")}</p>`);
+  if (!unlocked) return modal(`<h2>${Ic.icon("ui.olympics", 26)} 재건 올림픽</h2><p>거점이 <b>목책 요새(Lv.${OLYMPICS.unlockBaseLv})</b>가 되면 비슷한 레벨의 생존자들과 겨루는 시즌제 올림픽과 영토 전쟁이 열립니다.</p><p class="muted">종목: ${OLYMPIC_EVENTS.map((e) => e.icon + e.name).join(" · ")}</p>`);
   const sid = O.rollSeason(acc);
   const today = S.todayStr();
   const ov = O.overall(acc, st.base.lv);
   const last = O.unclaimedSeason(acc);
   const ents = O.entrantList(st);
   const left = Math.ceil((O.seasonEndsAt() - Date.now()) / 86400000);
-  const m = modal(`<h2>🏟️ 재건 올림픽 <small>시즌 ${sid.slice(1)} · ${left}일 남음 · 브래킷 Lv.${st.base.lv}</small></h2>
+  const m = modal(`<h2>${Ic.icon("ui.olympics", 26)} 재건 올림픽 <small>시즌 ${sid.slice(1)} · ${left}일 남음 · 브래킷 Lv.${st.base.lv}</small></h2>
     ${last ? `<div class="card gold">지난 시즌 보상이 있습니다! <button class="btn primary" id="claimS">받기</button></div>` : ""}
     <div class="card">종합 순위 <b>${ov.overallRank}위</b> / 64 · 포인트 ${ov.pts}<br><small class="muted">1위 💎${O.rewardFor(1).gems}+${ITEMS.royal_robe.name} · 3위내 💎${O.rewardFor(3).gems} · 10위내 💎${O.rewardFor(10).gems}. 종목당 하루 ${O.TRIES_PER_DAY}회, 최고 기록만 반영.</small></div>
     <label class="muted">출전 선수: <select id="ent">${ents.map((e) => `<option value="${e.uid}">${esc(e.name)}</option>`).join("")}</select></label>
@@ -449,7 +451,7 @@ export function openShop() {
   const st = G.st, acc = G.acc;
   const daily = Shop.dailyState(acc, st);
   const pass = Shop.passActive(acc);
-  const m = modal(`<h2>💎 상점 <small>보유 💎${acc.gems} · 부활권 ${acc.reviveTokens} · 금화 ${Math.floor(st.gold)}</small></h2>
+  const m = modal(`<h2>${Ic.icon("ui.shop", 26)} 상점 <small>보유 💎${acc.gems} · 부활권 ${acc.reviveTokens} · 금화 ${Math.floor(st.gold)}</small></h2>
     <div class="card warn">⚠️ 프로토타입: 아래 결제는 <b>테스트 결제</b>입니다(실제 청구 없음). 실서비스는 서버 검증 후 지급합니다.</div>
     <h3>📅 일일 미션 (무과금 보석)</h3><div class="rlist">${daily.map((d) => `<div class="recipe"><span class="ic">${d.claimed ? "✅" : "🎯"}</span><div><b>${d.name}</b><small>${d.prog}/${d.n} · 💎${d.gems}</small></div><button class="btn sm" data-daily="${d.id}" ${d.done && !d.claimed ? "" : "disabled"}>${d.claimed ? "완료" : "받기"}</button></div>`).join("")}</div>
     ${pass ? `<div class="card gold">🎖️ 생존자 월정액 이용 중 (${Math.ceil((acc.passUntil - Date.now()) / 86400000)}일 남음) <button class="btn sm" id="passDaily">오늘 💎120 받기</button></div>` : ""}
@@ -480,7 +482,7 @@ export function openShop() {
 // ---------------- 메뉴 ----------------
 export function openMenu() {
   const st = G.st;
-  const m = modal(`<h2>☰ 메뉴</h2>
+  const m = modal(`<h2>${Ic.icon("ui.menu", 26)} 메뉴</h2>
     <div class="card">${DIFFICULTY[st.difficulty].name} · ${JOBS[st.player.job].icon} ${JOBS[st.player.job].name} · ${esc(st.player.name)} · ${S.day(st)}일차</div>
     <div class="choices">
       <button class="btn" id="save">💾 지금 저장</button>
@@ -585,13 +587,13 @@ export function renderHud() {
   const sea = S.season(st);
   $("#hud").innerHTML = `
     <div class="hud-l">
-      <div class="who">${JOBS[p.job].icon} <b>${esc(p.name)}</b> Lv.${p.level} <small>혈통${p.legacyLevel}</small></div>
-      <div class="bars"><span>❤️</span>${bar(p.hp, p.maxHp, "hp")}<span>🍗</span>${bar(p.hunger, 100, "hu")}<span>💧</span>${bar(p.thirst, 100, "th")}</div>
-      <div class="bars sm"><span>🌡️${Math.round(p.warmth)}℃</span>${p.rad > 0 ? `<span class="${p.rad >= 100 ? "no" : ""}">☢️${Math.round(p.rad)}</span>` : ""}${p.sick > 0 ? '<span class="no">🤢배탈</span>' : ""}${st.buffs.xp ? '<span class="ok">📘XP+50%</span>' : ""}</div>
+      <div class="who">${Ic.icon("job." + p.job, 18)} <b>${esc(p.name)}</b> Lv.${p.level} <small>혈통${p.legacyLevel}</small></div>
+      <div class="bars"><span>${Ic.icon("ui.hp", 16)}</span>${bar(p.hp, p.maxHp, "hp")}<span>${Ic.icon("ui.hunger", 16)}</span>${bar(p.hunger, 100, "hu")}<span>${Ic.icon("ui.thirst", 16)}</span>${bar(p.thirst, 100, "th")}</div>
+      <div class="bars sm"><span>${Ic.icon("ui.temp", 14)}${Math.round(p.warmth)}℃</span>${p.rad > 0 ? `<span class="${p.rad >= 100 ? "no" : ""}">${Ic.icon("ui.rad", 14)}${Math.round(p.rad)}</span>` : ""}${p.sick > 0 ? '<span class="no">🤢배탈</span>' : ""}${st.buffs.xp ? '<span class="ok">📘XP+50%</span>' : ""}</div>
     </div>
     <div class="hud-r">
       <div>${sea.icon} ${S.day(st)}일차 ${S.clockStr(st)}</div>
-      <div><span title="보석">💎${acc.gems}</span> <span title="금화">🪙${Math.floor(st.gold)}</span></div>
+      <div><span title="보석">${Ic.icon("ui.gem", 16)}${acc.gems}</span> <span title="금화">${Ic.icon("ui.coin", 16)}${Math.floor(st.gold)}</span></div>
     </div>
     <div class="goal" id="goalBox">📖 ${S.chapter(st).hint}</div>`;
   $("#goalBox").onclick = () => openStory();

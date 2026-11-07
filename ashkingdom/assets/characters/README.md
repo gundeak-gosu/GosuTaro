@@ -9,3 +9,8 @@
 - 모든 인물은 실존 인물을 닮지 않은 오리지널 캐릭터입니다.
 - 게임은 `hero_*.glb`가 있으면 자동으로 플레이어 캐릭터를 이 모델로 그립니다(`js/r3d.js` `preloadHeroes`). 없으면 절차적 캐릭터로 대체됩니다.
 - 기본 레이어(속옷 수준)는 앱 마켓 연령 등급과 생성 모델 안전 정책 때문에 완전 탈의 대신 사용합니다.
+
+## 용량 최적화
+- 원본 GLB 각 13MB → 텍스처를 1024px WebP로 변환해 각 약 2.7MB(메시·뼈대 24개·애니메이션은 그대로).
+  `npx @gltf-transform/cli optimize in.glb out.glb --compress false --simplify false --texture-compress webp --texture-size 1024`
+- 원본(13MB)은 힉스필드 계정의 생성 기록에서 다시 받을 수 있습니다.

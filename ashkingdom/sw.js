@@ -1,5 +1,5 @@
 // 오프라인 캐시: 재방문 시 네트워크 없이 즉시 로딩 (서버 트래픽 = 0에 가깝게)
-const V = "ashk-v6";
+const V = "ashk-v7";
 const FILES = ["./", "index.html", "css/style.css", "manifest.webmanifest", "icon.svg",
   "js/main.js", "js/ui.js", "js/systems.js", "js/data.js", "js/world.js", "js/render.js",
   "js/minigames.js", "js/olympics.js", "js/shop.js", "js/storage.js", "js/rng.js", "js/r3d.js", "js/net.js", "js/icons.js", "js/earth.js", "js/matchmaking.js", "js/earth-data.js", "vendor/three.module.min.js"];

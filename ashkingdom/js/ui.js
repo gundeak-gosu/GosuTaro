@@ -14,6 +14,7 @@ import * as Net from "./net.js";
 import * as Ic from "./icons.js";
 import * as Earth from "./earth.js";
 import * as MM from "./matchmaking.js";
+import { heroAvailable as heroReady } from "./r3d.js";
 
 let G = null;
 export function bindUI(g) { G = g; }
@@ -176,6 +177,7 @@ export function openDetail() {
   const colors = ["#2b211b", "#111111", "#6b4a2b", "#b08850", "#d8d0c0", "#8a2b2b"];
   const m = modal(`<h2>🔍 ${esc(p.name)}</h2>
     <canvas id="big" width="300" height="360" class="bigdoll"></canvas>
+    ${G.r3d && heroReady(p.gender) ? `<p class="muted small">실사 3D 모델(힉스필드 생성)로 표시 중입니다. 피부·머리는 모델에 새겨져 있어 바꿀 수 없고, 아래 설정은 실사 모델이 없는 기기의 기본 캐릭터에 적용됩니다.</p>` : ""}
     <div class="pick"><small>피부</small>${skins.map((c) => `<button class="sw" style="background:${c}" data-skin="${c}"></button>`).join("")}</div>
     <div class="pick"><small>머리</small>${hairs.map((h) => `<button class="btn sm" data-hair="${h}">${hairNames[h]}</button>`).join("")}</div>
     <div class="pick"><small>머리색</small>${colors.map((c) => `<button class="sw" style="background:${c}" data-hc="${c}"></button>`).join("")}</div>

@@ -454,10 +454,12 @@ class GlbHuman {
     this.root = new THREE.Group();
     const model = SkelUtils.clone(gl.scene);
     // 키를 실제 사람 크기(남 1.76m · 여 1.66m)로 맞추고 발을 땅(y=0)에
-    const box = new THREE.Box3().setFromObject(model);
+    // 크기 측정 전에 계층 변환(Armature 스케일 등)을 반영해야 실제 키가 나온다
+    model.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(model, true);
     const h = box.max.y - box.min.y || 1;
     const k = (gender === "F" ? 1.66 : 1.76) / h;
-    model.scale.setScalar(k);
+    model.scale.multiplyScalar(k);
     model.position.y = -box.min.y * k;
     model.traverse((o) => {
       if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; }
@@ -1077,7 +1079,7 @@ export function mountViewer(canvas, getState, opts = {}) {
       cam.position.set(Math.sin(0.4 - dolly * 0.5) * (4.8 - dolly * 1.2), 1.2 + dolly * 0.3, Math.cos(0.4 - dolly * 0.5) * (4.8 - dolly * 1.2));
       cam.lookAt(0, 1.05, 0);
     } else {
-      const dist = (tall * 1.15) / Math.tan((cam.fov * Math.PI) / 360) / Math.min(1, cam.aspect * 1.3);
+      const dist = (tall * (hero.glb ? 0.78 : 1.15)) / Math.tan((cam.fov * Math.PI) / 360) / Math.min(1, cam.aspect * 1.3);
       cam.position.set(0, tall * 0.55, dist * 0.55 + 0.4);
       cam.lookAt(0, tall * 0.5, 0);
     }

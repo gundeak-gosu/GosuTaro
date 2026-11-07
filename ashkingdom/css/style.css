@@ -56,6 +56,9 @@ small { font-size: 12px; }
 #knob { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px; border-radius: 50%; background: rgba(255,255,255,.25); border: 2px solid rgba(255,255,255,.35); }
 #act { position: fixed; right: 20px; bottom: calc(96px + env(safe-area-inset-bottom)); width: 84px; height: 84px; border-radius: 50%; background: rgba(224,162,74,.85); border: 3px solid #f2c06a; font-size: 34px; box-shadow: 0 4px 14px rgba(0,0,0,.5); touch-action: none; }
 #act:active { transform: scale(.94); }
+#dodge { position: fixed; right: 112px; bottom: calc(96px + env(safe-area-inset-bottom)); width: 56px; height: 56px; border-radius: 50%; background: rgba(90,140,180,.85); border: 3px solid #9fd3ff; font-size: 22px; touch-action: none; }
+body.joy-right #dodge { right: auto; left: 112px; }
+@media (hover: hover) and (pointer: fine) { #dodge { width: 48px; height: 48px; right: 92px; font-size: 18px; } }
 #menu { position: fixed; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(9, minmax(0, 64px)); justify-content: center; gap: 3px; padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); background: linear-gradient(transparent, rgba(10,8,6,.85) 35%); }
 #menu button { background: rgba(36,31,27,.9); border: 1px solid var(--line); border-radius: 10px; min-width: 0; padding: 5px 0; font-size: clamp(16px, 4.6vw, 20px); display: flex; flex-direction: column; align-items: center; }
 #menu button span { font-size: clamp(9px, 2.5vw, 10.5px); color: var(--muted); white-space: nowrap; }

@@ -8,6 +8,7 @@ import { randomSpawn } from "./earth.js";
 import * as Net from "./net.js";
 import * as Sync from "./sync.js";
 import * as Sfx from "./sfx.js";
+import * as Bgm from "./bgm.js";
 import { TUTORIAL, tutorialStep } from "./tutorial.js";
 import { BIOMES } from "./data.js";
 import { generateWorld, TILE, WORLD_W, WORLD_H, tileAt, isBlocked, nearWater, T, NODE_TYPES } from "./world.js";
@@ -183,6 +184,7 @@ addEventListener("pagehide", flushSync);
 G.applySettings = () => {
   const s = G.acc.settings;
   Sfx.setEnabled(s.sound !== false);
+  Bgm.setEnabled(s.music !== false);
   G.r3d?.setPixel(s.gfx !== "hd");
   document.body.classList.toggle("joy-right", !!s.joyRight);
   saveAccount(G.acc);
@@ -236,6 +238,7 @@ addEventListener("keydown", (e) => {
   keys.add(k);
   if (G.st && !G.paused) {
     if (k === "e" || k === " ") { G.input.action = true; e.preventDefault(); }
+    if (k === "shift" || k === "q") dodge();
     if (k === "i" || k === "b") UI.openBag();
     if (k === "c") UI.openCraft();
     if (k === "escape") UI.openMenu();
@@ -258,6 +261,7 @@ function moveJoy(e) {
   G.input.x = dx / max; G.input.y = dy / max;
 }
 document.getElementById("act").addEventListener("pointerdown", (e) => { e.preventDefault(); G.input.action = true; });
+document.getElementById("dodge").addEventListener("pointerdown", (e) => { e.preventDefault(); dodge(); });
 // 메뉴/행동 버튼 아이콘을 통일된 SVG 세트로
 const MENU_IC = { bag: "ui.bag", craft: "ui.craft", base: "ui.base", people: "ui.people", animals: "ui.animals", story: "ui.story", olympics: "ui.olympics", shop: "ui.shop", menu: "ui.menu" };
 document.querySelectorAll("[data-open]").forEach((b) => { const lab = b.querySelector("span").outerHTML; b.innerHTML = Ic.icon(MENU_IC[b.dataset.open], 26) + lab; });
@@ -271,7 +275,10 @@ document.querySelectorAll("[data-open]").forEach((b) => b.addEventListener("clic
 function mobAt(type, kind, x, y) {
   const def = kind === "enemy" ? ENEMIES[type] : ANIMALS[type];
   const hp = Math.round(def.hp * (kind === "enemy" ? S.diff(G.st).enemy : 1));
-  return { kind, type, x, y, vx: 0, vy: 0, hp, maxHp: hp, cd: 1, phase: Math.random() * 6, wander: 0, facing: 1 };
+  const m = { kind, type, x, y, vx: 0, vy: 0, hp, maxHp: hp, cd: 1, phase: Math.random() * 6, wander: 0, facing: 1 };
+  // 정예 몬스터: 밤·후반 장일수록 자주. 체력 2.5배·공격 1.5배·전리품과 경험치 3배
+  if (kind === "enemy" && Math.random() < 0.05 + (S.isNight(G.st) ? 0.05 : 0) + G.st.story.chapter * 0.006) { m.elite = true; m.hp = m.maxHp = Math.round(hp * 2.5); }
+  return m;
 }
 
 function spawnMobs(dt) {
@@ -325,11 +332,17 @@ function updateMobs(dt) {
       tx = dx / d; ty = dy / d;
       m.cd -= dt;
       const reach = def?.ranged ? 190 : 26;
-      if (d < reach && m.cd <= 0) {
+      const atk = (def ? def.atk : ANIMALS[m.type].combat || 5) * (m.elite ? 1.5 : 1);
+      // 공격 예고: 0.45초 동안 붉은 원이 차오르고, 그 안에 있으면 맞는다 → 구르기로 피할 수 있다
+      if (m.windup > 0) {
+        m.windup -= dt; sp = 0;
+        if (m.windup <= 0) {
+          if (def?.ranged) G.shots.push({ x: m.x, y: m.y - 16, vx: (dx / d) * 260, vy: (dy / d) * 260, dmg: atk, foe: true, life: 1.2 });
+          else if (d < reach * 1.6) hurtPlayer(atk);
+        }
+      } else if (d < reach && m.cd <= 0) {
         m.cd = def?.ranged ? 1.8 : 1.1;
-        const atk = def ? def.atk : ANIMALS[m.type].combat || 5;
-        if (def?.ranged) G.shots.push({ x: m.x, y: m.y - 16, vx: (dx / d) * 260, vy: (dy / d) * 260, dmg: atk, foe: true, life: 1.2 });
-        else { S.damagePlayer(st, atk); fxText(p.x, p.y - 40, "-" + Math.round(atk * S.diff(st).enemy), "#ff6b5b"); }
+        m.windup = def?.ranged ? 0.35 : 0.45;
       }
     } else if (ANIMALS[m.type]?.flee && d < 140) { sp = 110; tx = -dx / d; ty = -dy / d; }
     else {
@@ -366,6 +379,7 @@ function hitMob(m, dmg, color = "#fff") {
   Sfx.play("hit");
   if (m.hp <= 0) {
     if (m.kind === "enemy") {
+      if (m.elite) { S.gainXp(G.st, ENEMIES[m.type].xp * 2); for (let i = 0; i < 2; i++) S.onKill(G.st, m.type, makeRng(Date.now() + i)); G.st.gold += 30; UI.toast("정예 처치! 추가 전리품", "good"); }
       const drops = S.onKill(G.st, m.type, makeRng(Date.now()));
       if (drops.length) UI.toast("획득: " + drops.map((d) => ITEMS[d].name).join(", "));
     } else {
@@ -406,14 +420,47 @@ async function interact() {
   if (best && bd < 120 && best.kind === "enemy") UI.toast("더 가까이 가세요");
 }
 
+// 플레이어 피격: 구르는 중(무적)이면 무시
+function hurtPlayer(raw) {
+  if (G.iframe > 0) { fxText(G.st.player.x, G.st.player.y - 40, "회피!", "#9fd3ff"); return false; }
+  S.damagePlayer(G.st, raw);
+  fxText(G.st.player.x, G.st.player.y - 40, "-" + Math.round(raw * S.diff(G.st).enemy), "#ff6b5b");
+  return true;
+}
+
+// 구르기: 기력 30, 0.3초 무적 + 빠른 이동
+function dodge() {
+  const st = G.st;
+  if (!st || G.paused || G.stamina < 30 || G.rollT > 0) return;
+  G.stamina -= 30; G.rollT = 0.3; G.iframe = 0.35;
+  let ix = G.input.x, iy = G.input.y;
+  if (keys.has("a") || keys.has("arrowleft")) ix = -1; if (keys.has("d") || keys.has("arrowright")) ix = 1;
+  if (keys.has("w") || keys.has("arrowup")) iy = -1; if (keys.has("s") || keys.has("arrowdown")) iy = 1;
+  const L = Math.hypot(ix, iy);
+  G.rollDir = L > 0.1 ? [ix / L, iy / L] : [Math.sin(G.moveYaw || 0), Math.cos(G.moveYaw || 0)];
+  Sfx.play("gather");
+}
+G.dodge = dodge;
+
 function attack(m) {
   const st = G.st, p = st.player;
   const r = S.playerAttack(st);
+  // 3연타 콤보(0.9초 안에 이어 치기, 3타는 1.6배) + 치명타(민첩 기반)
+  const now = performance.now() / 1000;
+  G.combo = now - (G.lastHitT || 0) < 0.9 ? (G.combo % 3) + 1 : 1;
+  G.lastHitT = now;
+  const crit = Math.random() < 0.05 + S.eff(st, "agi") * 0.005;
+  r.dmg = Math.round(r.dmg * (crit ? 1.8 : 1) * (!r.ranged && G.combo === 3 ? 1.6 : 1));
+  if (crit) fxText(m.x, m.y - 56, "치명!", "#ffd36b");
   G.attackCd = r.ranged ? 0.5 : 0.42;
   G.swing = 0.2; G.swingStart = true;
   G.moveYaw = Math.atan2(m.x - p.x, m.y - p.y);
   if (r.ranged) { Sfx.play("shoot"); const d = Math.hypot(m.x - p.x, m.y - p.y) || 1; G.shots.push({ x: p.x, y: p.y - 20, vx: ((m.x - p.x) / d) * 520, vy: ((m.y - 14 - p.y + 20) / d) * 520, dmg: r.dmg, life: 0.6 }); }
-  else hitMob(m, r.dmg);
+  else {
+    hitMob(m, r.dmg, crit ? "#ffd36b" : "#fff");
+    // 3타째: 주변 적까지 휩쓸고 밀쳐낸다
+    if (G.combo === 3) for (const o of G.mobs) if (o !== m && o.hp > 0 && (o.kind === "enemy" || o.aggro) && Math.hypot(o.x - p.x, o.y - p.y) < 70) { hitMob(o, Math.round(r.dmg * 0.6)); const d = Math.hypot(o.x - p.x, o.y - p.y) || 1; o.x += ((o.x - p.x) / d) * 20; o.y += ((o.y - p.y) / d) * 20; }
+  }
   G.facing = m.x < p.x ? -1 : 1;
 }
 
@@ -528,6 +575,15 @@ async function visitPoi(q) {
 let storyBusy = false;
 async function handleStory() {
   if (storyBusy || !G.st) return;
+  // 동료 개인 이야기(호감도 40·80)
+  const cs = S.pendingCompanionStories(G.st)[0];
+  if (cs && !G.paused) {
+    storyBusy = true;
+    const ev = S.completeCompanionStory(G.st, cs.key);
+    await UI.cinematic(`💬 ${ev.title}`, `${ev.text}\n\n(호감 보상: ${ev.reward.item ? ITEMS[ev.reward.item[0]].name + " ×" + ev.reward.item[1] : "금화 " + ev.reward.gold})`, { palette: ["#1d1a22", "#4a3a4a", "#c08a5a"] });
+    storyBusy = false;
+    return;
+  }
   const opened = S.checkStory(G.st);
   if (!opened.length) return;
   storyBusy = true;
@@ -600,6 +656,17 @@ function update(dt) {
     G.phase += dt * (p.mount ? 9 : 11) * Math.min(1, L);
     G.trail.unshift([p.x, p.y]); if (G.trail.length > 60) G.trail.pop();
   }
+  // 기력 회복 · 구르기 이동
+  G.stamina = Math.min(100, (G.stamina ?? 100) + dt * 28);
+  if (G.iframe > 0) G.iframe -= dt;
+  if (G.rollT > 0) {
+    G.rollT -= dt;
+    const rs = S.moveSpeed(st) * 3.2 * dt;
+    const nx = p.x + G.rollDir[0] * rs, ny = p.y + G.rollDir[1] * rs;
+    if (!isBlocked(G.world, nx, p.y)) p.x = nx;
+    if (!isBlocked(G.world, p.x, ny)) p.y = ny;
+    G.moving = true; G.phase += dt * 20;
+  }
   // 위치 컨텍스트
   const bx = (G.world.cx + 0.5) * TILE, by = (G.world.cy + 0.5) * TILE;
   const wallR = (2 + st.base.lv) * TILE;
@@ -613,19 +680,28 @@ function update(dt) {
   handleEvents(evs);
   // 입력 행동
   G.attackCd -= dt; if (G.swing > 0) G.swing -= dt;
-  if (G.input.action) { G.input.action = false; if (G.attackCd <= 0) interact(); }
+  // 입력 버퍼: 쿨타임 중에 누른 행동은 0.35초 동안 기억했다가 바로 실행(연타·콤보가 끊기지 않게)
+  if (G.input.action) { G.actBuf = 0.35; G.input.action = false; }
+  if (G.actBuf > 0) { G.actBuf -= dt; if (G.attackCd <= 0) { G.actBuf = 0; interact(); } }
   // 몹/탄
   spawnMobs(dt);
   updateMobs(dt);
   for (const s of G.shots) {
     s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
-    if (s.foe) { if (Math.hypot(s.x - p.x, s.y - (p.y - 16)) < 14) { S.damagePlayer(st, s.dmg); fxText(p.x, p.y - 40, "-" + Math.round(s.dmg), "#ff6b5b"); s.life = 0; } }
+    if (s.foe) { if (Math.hypot(s.x - p.x, s.y - (p.y - 16)) < 14) { if (hurtPlayer(s.dmg)) s.life = 0; } }
     else for (const m of G.mobs) if (Math.hypot(s.x - m.x, s.y - (m.y - 14)) < 16) { hitMob(m, s.dmg); s.life = 0; break; }
   }
   G.shots = G.shots.filter((s) => s.life > 0);
   // 무작위 조우
   if (!G.atBase) { G.encounterT -= dt; if (G.encounterT <= 0) { G.encounterT = 150 + Math.random() * 120; UI.encounterModal(); } }
   // HUD/저장
+  // 배경음악 분위기: 전투(가까운 적이 공격 중) > 기지 > 겨울 > 밤 > 낮
+  G.bgmT = (G.bgmT || 0) - dt;
+  if (G.bgmT <= 0) {
+    G.bgmT = 1;
+    const fight = G.mobs.some((m) => (m.kind === "enemy" || m.aggro) && Math.hypot(m.x - p.x, m.y - p.y) < 260);
+    Bgm.setMood(fight ? "combat" : G.atBase ? "base" : S.season(st).temp < 0 ? "winter" : S.isNight(st) ? "night" : "day");
+  }
   // 피격·레벨업 효과음
   if (G.lastHp !== undefined && p.hp < G.lastHp - 0.5) Sfx.play("hurt");
   if (G.lastLv !== undefined && p.level > G.lastLv) Sfx.play("levelup");
@@ -716,6 +792,24 @@ function draw3D(dt) {
   const st = G.st, p = st.player;
   G.r3d.frame(G, dt);
   ctx.clearRect(0, 0, VW, VH);
+  // 적 공격 예고(붉은 원) · 정예 표시
+  for (const m of G.mobs) {
+    const g = G.r3d.project(m.x, m.y, 0.05);
+    if (!g.vis) continue;
+    if (m.windup > 0) {
+      const k = 1 - m.windup / 0.45;
+      ctx.strokeStyle = "rgba(229,83,75,.9)"; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.ellipse(g.x, g.y, 34, 14, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = `rgba(229,83,75,${0.15 + k * 0.35})`; ctx.beginPath(); ctx.ellipse(g.x, g.y, 34 * k, 14 * k, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    if (m.elite) { const h = G.r3d.project(m.x, m.y, 2.6); ctx.fillStyle = "#ffd36b"; ctx.font = "bold 11px sans-serif"; ctx.fillText("★정예", h.x - 16, h.y - 8); }
+  }
+  // 기력(구르기) 게이지: 다 차 있지 않을 때만 캐릭터 옆에 표시
+  if ((G.stamina ?? 100) < 100) {
+    const g = G.r3d.project(p.x, p.y, 1.0);
+    ctx.strokeStyle = "rgba(0,0,0,.5)"; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(g.x + 26, g.y, 9, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = G.stamina >= 30 ? "#7ed957" : "#e5534b"; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(g.x + 26, g.y, 9, -Math.PI / 2, -Math.PI / 2 + (G.stamina / 100) * Math.PI * 2); ctx.stroke();
+  }
   for (const m of G.mobs) {
     if (m.hp >= m.maxHp) continue;
     const s = G.r3d.project(m.x, m.y, m.kind === "enemy" && (m.type === "raider" || m.type === "ash_knight" || m.type === "mutant") ? 2.2 : 1.4);

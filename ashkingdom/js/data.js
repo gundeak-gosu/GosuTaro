@@ -600,3 +600,45 @@ export const WEATHER = {
   radstorm: { name: "방사능 폭풍", temp: -1, rad: 4, fog: 0.35 },
 };
 export const NUCLEAR_WINTER = -4; // 핵전쟁 이후 전 지구 평균 기온 하락(세계관)
+
+// ---------------- 의뢰 게시판(매일 3개) · 동료 개인 이야기 ----------------
+// kind: gather(가방+창고 보유) kill(처치 수 증가) tame(길들인 수 증가) build(건물 보유) craft(제작 횟수 증가)
+export const QUEST_TEMPLATES = [
+  { kind: "gather", item: "wood", n: [15, 40], title: "땔감이 모자라요", from: "주민", reward: { gold: 60, xp: 60 } },
+  { kind: "gather", item: "stone", n: [10, 30], title: "벽을 보수할 돌", from: "기술자", reward: { gold: 70, xp: 60 } },
+  { kind: "gather", item: "berry", n: [6, 15], title: "아이들 간식", from: "요리사", reward: { gold: 50, xp: 50, affinity: 5 } },
+  { kind: "gather", item: "herb", n: [4, 10], title: "약초가 필요해요", from: "의사", reward: { gold: 80, xp: 70, item: ["bandage", 3] } },
+  { kind: "gather", item: "scrap", n: [10, 25], title: "고철 모으기", from: "기술자", reward: { gold: 80, xp: 70 } },
+  { kind: "gather", item: "leather", n: [3, 8], title: "겨울옷 가죽", from: "주민", reward: { gold: 90, xp: 80 } },
+  { kind: "gather", item: "cooked_meat", n: [3, 6], title: "잔치 준비", from: "요리사", reward: { gold: 100, xp: 80, morale: 5 } },
+  { kind: "kill", n: [3, 8], title: "주변 정리", from: "군인", reward: { gold: 90, xp: 100 } },
+  { kind: "kill", n: [10, 20], title: "변이체 소탕", from: "군인", reward: { gold: 160, xp: 180, item: ["ammo", 12] } },
+  { kind: "tame", n: [1, 1], title: "새 식구", from: "농부", reward: { gold: 120, xp: 120 } },
+  { kind: "craft", n: [3, 8], title: "손재주 시험", from: "기술자", reward: { gold: 80, xp: 90 } },
+];
+export const COMPANION_STORIES = {
+  seoyun: [
+    { aff: 40, title: "한서윤 · 마지막 방송", text: "\"방송탑에서 마지막으로 들은 목소리가 내 동생이었어요. 아직 어딘가 살아 있을지도…\"", reward: { item: ["medkit", 2] } },
+    { aff: 80, title: "한서윤 · 진료소의 등불", text: "그녀는 진료소 문에 작은 등불을 걸었다. \"누구든, 언제든 와도 돼요.\"", reward: { item: ["revive_kit", 1] } },
+  ],
+  bongsu: [
+    { aff: 40, title: "봉수 · 국밥의 비밀", text: "\"국밥은 국물이 아니라 기다림이야. 사람을 기다리는 맛.\"", reward: { item: ["stew", 4] } },
+    { aff: 80, title: "봉수 · 다시 여는 가게", text: "기지 한쪽에 간판이 걸렸다. '봉수네 — 외상 됩니다'.", reward: { item: ["salt", 6] } },
+  ],
+  dokgo: [
+    { aff: 40, title: "독고철 · 꺼지지 않는 발전기", text: "\"철의 도시 불을 혼자 지킨 이유? 누군가 돌아올 때 길을 잃지 않게.\"", reward: { item: ["electronics", 4] } },
+    { aff: 80, title: "독고철 · 설계도", text: "그가 낡은 설계도를 건넸다. 성벽을 더 높이 쌓는 방법이 적혀 있다.", reward: { item: ["iron", 10] } },
+  ],
+  mira: [
+    { aff: 40, title: "유미라 · 붉은 손을 떠난 날", text: "\"명령이었어요. 아이가 있는 집을 쏘라는. 그날 총을 내려놨죠.\"", reward: { item: ["ammo", 30] } },
+    { aff: 80, title: "유미라 · 망루의 약속", text: "\"이제 이 망루는 내가 지켜요. 당신은 앞만 봐요.\"", reward: { item: ["helmet", 1] } },
+  ],
+  ara: [
+    { aff: 40, title: "진아라 · 빛나는 강의 기록", text: "\"강이 빛나는 건 독 때문만이 아니에요. 새로운 생명이 자라고 있어요.\"", reward: { item: ["radaway", 3] } },
+    { aff: 80, title: "진아라 · 씨앗 금고", text: "그녀는 멸망 전 씨앗 금고의 좌표를 기억해 냈다.", reward: { item: ["seed", 20] } },
+  ],
+  taeho: [
+    { aff: 40, title: "남궁태호 · 협상의 기술", text: "\"전쟁은 마지막 수단이에요. 먼저 밥을 같이 먹어 보세요.\"", reward: { gold: 300 } },
+    { aff: 80, title: "남궁태호 · 연합 헌장", text: "그가 초안을 내밀었다. 첫 줄: '누구도 굶지 않는다.'", reward: { gold: 600 } },
+  ],
+};

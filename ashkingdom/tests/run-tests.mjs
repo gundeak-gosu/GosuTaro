@@ -315,6 +315,30 @@ test("튜토리얼: 8단계, 각 단계 완료 조건이 실제 플레이로 충
   S.addItem(st, st.inv, "water_dirty", 1); ok(S.craft(st, "water_clean").ok); ok(Tut.TUTORIAL[7].done(st, G));
 });
 
+// ---------------- 의뢰 게시판 · 동료 이야기 ----------------
+test("의뢰: 매일 3개(같은 날은 같은 의뢰), 채집 의뢰는 물건을 내고 보상", () => {
+  const { st } = fresh();
+  const a = S.questBoard(st), b = S.questBoard(st);
+  eq(a.length, 3); eq(a, b);
+  st.quests.list[0] = { id: "t", kind: "gather", item: "wood", n: 5, title: "x", reward: { gold: 50, xp: 10 }, base: 0, done: false };
+  eq(S.claimQuest(st, "t"), null, "부족하면 불가");
+  S.addItem(st, st.inv, "wood", 7);
+  const g0 = st.gold; ok(S.claimQuest(st, "t")); eq(st.gold, g0 + 50); eq(S.count(st.inv, "wood"), 2);
+  eq(S.claimQuest(st, "t"), null, "중복 수령 불가");
+  st.time.min += 1440; ok(S.questBoard(st)[0].id !== "t", "다음 날 새 의뢰");
+});
+test("의뢰: 처치 의뢰는 수락 시점 이후 처치 수로 판정", () => {
+  const { st } = fresh(); st.stats.kills = 10;
+  st.quests = { day: S.day(st), list: [{ id: "k", kind: "kill", n: 3, base: 10, reward: { gold: 1 }, done: false }] };
+  eq(S.questProgress(st, st.quests.list[0]), 0); st.stats.kills = 13; ok(S.claimQuest(st, "k"));
+});
+test("동료 이야기: 호감도 40·80에서 열리고 한 번만 보상", () => {
+  const { st } = fresh(); const c = S.recruitStory(st, "seoyun"); c.affinity = 45;
+  const p = S.pendingCompanionStories(st); eq(p.length, 1);
+  ok(S.completeCompanionStory(st, p[0].key)); eq(S.pendingCompanionStories(st).length, 0);
+  c.affinity = 90; eq(S.pendingCompanionStories(st).length, 1);
+});
+
 // ---------------- 생존/부패/내구도 ----------------
 test("새 게임: 체력 가득, 옷 착용, 시작 아이템", () => {
   for (const job of Object.keys(JOBS)) for (const d of Object.keys(DIFFICULTY)) {

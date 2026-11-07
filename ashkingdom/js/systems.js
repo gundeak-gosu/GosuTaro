@@ -1437,3 +1437,63 @@ export function applyOffline(st, realMs) {
   if (st.nextRaidDay <= day(st)) st.nextRaidDay = day(st) + 1; // 접속 직후 다음 날 습격(오프라인 중 패배 없음)
   return { hours, gameDays, research: st.base.research.points - before.pts, events: evs };
 }
+
+// =========================== 의뢰 게시판 · 동료 이야기 ===========================
+// 매일(게임 일 기준) 3개의 의뢰. 진행도는 '수락 시점 대비 증가량'(처치·제작·길들이기) 또는 '보유량'(채집)으로 판정.
+import { QUEST_TEMPLATES, COMPANION_STORIES } from "./data.js";
+export function questBoard(st) {
+  const d = day(st);
+  if (st.quests?.day === d) return st.quests.list;
+  const rng = makeRng(st.seed + d * 104729);
+  const pool = [...QUEST_TEMPLATES];
+  const list = [];
+  for (let i = 0; i < 3 && pool.length; i++) {
+    const t = pool.splice(Math.floor(rng.next() * pool.length), 1)[0];
+    const n = rng.int(t.n[0], t.n[1]) + (t.kind === "gather" ? st.base.lv * 2 : 0);
+    list.push({ id: `${d}-${i}`, ...t, n, base: questStat(st, t.kind), done: false });
+  }
+  st.quests = { day: d, list };
+  return list;
+}
+function questStat(st, kind) {
+  return kind === "kill" ? st.stats.kills : kind === "craft" ? st.stats.crafted : kind === "tame" ? st.story.tamed : 0;
+}
+export function questProgress(st, q) {
+  if (q.kind === "gather") return Math.min(q.n, countAll(st, q.item));
+  return Math.min(q.n, questStat(st, q.kind) - q.base);
+}
+export function claimQuest(st, qid) {
+  const q = (st.quests?.list || []).find((x) => x.id === qid);
+  if (!q || q.done || questProgress(st, q) < q.n) return null;
+  if (q.kind === "gather" && !pay(st, { [q.item]: q.n })) return null;
+  q.done = true;
+  const r = q.reward;
+  st.gold += r.gold || 0;
+  gainXp(st, r.xp || 0);
+  if (r.item) giveItem(st, r.item[0], r.item[1]);
+  if (r.morale) for (const c of st.companions) c.morale = clamp((c.morale ?? 70) + r.morale, 0, 100);
+  if (r.affinity) for (const c of st.companions) c.affinity = clamp((c.affinity ?? 0) + r.affinity, 0, 120);
+  st.karma += 1;
+  log(st, `📜 의뢰 완료: ${q.title} (금화 +${r.gold || 0})`, "good");
+  return r;
+}
+// 호감도가 기준을 넘은 스토리 동료의 개인 이야기(한 번씩)
+export function pendingCompanionStories(st) {
+  const out = [];
+  st.story.cstory = st.story.cstory || {};
+  for (const c of st.companions) {
+    if (!c.story || !COMPANION_STORIES[c.story]) continue;
+    COMPANION_STORIES[c.story].forEach((ev, i) => { const key = `${c.story}:${i}`; if (!st.story.cstory[key] && (c.affinity ?? 0) >= ev.aff) out.push({ key, c, ev }); });
+  }
+  return out;
+}
+export function completeCompanionStory(st, key) {
+  const [sid, i] = key.split(":");
+  const ev = COMPANION_STORIES[sid]?.[+i];
+  if (!ev || st.story.cstory?.[key]) return null;
+  st.story.cstory[key] = true;
+  if (ev.reward.item) giveItem(st, ev.reward.item[0], ev.reward.item[1]);
+  if (ev.reward.gold) st.gold += ev.reward.gold;
+  gainXp(st, 150);
+  return ev;
+}

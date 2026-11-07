@@ -232,7 +232,7 @@ export function openBase(tab = "build") {
   const st = G.st;
   const L = BASE_LEVELS[st.base.lv - 1], next = BASE_LEVELS[st.base.lv];
   const why = S.canUpgradeBase(st);
-  const tabs = { build: "건설", storage: "창고", research: "연구", defense: "방어·원정", life: "생활" };
+  const tabs = { build: "건설", quest: "의뢰", storage: "창고", research: "연구", defense: "방어·원정", life: "생활" };
   let body = "";
   if (tab === "build") {
     body = `<div class="card"><b>🏰 ${L.name} (Lv.${st.base.lv})</b> · 부지 ${st.base.buildings.length}/${L.slots} · 주민 ${st.companions.length}/${S.residentCap(st)}
@@ -242,6 +242,10 @@ export function openBase(tab = "build") {
         const w = S.canBuild(st, id);
         return `<div class="recipe ${w ? "dim" : ""}"><span class="ic">${bicon(id, 34)}</span><div><b>${d.name}</b> <small>${S.countB(st, id)}/${d.max}</small><small>${costHave(S.buildCost(st, id))}</small><small class="muted">${buildingDesc(d)}${w ? ` — <span class="no">${w}</span>` : ""}</small></div><button class="btn sm" data-b="${id}" ${w ? "disabled" : ""}>건설</button></div>`;
       }).join("")}</div>`;
+  } else if (tab === "quest") {
+    const qs = S.questBoard(st);
+    body = `<p class="muted">주민들의 부탁입니다. 매일(게임 하루) 새로 3개가 올라옵니다. 채집 의뢰는 물건을 건네면 완료됩니다.</p>
+      <div class="rlist">${qs.map((q) => { const pr = S.questProgress(st, q); const ok = pr >= q.n && !q.done; return `<div class="recipe ${q.done ? "dim" : ""}"><span class="ic">${q.kind === "gather" ? icon(q.item, 30) : q.kind === "kill" ? "⚔️" : q.kind === "tame" ? "🐾" : "🛠️"}</span><div><b>${esc(q.title)}</b> <small class="muted">— ${esc(q.from)}</small><small>${q.kind === "gather" ? `${ITEMS[q.item].name} ${pr}/${q.n}개 건네기` : q.kind === "kill" ? `적 ${pr}/${q.n} 처치` : q.kind === "tame" ? `동물 ${pr}/${q.n} 길들이기` : `제작 ${pr}/${q.n}회`}</small><small class="muted">보상: 금화 ${q.reward.gold || 0} · 경험치 ${q.reward.xp || 0}${q.reward.item ? ` · ${ITEMS[q.reward.item[0]].name}×${q.reward.item[1]}` : ""}</small></div><button class="btn sm ${ok ? "primary" : ""}" data-q="${q.id}" ${ok ? "" : "disabled"}>${q.done ? "완료" : "보상"}</button></div>`; }).join("")}</div>`;
   } else if (tab === "storage") {
     const stores = S.allStorage(st);
     body = stores.length ? stores.map((b) => `<div class="card"><b>${bicon(b.id, 22)} ${BUILDINGS[b.id].name}</b> <small>${b.storage.length}/${BUILDINGS[b.id].storage.slots}칸 · 부패 속도 ×${S.storageMult(st, b).toFixed(2)}${BUILDINGS[b.id].storage.needPower && !S.hasPower(st) ? ' <span class="no">정전!</span>' : ""}</small>
@@ -273,6 +277,7 @@ export function openBase(tab = "build") {
   if (tab === "storage") m.querySelectorAll(".slot[data-b]").forEach((b) => (b.onclick = () => { const bb = st.base.buildings.find((x) => x.uid === b.dataset.b); if (!S.withdraw(st, bb, +b.dataset.idx)) toast("가방이 가득 찼습니다", "bad"); re(); }));
   m.querySelectorAll("[data-demo]").forEach((b) => (b.onclick = async () => { if (await choice("철거", "이 시설을 철거하고 재료 절반을 돌려받을까요?", [{ label: "철거", value: 1, cls: "danger" }, { label: "취소", value: 0 }], { closable: true })) { if (!S.demolish(st, b.dataset.demo)) toast("창고가 비어 있어야 철거할 수 있습니다", "bad"); } re(); }));
   m.querySelectorAll("[data-res]").forEach((b) => (b.onclick = () => { S.startResearch(st, b.dataset.res); re(); }));
+  m.querySelectorAll("[data-q]").forEach((b) => (b.onclick = () => { const r = S.claimQuest(st, b.dataset.q); if (r) { Sfx.play("good"); toast(`의뢰 완료! 금화 +${r.gold || 0}`, "good"); } re("quest"); }));
   m.querySelector("#speed")?.addEventListener("click", () => { if (Shop.speedupResearch(G.acc, st)) { toast("연구 가속! 오늘 자정에 완료됩니다", "good"); } else toast("보석이 부족합니다", "bad"); re(); });
   m.querySelector("#exped")?.addEventListener("click", async () => {
     m.close();
@@ -659,11 +664,13 @@ export function openSettings() {
     <h3>그래픽</h3><div class="seg"><button class="btn ${s.gfx !== "hd" ? "on" : ""}" data-gfx="pixel">픽셀 화면(가볍고 빠름)</button><button class="btn ${s.gfx === "hd" ? "on" : ""}" data-gfx="hd">고화질 3D</button></div>
     <small class="muted">필드 화면 스타일입니다. '자세히 보기'와 이야기 장면은 항상 고화질로 보입니다.</small>
     <h3>소리</h3><div class="seg"><button class="btn ${s.sound !== false ? "on" : ""}" data-snd="1">효과음 켜기</button><button class="btn ${s.sound === false ? "on" : ""}" data-snd="0">끄기</button></div>
+    <h3>배경음악</h3><div class="seg"><button class="btn ${s.music !== false ? "on" : ""}" data-mus="1">켜기</button><button class="btn ${s.music === false ? "on" : ""}" data-mus="0">끄기</button></div>
     <h3>조작</h3><div class="seg"><button class="btn ${s.joyRight ? "" : "on"}" data-joy="left">조이스틱 왼쪽</button><button class="btn ${s.joyRight ? "on" : ""}" data-joy="right">오른쪽</button></div>
     <h3>튜토리얼</h3><button class="btn" id="tut">처음 안내 다시 보기</button>`);
   const re = () => { m.close(); G.applySettings(); openSettings(); };
   m.querySelectorAll("[data-gfx]").forEach((b) => (b.onclick = () => { s.gfx = b.dataset.gfx; re(); }));
   m.querySelectorAll("[data-snd]").forEach((b) => (b.onclick = () => { s.sound = b.dataset.snd === "1"; Sfx.setEnabled(s.sound); Sfx.play("click"); re(); }));
+  m.querySelectorAll("[data-mus]").forEach((b) => (b.onclick = () => { s.music = b.dataset.mus === "1"; re(); }));
   m.querySelectorAll("[data-joy]").forEach((b) => (b.onclick = () => { s.joyRight = b.dataset.joy === "right"; re(); }));
   m.querySelector("#tut").onclick = () => { G.st.tut = 0; m.close(); toast("처음 안내를 다시 시작합니다", "good"); };
 }

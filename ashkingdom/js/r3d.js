@@ -911,6 +911,7 @@ export class Field3D {
       if (!m._id) m._id = Math.random().toString(36).slice(2);
       const a = this.actor("m" + m._id, () => mobActor(m));
       this.place(a.root, m.x, m.y, 0, m.moving ? Math.atan2(m.dirx || m.facing, m.diry || 0) : a.root.rotation.y);
+      a.root.scale.setScalar(m.elite ? 1.3 : 1);
       a.animate(dt, m.moving, 1, m.hitFlash);
       m.hitFlash = false;
     }

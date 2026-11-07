@@ -1,0 +1,11 @@
+{
+  "name": "잿빛 왕국 — 마지막 생존자",
+  "short_name": "잿빛 왕국",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#1a1714",
+  "theme_color": "#1a1714",
+  "lang": "ko",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

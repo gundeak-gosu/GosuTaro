@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#1a1714">
+<title>잿빛 왕국</title>
+<meta name="description" content="핵전쟁 이후, 살아남은 이들을 모아 새로운 왕국을 세우는 생존 RPG">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud" hidden></div>
+<div id="controls" hidden>
+  <div id="joy"><div id="knob"></div></div>
+  <button id="act" aria-label="행동">✋</button>
+  <nav id="menu">
+    <button data-open="bag">🎒<span>가방</span></button>
+    <button data-open="craft">🛠️<span>제작</span></button>
+    <button data-open="base">🏰<span>기지</span></button>
+    <button data-open="people">👥<span>동료</span></button>
+    <button data-open="animals">🐾<span>동물</span></button>
+    <button data-open="story">📖<span>이야기</span></button>
+    <button data-open="olympics">🏟️<span>올림픽</span></button>
+    <button data-open="shop">💎<span>상점</span></button>
+    <button data-open="menu">☰<span>메뉴</span></button>
+  </nav>
+</div>
+<div id="title" hidden></div>
+<div id="toasts"></div>
+<noscript>이 게임은 JavaScript가 필요합니다.</noscript>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

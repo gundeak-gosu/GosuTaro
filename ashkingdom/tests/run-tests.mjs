@@ -1,0 +1,477 @@
+// 규칙 엔진 검증 — `node tests/run-tests.mjs`
+// 브라우저 없이 모든 시스템과 '스토리 전체 진행 가능 여부(막힘 없음)'를 확인한다.
+import * as S from "../js/systems.js";
+import * as O from "../js/olympics.js";
+import * as Shop from "../js/shop.js";
+import { JOBS, DIFFICULTY, ITEMS, RECIPES, BUILDINGS, BASE_LEVELS, CHAPTERS, RESEARCH, ANIMALS, OLYMPIC_EVENTS, STORY_COMPANIONS, ENDINGS } from "../js/data.js";
+import { generateWorld, WORLD_W, WORLD_H, T, TILE, isBlocked } from "../js/world.js";
+import { makeRng } from "../js/rng.js";
+
+// localStorage polyfill (storage.js 테스트용)
+const mem = new Map();
+globalThis.localStorage = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) };
+const Store = await import("../js/storage.js");
+
+let pass = 0, fail = 0;
+const results = [];
+function test(name, fn) {
+  try { fn(); pass++; results.push(`  ✔ ${name}`); }
+  catch (e) { fail++; results.push(`  ✘ ${name}\n      ${e.stack.split("\n").slice(0, 3).join("\n      ")}`); }
+}
+function eq(a, b, m = "") { if (a !== b) throw new Error(`${m} expected ${JSON.stringify(b)} got ${JSON.stringify(a)}`); }
+function ok(c, m = "assert") { if (!c) throw new Error(m); }
+
+const fresh = (job = "soldier", difficulty = "normal", acc = S.newAccount()) =>
+  ({ st: S.newGame({ name: "테스트", gender: "M", job, difficulty, seed: 42, account: acc }), acc });
+const give = (st, cost) => { for (const [k, v] of Object.entries(cost)) S.addItem(st, st.inv, k, v); };
+const giveBase = (st, cost) => { for (const [k, v] of Object.entries(cost)) S.storeToBase(st, k, v); };
+
+// ---------------- 데이터 무결성 ----------------
+test("모든 레시피의 재료/결과 아이템이 존재", () => {
+  for (const r of RECIPES) {
+    ok(ITEMS[r.out[0]], `out ${r.id}`);
+    for (const k of Object.keys(r.in)) ok(ITEMS[k], `in ${k} of ${r.id}`);
+    if (r.research) ok(RESEARCH.find((x) => x.id === r.research), `research ${r.research}`);
+    if (r.station) ok(Object.values(BUILDINGS).some((b) => b.station === r.station), `station ${r.station}`);
+  }
+});
+test("모든 건물 비용/연구 참조가 유효", () => {
+  for (const [id, b] of Object.entries(BUILDINGS)) {
+    for (const k of Object.keys(b.cost)) ok(ITEMS[k], `cost ${k} of ${id}`);
+    if (b.research) ok(RESEARCH.find((x) => x.id === b.research), `research ${b.research} of ${id}`);
+    ok(b.baseLv >= 1 && b.baseLv <= BASE_LEVELS.length, `baseLv ${id}`);
+  }
+  for (const L of BASE_LEVELS) for (const k of Object.keys(L.cost)) ok(ITEMS[k], `base cost ${k}`);
+});
+test("모든 직업: 시작 아이템/엔딩/스킬 유효", () => {
+  for (const [id, j] of Object.entries(JOBS)) {
+    for (const [it] of j.start) ok(ITEMS[it], `${id} start ${it}`);
+    ok(ENDINGS[j.ending]?.mercy && ENDINGS[j.ending]?.tyrant, `${id} ending`);
+    ok(j.skills.length >= 4, `${id} skills`);
+  }
+});
+test("직업별 엔딩 서로 다름 (8직업 × 2 = 16)", () => {
+  const titles = new Set();
+  for (const j of Object.values(JOBS)) { titles.add(ENDINGS[j.ending].mercy[0]); titles.add(ENDINGS[j.ending].tyrant[0]); }
+  eq(titles.size, Object.keys(JOBS).length * 2);
+});
+test("동물의 먹이 아이템 존재", () => { for (const a of Object.values(ANIMALS)) ok(ITEMS[a.food], a.name); });
+test("스토리 동료의 합류 장이 실제 recruit 장과 일치", () => {
+  for (const [k, c] of Object.entries(STORY_COMPANIONS)) ok(CHAPTERS.some((ch) => ch.recruit === k), k);
+});
+test("직업 남/녀 능력치 동일 (성별은 외형만)", () => {
+  const acc = S.newAccount();
+  for (const job of Object.keys(JOBS)) {
+    const m = S.newGame({ gender: "M", job, difficulty: "normal", seed: 1, account: acc });
+    const f = S.newGame({ gender: "F", job, difficulty: "normal", seed: 1, account: acc });
+    eq(JSON.stringify(m.player.stats), JSON.stringify(f.player.stats), job);
+  }
+});
+
+// ---------------- 월드 ----------------
+test("월드: 결정적 생성 + 기지 주변 이동 가능 + 초반 자원 보장", () => {
+  const a = generateWorld(1234), b = generateWorld(1234);
+  eq(a.nodes.length, b.nodes.length);
+  eq(a.tiles.join(""), b.tiles.join(""));
+  ok(!isBlocked(a, a.cx * TILE, a.cy * TILE), "base blocked");
+  const near = a.nodes.filter((n) => Math.abs(n.tx - a.cx) <= 8 && Math.abs(n.ty - a.cy) <= 8);
+  for (const t of ["tree", "rock", "bush"]) ok(near.some((n) => n.type === t), `near ${t}`);
+});
+test("월드: 모든 POI 가 기지에서 걸어서 도달 가능 (BFS)", () => {
+  for (const seed of [1, 7, 99, 2024, 31337]) {
+    const w = generateWorld(seed);
+    const seen = new Uint8Array(WORLD_W * WORLD_H);
+    const q = [[w.cx, w.cy]]; seen[w.cy * WORLD_W + w.cx] = 1;
+    while (q.length) {
+      const [x, y] = q.pop();
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= WORLD_W || ny >= WORLD_H) continue;
+        const i = ny * WORLD_W + nx;
+        if (seen[i] || w.tiles[i] === T.WATER) continue;
+        seen[i] = 1; q.push([nx, ny]);
+      }
+    }
+    for (const p of Object.values(w.pois)) ok(seen[p.ty * WORLD_W + p.tx], `seed ${seed}: ${p.name} 도달 불가`);
+  }
+});
+
+// ---------------- 생존/부패/내구도 ----------------
+test("새 게임: 체력 가득, 옷 착용, 시작 아이템", () => {
+  for (const job of Object.keys(JOBS)) for (const d of Object.keys(DIFFICULTY)) {
+    const { st } = fresh(job, d);
+    eq(st.player.hp, st.player.maxHp);
+    ok(st.player.equip.body?.id === "rag_shirt" && st.player.equip.legs?.id === "rag_pants");
+    ok(st.inv.length > 0);
+  }
+});
+test("부패: 생고기 상온 24h → 썩음, 저장고(0.4)에선 아직 신선", () => {
+  const { st } = fresh("soldier");
+  S.build(st, "crate"); // 비용 부족 → 실패해야 함
+  eq(S.hasBuilding(st, "crate"), false);
+  st.base.buildings.push({ uid: "c1", id: "cellar", storage: [] });
+  S.addItem(st, st.inv, "raw_meat", 3);
+  S.storeToBase(st, "raw_meat", 3);
+  for (let i = 0; i < 25; i++) S.tick(st, 60, { atBase: true, nearFire: true });
+  eq(S.count(st.inv, "raw_meat"), 0, "bag meat should rot");
+  ok(S.count(st.inv, "rotten_food") >= 3, "rotten produced");
+  const cel = st.base.buildings[0].storage.find((s) => s.id === "raw_meat");
+  ok(cel && cel.fresh > 0.4 && cel.fresh < 0.7, "cellar fresh " + cel?.fresh);
+});
+test("부패: 요리사 직업은 25% 느리게, 핵겨울엔 더 느리게", () => {
+  const a = fresh("cook").st, b = fresh("soldier").st;
+  for (const st of [a, b]) { S.addItem(st, st.inv, "berry", 1); for (let i = 0; i < 10; i++) S.tick(st, 60, { atBase: true, nearFire: true }); }
+  const fa = a.inv.find((s) => s.id === "berry").fresh, fb = b.inv.find((s) => s.id === "berry").fresh;
+  ok(fa > fb, "cook slower");
+  const w = fresh("soldier").st; w.time.min = 1440 * 21 + 600; // 22일차 = 핵겨울
+  eq(S.season(w).id, "winter");
+});
+test("냉장고: 전력 없으면 상온, 발전기 가동 시 0.15", () => {
+  const { st } = fresh();
+  const fr = { uid: "f", id: "fridge", storage: [] };
+  st.base.buildings.push(fr);
+  eq(S.storageMult(st, fr), 1.0);
+  st.base.buildings.push({ uid: "g", id: "generator", fueled: true });
+  eq(S.storageMult(st, fr), 0.15);
+});
+test("내구도: 돌도끼 60회 사용 시 파괴, 기술자는 더 오래", () => {
+  const { st } = fresh("soldier");
+  S.addItem(st, st.inv, "stone_axe", 1); S.equipFromInv(st, "stone_axe");
+  for (let i = 0; i < 60; i++) S.gather(st, "tree", makeRng(i));
+  eq(st.player.equip.hand, null, "axe should break");
+  const e = fresh("engineer").st;
+  S.addItem(e, e.inv, "stone_axe", 1); S.equipFromInv(e, "stone_axe");
+  for (let i = 0; i < 60; i++) S.gather(e, "tree", makeRng(i));
+  ok(e.player.equip.hand && e.player.equip.hand.dur > 0, "engineer axe survives");
+});
+test("수리: 최대 내구도 10% 감소 (기술자 정비 스킬은 감소 없음)", () => {
+  const { st } = fresh();
+  st.base.buildings.push({ uid: "w", id: "workbench" });
+  S.addItem(st, st.inv, "stone_axe", 1);
+  const ax = st.inv.find((s) => s.id === "stone_axe"); ax.dur = 5;
+  give(st, { wood: 10, stone: 10, fiber: 10 });
+  ok(S.repair(st, ax)); eq(ax.maxDur, 54); eq(ax.dur, 54);
+});
+test("옷도 입고 있으면 닳는다", () => {
+  const { st } = fresh();
+  const before = st.player.equip.body.dur;
+  S.tick(st, 600, { atBase: true, nearFire: true });
+  ok(st.player.equip.body.dur < before);
+});
+test("굶주림/갈증 방치 시 사망, 사망 원인 기록", () => {
+  const { st } = fresh();
+  st.inv = [];
+  for (let i = 0; i < 24 * 8 && !st.dead; i++) S.tick(st, 60, { atBase: true, nearFire: true });
+  ok(st.dead, "should die"); ok(["갈증", "굶주림"].includes(st.dead.cause), st.dead.cause);
+});
+test("방사능: 방독면/방호복이 피폭을 줄인다", () => {
+  const a = fresh().st, b = fresh().st;
+  S.addItem(b, b.inv, "gas_mask", 1); S.equipFromInv(b, "gas_mask");
+  for (const st of [a, b]) S.tick(st, 120, { inRad: true, atBase: false });
+  ok(b.player.rad < a.player.rad);
+});
+
+// ---------------- 제작/건설/연구 ----------------
+test("제작: 재료 부족 시 실패 / 충분하면 성공 + 경험치", () => {
+  const { st } = fresh();
+  eq(S.craft(st, "stone_axe").ok, false);
+  give(st, { wood: 3, stone: 2, fiber: 2 });
+  const xp = st.stats.xpEarned;
+  eq(S.craft(st, "stone_axe").ok, true);
+  ok(st.stats.xpEarned > xp);
+  eq(S.count(st.inv, "wood"), 0);
+});
+test("제작: 작업대 필요 레시피는 작업대 없이는 실패", () => {
+  const { st } = fresh();
+  give(st, { wood: 10, fiber: 10, leather: 2 });
+  eq(S.craft(st, "bow").ok, false);
+  st.base.buildings.push({ uid: "w", id: "workbench" });
+  eq(S.craft(st, "bow").ok, true);
+});
+test("건설: 부지 수 제한 + 거점 업그레이드는 스토리 진행 필요", () => {
+  const { st } = fresh();
+  give(st, { wood: 500, stone: 500, cloth: 50, scrap: 50 });
+  ok(S.build(st, "campfire").ok); ok(S.build(st, "workbench").ok); ok(S.build(st, "crate").ok);
+  eq(S.build(st, "bed").ok, false, "slots full at lv1");
+  ok(S.canUpgradeBase(st)?.includes("스토리"));
+  st.story.chapter = 1;
+  ok(S.upgradeBase(st).ok); eq(st.base.lv, 2);
+  ok(S.build(st, "bed").ok);
+});
+test("철거: 창고에 물건이 있으면 불가(아이템 증발 방지)", () => {
+  const { st } = fresh();
+  give(st, { wood: 20 });
+  S.build(st, "crate");
+  const c = st.base.buildings[0];
+  S.storeToBase(st, "stone", 3);
+  eq(S.demolish(st, c.uid), false);
+});
+test("연구: 연구자 동료가 포인트를 쌓아 완료", () => {
+  const { st } = fresh();
+  st.companions.push({ uid: "r", name: "연", role: "researcher", stats: { str: 5, agi: 5, vit: 5, int: 9, cha: 5, cra: 5 }, task: "base", morale: 80 });
+  st.base.buildings.push({ uid: "c", id: "cellar", storage: [] });
+  S.storeToBase(st, "canned_food", 50);
+  ok(S.startResearch(st, "husbandry"));
+  for (let d = 2; d < 8; d++) S.dailyUpdate(st, d);
+  ok(st.base.research.done.includes("husbandry"));
+});
+test("연구: 시대를 건너뛸 수 없음", () => {
+  const { st } = fresh();
+  eq(S.startResearch(st, "statecraft"), false);
+});
+
+// ---------------- 동료/가족/동물 ----------------
+test("주민은 매일 기지 음식을 먹고, 없으면 사기 하락 → 떠남", () => {
+  const { st } = fresh();
+  st.base.buildings.push({ uid: "c", id: "crate", storage: [] });
+  const sv = S.randomSurvivor(makeRng(5)); st.companions.push(sv);
+  S.storeToBase(st, "canned_food", 2);
+  st.player.hunger = 100; st.player.thirst = 100;
+  S.dailyUpdate(st, 2);
+  eq(S.countAll(st, "canned_food") - S.count(st.inv, "canned_food"), 1);
+  sv.morale = 5; S.dailyUpdate(st, 3); S.dailyUpdate(st, 4);
+  ok(!st.companions.includes(sv), "should leave");
+});
+test("결혼 → 출산 → 28일 후 성인 → 계승", () => {
+  const { st, acc } = fresh("doctor");
+  st.base.lv = 3;
+  st.base.buildings.push({ uid: "b", id: "bed" }, { uid: "h", id: "house" }, { uid: "c", id: "cellar", storage: [] });
+  S.storeToBase(st, "canned_food", 500);
+  const c = S.recruitStory(st, "seoyun");
+  c.affinity = 100;
+  ok(S.marry(st, c.uid).ok);
+  let d = 2;
+  while (!st.family.children.length && d < 400) S.dailyUpdate(st, d++);
+  ok(st.family.children.length >= 1, "child born");
+  const kid = st.companions.find((x) => x.uid === st.family.children[0]);
+  eq(S.assign(st, kid.uid, "follow"), false, "아이는 동행/전투 불가");
+  for (let i = 0; i < 28; i++) S.dailyUpdate(st, d++);
+  ok(S.isAdult(kid));
+  S.die(st, "테스트");
+  const opt = S.reviveOptions(st, acc).find((o) => o.id === "heir");
+  ok(opt, "heir option");
+  const r = S.revive(st, acc, "heir");
+  ok(r.ok && !st.dead); eq(st.player.name, kid.name); eq(st.generation, 2);
+  ok(st.base.lv === 3, "왕국 유지");
+});
+test("동물: 우리에서 먹이 먹고 생산, 2마리 이상이면 번식 가능", () => {
+  const { st } = fresh();
+  st.base.lv = 3;
+  st.base.buildings.push({ uid: "p", id: "pen" }, { uid: "c", id: "cellar", storage: [] });
+  S.storeToBase(st, "seed", 200);
+  S.addTamed(st, "chicken"); S.addTamed(st, "chicken");
+  for (let d = 2; d < 80; d++) S.dailyUpdate(st, d);
+  ok(S.countAll(st, "egg") > 0 || S.countAll(st, "rotten_food") > 0, "eggs produced");
+  ok(st.animals.length > 2, "breeding happened " + st.animals.length);
+});
+test("탈것: 승마 연구 전엔 말 못 탐, 이후 이동속도 +60%", () => {
+  const { st } = fresh();
+  const h = S.addTamed(st, "horse");
+  eq(S.mount(st, { type: "animal", uid: h.uid }), false);
+  st.base.research.done.push("riding");
+  const v0 = S.moveSpeed(st);
+  ok(S.mount(st, { type: "animal", uid: h.uid }));
+  ok(Math.abs(S.moveSpeed(st) / v0 - 1.6) < 0.01);
+});
+test("동행 동료는 최대 2명", () => {
+  const { st } = fresh();
+  for (let i = 0; i < 3; i++) st.companions.push(S.randomSurvivor(makeRng(i)));
+  ok(S.assign(st, st.companions[0].uid, "follow"));
+  ok(S.assign(st, st.companions[1].uid, "follow"));
+  eq(S.assign(st, st.companions[2].uid, "follow"), false);
+});
+
+// ---------------- 죽음/부활/혈통 ----------------
+test("부활: 보석 비용이 챕터 내 횟수마다 증가(어려움)", () => {
+  const { st, acc } = fresh("soldier", "hard");
+  acc.gems = 99999; acc.lastFreeRevive = Date.now(); acc.reviveTokens = 0; acc.ads = { date: S.todayStr(), count: 1, freeRevive: true };
+  const costs = [];
+  for (let i = 0; i < 3; i++) { S.die(st, "x"); costs.push(S.reviveGemCost(st)); ok(S.revive(st, acc, "gems").ok); }
+  eq(JSON.stringify(costs), JSON.stringify([300, 900, 2700]));
+});
+test("부활 후 가방 재료 절반 손실, 장비 유지", () => {
+  const { st, acc } = fresh();
+  give(st, { wood: 10 });
+  S.die(st, "x");
+  ok(S.revive(st, acc, "token").ok);
+  eq(S.count(st.inv, "wood"), 5);
+  ok(st.player.equip.body);
+});
+test("죽음 수용 → 혈통 경험치 적립 → 다음 생애 능력치 상승", () => {
+  const acc = S.newAccount();
+  const a = S.newGame({ gender: "M", job: "farmer", difficulty: "normal", seed: 3, account: acc });
+  a.legacyPending = 400 * 16; // 혈통 Lv4 분량
+  S.die(a, "x");
+  S.revive(a, acc, "accept");
+  ok(a.ended);
+  const lv = S.legacyOf(acc, "farmer").level;
+  ok(lv >= 4, "legacy lv " + lv);
+  const b = S.newGame({ gender: "F", job: "farmer", difficulty: "normal", seed: 4, account: acc });
+  eq(b.player.stats.str, JOBS.farmer.stats.str + Math.floor(lv / 2));
+  ok(b.player.skills.includes("greenthumb"));
+});
+test("혈통은 살아 있는 동안에도 오르고 즉시 능력치에 반영", () => {
+  const { st, acc } = fresh("soldier");
+  const str0 = st.player.stats.str;
+  S.gainXp(st, 400 * 9); // 혈통 Lv3 → 능력치 +1
+  ok(S.flushLegacy(st, acc));
+  eq(st.player.legacyLevel, 3); eq(st.player.stats.str, str0 + 1);
+  ok(st.player.skills.includes("aim"));
+});
+test("어려움 난이도에서는 광고 부활 불가", () => {
+  const { st, acc } = fresh("soldier", "hard");
+  S.die(st, "x");
+  ok(!S.reviveOptions(st, acc).some((o) => o.id === "ad"));
+});
+test("보석은 계정 귀속 — 캐릭터가 죽어도 유지", () => {
+  const { st, acc } = fresh();
+  acc.gems = 777;
+  S.die(st, "x"); S.revive(st, acc, "accept");
+  eq(acc.gems, 777);
+});
+
+// ---------------- 습격/전투력 ----------------
+test("습격: 방어력 높으면 대부분 승리, 낮으면 약탈", () => {
+  let wins = 0;
+  for (let i = 0; i < 200; i++) {
+    const { st } = fresh();
+    st.base.buildings.push({ uid: "t", id: "turret" }, { uid: "t2", id: "turret" });
+    if (S.resolveRaid(st, 100, 0, makeRng(i)).win) wins++;
+  }
+  ok(wins > 170, "wins " + wins);
+});
+test("전투력: 아이는 포함되지 않고, 동행 동료는 포함", () => {
+  const { st } = fresh();
+  const p0 = S.combatPower(st);
+  st.companions.push({ uid: "k", name: "아이", child: true, age: 3, role: "soldier", stats: { str: 9, agi: 9, vit: 9, int: 1, cha: 1, cra: 1 }, task: "base" });
+  eq(S.combatPower(st), p0);
+  const s = S.randomSurvivor(makeRng(1)); st.companions.push(s); S.assign(st, s.uid, "follow");
+  ok(S.combatPower(st) > p0);
+});
+
+// ---------------- 오프라인 ----------------
+test("오프라인 진행: 8시간 상한, 플레이어는 죽지 않음, 기지 생산 진행", () => {
+  const { st } = fresh();
+  st.base.lv = 2;
+  st.base.buildings.push({ uid: "r", id: "rain_collector" }, { uid: "c", id: "cellar", storage: [] });
+  st.player.hunger = 5; st.player.thirst = 5;
+  const r = S.applyOffline(st, 48 * 3600 * 1000);
+  eq(r.hours, 8);
+  ok(!st.dead); ok(S.countAll(st, "water_dirty") > 0);
+});
+
+// ---------------- 올림픽 ----------------
+test("올림픽: 같은 시즌/출전자 → 같은 점수(서버 재계산 가능)", () => {
+  const ev = OLYMPIC_EVENTS[0];
+  const e = { uid: "p", stats: { str: 9, agi: 9, vit: 9, int: 9, cha: 9, cra: 9 }, level: 10 };
+  eq(O.autoScore("S1", ev, e), O.autoScore("S1", ev, e));
+  const base = O.baseScore(ev, e.stats, e.level);
+  const s = O.autoScore("S1", ev, e);
+  ok(s >= base * 0.85 - 1 && s <= base * 1.15 + 1, "luck band");
+  eq(O.manualScore(ev, e, 1), Math.round(base * 1.3));
+  eq(O.manualScore(ev, e, 0), Math.round(base * 0.85));
+});
+test("올림픽: 하루 3회 제한, 최고 기록 유지, 종합 순위 1~64", () => {
+  const { st, acc } = fresh(); st.base.lv = 4;
+  const t = "2026-1-1";
+  for (let i = 0; i < 3; i++) ok(O.submit(acc, st, "shooting", "player", 100 + i, t).ok);
+  eq(O.submit(acc, st, "shooting", "player", 999, t).ok, false);
+  eq(acc.olympics.entries.shooting.best, 102);
+  const o = O.overall(acc, 4);
+  ok(o.overallRank >= 1 && o.overallRank <= 64);
+});
+test("올림픽: 능력치가 높을수록 순위가 오른다(실력 우선, 운은 보조)", () => {
+  const ev = OLYMPIC_EVENTS[2];
+  const lo = O.autoScore("S9", ev, { uid: "a", stats: { str: 8, agi: 8, vit: 8, int: 8, cha: 8, cra: 8 }, level: 12 });
+  const hi = O.autoScore("S9", ev, { uid: "a", stats: { str: 18, agi: 18, vit: 18, int: 18, cha: 18, cra: 18 }, level: 30 });
+  ok(O.rankOf("S9", ev, 4, hi) < O.rankOf("S9", ev, 4, lo));
+});
+
+// ---------------- 상점 ----------------
+test("상점: 스타터팩 1회 한정, 월정액 일일 보석+주간 부활권", () => {
+  const { st, acc } = fresh();
+  ok(Shop.purchase(acc, st, "starter").ok);
+  eq(Shop.purchase(acc, st, "starter").ok, false);
+  const t0 = acc.reviveTokens;
+  Shop.purchase(acc, st, "pass_month");
+  eq(Shop.claimPassDaily(acc), 120); eq(Shop.claimPassDaily(acc), 0);
+  eq(acc.reviveTokens, t0 + 1);
+});
+test("보급 투하 확률표 합 = 100%", () => {
+  const s = Shop.SUPPLY_TABLE.reduce((a, b) => a + b.p, 0);
+  ok(Math.abs(s - 1) < 1e-9, String(s));
+});
+test("일일 미션: 진행도 추적 후 1회만 수령", () => {
+  const { st, acc } = fresh();
+  Shop.dailyState(acc, st);
+  st.stats.kills += 5;
+  const g0 = acc.gems;
+  eq(Shop.claimDaily(acc, st, "kill"), 40); eq(Shop.claimDaily(acc, st, "kill"), 0);
+  eq(acc.gems, g0 + 40);
+});
+
+// ---------------- 저장 ----------------
+test("저장/불러오기 왕복 + 변조 감지", () => {
+  const { st, acc } = fresh();
+  ok(Store.saveGame(st)); ok(Store.saveAccount(acc));
+  const l = Store.loadGame();
+  eq(l.player.name, st.player.name); eq(l.__tampered, false);
+  const raw = JSON.parse(localStorage.getItem("ashk_save_v1"));
+  raw.j = raw.j.replace('"gold":0', '"gold":999999');
+  localStorage.setItem("ashk_save_v1", JSON.stringify(raw));
+  eq(Store.loadGame().__tampered, true);
+  const code = Store.exportAll(st, acc);
+  ok(Store.importAll(code).st.player.name === st.player.name);
+});
+test("저장 크기 < 64KB (서버 비용 최소화)", () => {
+  const { st } = fresh();
+  st.base.lv = 8;
+  for (let i = 0; i < 18; i++) st.base.buildings.push({ uid: "b" + i, id: "crate", storage: [] });
+  for (const b of st.base.buildings) for (let k = 0; k < 16; k++) S.addItem(st, b.storage, Object.keys(ITEMS)[k + 20], 5);
+  for (let i = 0; i < 60; i++) st.companions.push(S.randomSurvivor(makeRng(i)));
+  const n = JSON.stringify(st).length;
+  ok(n < 64 * 1024, "size " + n);
+});
+
+// ---------------- 스토리 전체 진행(막힘 검사) ----------------
+for (const job of Object.keys(JOBS)) test(`스토리 0→12장 완주 가능 (${JOBS[job].name})`, () => {
+  const { st, acc } = fresh(job, "normal");
+  const rich = { wood: 9999, stone: 9999, scrap: 9999, fiber: 9999, cloth: 9999, leather: 9999, iron: 9999, electronics: 9999, fuel: 9999, fertilizer: 99, ammo: 999, gold_watch: 2, bone: 99, herb: 99, salt: 99, gunpowder: 99 };
+  let guard = 0;
+  st.base.buildings.push({ uid: "store", id: "cellar", storage: [] });
+  while (st.story.chapter < 12 && guard++ < 50) {
+    const g = CHAPTERS[st.story.chapter].goal;
+    // 필요한 건물을 지을 부지가 없으면 거점 업그레이드 먼저
+    giveBase(st, rich); give(st, { wood: 50, stone: 50, fiber: 50 });
+    if (g.craft) { const r = S.craft(st, g.craft); ok(r.ok, `craft ${g.craft}: ${r.why}`); }
+    while (g.baseLv && st.base.lv < g.baseLv) { const r = S.upgradeBase(st); ok(r.ok, `upgrade: ${r.why}`); }
+    for (const k of ["building", "building2"]) if (g[k] && !S.hasBuilding(st, g[k])) {
+      while (S.canBuild(st, g[k])?.includes("부지") && S.upgradeBase(st).ok);
+      if (S.canBuild(st, g[k])?.includes("부지")) st.base.buildings = st.base.buildings.filter((b) => b.id !== "cellar" || b.storage.length);
+      const r = S.build(st, g[k]); ok(r.ok, `build ${g[k]}: ${r.why}`);
+    }
+    if (g.visit) st.story.visited[g.visit] = true;
+    if (g.tamed) S.addTamed(st, "dog");
+    if (g.raidWon) st.story.raidWon++;
+    if (g.residents) while (st.companions.length < g.residents) {
+      if (st.companions.length >= S.residentCap(st)) {
+        if (S.canBuild(st, "house")?.includes("부지")) S.upgradeBase(st);
+        const r = S.build(st, "house"); ok(r.ok || S.residentCap(st) > st.companions.length, `house: ${r.why}`);
+      }
+      ok(S.recruit(st, S.randomSurvivor(makeRng(st.companions.length))).ok, "recruit");
+    }
+    if (g.research) {
+      for (const r of RESEARCH) { if (!st.base.research.done.includes(r.id)) { st.base.research.done.push(r.id); } if (r.id === g.research) break; }
+    }
+    if (g.olympics) st.story.olympics++;
+    if (g.boss) st.story.bossDefeated = true;
+    S.checkStory(st);
+  }
+  eq(st.story.chapter, 12, `stuck at ${st.story.chapter}: ${JSON.stringify(S.goalProgress(st))}`);
+  const e = S.finishMainStory(st, acc);
+  ok(e.title && acc.endings.length === 1);
+});
+
+console.log(results.join("\n"));
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

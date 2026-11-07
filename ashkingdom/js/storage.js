@@ -1,4 +1,4 @@
-// 저장: 로컬(localStorage) 우선 + 선택적 클라우드 백업(Netlify Function → Supabase).
+// 저장: 로컬(localStorage) 전용. 서버에는 세이브를 올리지 않는다.
 // 월드는 시드로 재생성되므로 저장 데이터는 보통 10~30KB 수준 → 서버 비용 거의 0.
 import { VERSION } from "./data.js";
 import { newAccount } from "./systems.js";
@@ -52,14 +52,5 @@ export function importAll(code) {
   return o;
 }
 
-// 클라우드 백업(선택) — 서버가 설정돼 있지 않으면 조용히 실패
-export async function cloudBackup(st, acc, token) {
-  try {
-    const res = await fetch("/.netlify/functions/ashkingdom-save", {
-      method: "PUT",
-      headers: { "content-type": "application/json", authorization: token ? `Bearer ${token}` : "" },
-      body: JSON.stringify({ save: pack({ st, acc }) }),
-    });
-    return res.ok;
-  } catch { return false; }
-}
+// 서버 세이브 없음(의도된 설계): 서버는 랭킹 기록 한 줄만 받는다(js/net.js).
+// 기기 변경은 위의 저장 코드(exportAll/importAll)로 한다 → 서버 저장·전송 비용 0.

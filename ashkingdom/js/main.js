@@ -2,7 +2,8 @@
 import * as S from "./systems.js";
 import * as UI from "./ui.js";
 import * as MG from "./minigames.js";
-import { JOBS, DIFFICULTY, ANIMALS, ENEMIES, CHAPTERS, ITEMS, TIME, BUILDINGS } from "./data.js";
+import { JOBS, DIFFICULTY, ANIMALS, ENEMIES, CHAPTERS, ITEMS, TIME, BUILDINGS, DUNGEONS } from "./data.js";
+import { Field3D, webglAvailable, mountViewer } from "./r3d.js";
 import { generateWorld, TILE, WORLD_W, WORLD_H, tileAt, isBlocked, nearWater, T, NODE_TYPES } from "./world.js";
 import * as R from "./render.js";
 import { loadAccount, saveAccount, loadGame, saveGame, deleteGame } from "./storage.js";
@@ -29,8 +30,13 @@ function resize() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   G.particles = R.makeParticles(70, VW, VH);
 }
-addEventListener("resize", resize);
+addEventListener("resize", () => { resize(); G.r3d?.resize(); });
 resize();
+// 3D 렌더러(WebGL 불가 기기는 기존 2D로 자동 대체)
+if (webglAvailable() && !/[?&]2d\b/.test(location.search)) {
+  try { G.r3d = new Field3D(document.getElementById("gl")); document.body.classList.add("three"); UI.setViewer(mountViewer); }
+  catch (e) { console.warn("3D 초기화 실패 → 2D", e); G.r3d = null; }
+}
 
 // ================= 타이틀 / 캐릭터 생성 =================
 function title() {
@@ -70,11 +76,15 @@ function create() {
       <h3>직업</h3><div class="jobs">${Object.entries(JOBS).map(([id, j]) => { const l = S.legacyOf(G.acc, id); return `<button class="job ${sel.job === id ? "on" : ""}" data-j="${id}"><span class="ic">${j.icon}</span><b>${j.name}</b>${l.level ? `<span class="badge">혈통 ${l.level}</span>` : ""}<small>${j.desc}</small></button>`; }).join("")}</div>
       <h3>난이도</h3><div class="diffs">${Object.values(DIFFICULTY).map((d) => `<button class="job ${sel.difficulty === d.id ? "on" : ""}" data-d="${d.id}"><b>${d.name}</b><small>${d.desc}</small></button>`).join("")}</div>
       <button class="btn primary big" id="go">대피소 문을 연다</button></div>`;
-    const pv = el.querySelector("#pv").getContext("2d");
     const look = { skin: "#d9a982", hair: sel.gender === "F" ? "long" : "short", hairColor: "#2b211b" };
-    let t = 0;
-    const loopPv = () => { if (!el.querySelector("#pv")) return; t += 0.05; pv.clearRect(0, 0, 160, 200); R.drawCharacter(pv, 80, 185, look, { body: null, legs: null }, 1, t, { scale: 4, detail: true, gender: sel.gender }); requestAnimationFrame(loopPv); };
-    loopPv();
+    const startEq = { body: { id: "rag_shirt" }, legs: { id: "rag_pants" }, hand: { id: JOBS[sel.job].start.find(([i]) => ITEMS[i].slot === "hand")?.[0] || "knife" } };
+    if (G.r3d) mountViewer(el.querySelector("#pv"), () => ({ look, equip: startEq, gender: sel.gender }), { spin: true });
+    else {
+      const pv = el.querySelector("#pv").getContext("2d");
+      let t = 0;
+      const loopPv = () => { if (!el.querySelector("#pv")) return; t += 0.05; pv.clearRect(0, 0, 160, 200); R.drawCharacter(pv, 80, 185, look, { body: null, legs: null }, 1, t, { scale: 4, detail: true, gender: sel.gender }); requestAnimationFrame(loopPv); };
+      loopPv();
+    }
     el.querySelector("#nm").oninput = (e) => (sel.name = e.target.value);
     el.querySelectorAll("[data-g]").forEach((b) => (b.onclick = () => { sel.gender = b.dataset.g; draw(); }));
     el.querySelectorAll("[data-j]").forEach((b) => (b.onclick = () => { sel.job = b.dataset.j; draw(); }));
@@ -93,6 +103,7 @@ async function startGame(st, isNew = false) {
   G.st = st;
   G.world = generateWorld(st.seed);
   R.clearTerrainCache();
+  G.r3d?.setWorld(G.world);
   G.mobs = []; G.shots = []; G.fx = []; G.trail = [];
   G.paused = 0;
   st.passActive = passActive(G.acc);
@@ -285,6 +296,7 @@ function updateMobs(dt) {
     const willBeIn = Math.hypot(nx - baseX, ny - baseY) < (2 + st.base.lv) * TILE;
     if (!isBlocked(G.world, nx, ny) && (!willBeIn || inBase)) { m.x = nx; m.y = ny; }
     m.moving = sp > 0;
+    if (sp > 0) { m.dirx = tx; m.diry = ty; }
     if (Math.abs(tx) > 0.1) m.facing = tx > 0 ? 1 : -1;
     // 동행 동료/동물의 자동 공격
     if (followers && hostile && d < 140) {
@@ -304,6 +316,7 @@ function updateMobs(dt) {
 function hitMob(m, dmg, color = "#fff") {
   m.hp -= dmg;
   m.aggro = true;
+  m.hitFlash = true;
   fxText(m.x, m.y - 40, String(dmg), color);
   if (m.hp <= 0) {
     if (m.kind === "enemy") {
@@ -351,7 +364,8 @@ function attack(m) {
   const st = G.st, p = st.player;
   const r = S.playerAttack(st);
   G.attackCd = r.ranged ? 0.5 : 0.42;
-  G.swing = 0.2;
+  G.swing = 0.2; G.swingStart = true;
+  G.moveYaw = Math.atan2(m.x - p.x, m.y - p.y);
   if (r.ranged) { const d = Math.hypot(m.x - p.x, m.y - p.y) || 1; G.shots.push({ x: p.x, y: p.y - 20, vx: ((m.x - p.x) / d) * 520, vy: ((m.y - 14 - p.y + 20) / d) * 520, dmg: r.dmg, life: 0.6 }); }
   else hitMob(m, r.dmg);
   G.facing = m.x < p.x ? -1 : 1;
@@ -392,7 +406,8 @@ function visibleNodes() {
 function gatherNode(n) {
   const st = G.st;
   n.hits = (n.hits || 0) + 1;
-  G.swing = 0.25;
+  G.swing = 0.25; G.swingStart = true;
+  G.moveYaw = Math.atan2((n.tx + 0.5) * TILE - G.st.player.x, (n.ty + 0.5) * TILE - G.st.player.y);
   G.attackCd = 0.35;
   const out = S.gather(st, n.type, makeRng(Date.now() + n.id));
   for (const [id, q] of out) fxText((n.tx + 0.5) * TILE, n.ty * TILE - 10, `${ITEMS[id].icon}+${q}`, "#ffe9a8");
@@ -418,6 +433,19 @@ async function visitPoi(q) {
     if (r.win) { st.story.bossDefeated = true; G.afterAction(); }
     else { UI.toast("재의 군주의 힘은 압도적이었다… 더 강해져서 돌아오자", "bad"); S.damagePlayer(st, st.player.maxHp * 0.6); }
     return;
+  }
+  const dg = DUNGEONS[q.id];
+  st.story.bosses = st.story.bosses || {};
+  if (dg && !dg.final && !st.story.bosses[q.id] && st.story.chapter >= dg.minChapter) {
+    const pw = Math.round(dg.power * S.diff(st).enemy);
+    const v = await UI.choice(`☠️ 던전 보스: ${dg.boss}`, `이곳의 주인이 기다리고 있다. 권장 전투력 <b>${pw}</b> · 내 전투력 <b>${S.combatPower(st)}</b><br><small>보스는 생애마다 같지만, 지도에서의 위치는 매번 다릅니다.</small>`, [{ label: "도전한다", value: 1, cls: "danger" }, { label: "다음에", value: 0 }], { closable: true });
+    if (v) {
+      const r = await G.playShooter({ title: `☠️ ${dg.boss}`, enemyCount: 10, enemyHp: 40, enemyAtk: 10, duration: 55, boss: { hp: dg.hp, name: dg.boss } }, pw);
+      if (r.win) { st.story.bosses[q.id] = true; for (const [i, n] of dg.reward) S.giveItem(st, i, n); S.gainXp(st, pw); st.gold += pw; UI.toast(`☠️ ${dg.boss} 격파! 전리품 획득`, "good"); }
+      else { UI.toast("보스에게 밀려났다…", "bad"); S.damagePlayer(st, st.player.maxHp * 0.5); }
+      G.afterAction();
+      return;
+    }
   }
   if (q.id === "raider_camp") {
     const today = S.day(st);
@@ -521,6 +549,7 @@ function update(dt) {
     p.x = Math.max(TILE * 2, Math.min((WORLD_W - 2) * TILE, p.x));
     p.y = Math.max(TILE * 2, Math.min((WORLD_H - 2) * TILE, p.y));
     if (Math.abs(ix) > 0.1) G.facing = ix > 0 ? 1 : -1;
+    G.moveYaw = Math.atan2(ix, iy);
     G.phase += dt * (p.mount ? 9 : 11) * Math.min(1, L);
     G.trail.unshift([p.x, p.y]); if (G.trail.length > 60) G.trail.pop();
   }
@@ -530,6 +559,7 @@ function update(dt) {
   G.atBase = Math.hypot(p.x - bx, p.y - by) < wallR;
   G.nearFire = G.atBase && S.hasBuilding(st, "campfire");
   const tile = tileAt(G.world, p.x, p.y);
+  G.inRad = tile === T.RAD; G.seasonId = S.season(st).id;
   // 시간 진행
   const gm = dt * TIME.gameMinPerRealSec;
   const evs = S.tick(st, gm, { atBase: G.atBase, nearFire: G.nearFire, inRad: tile === T.RAD, moving: G.moving });
@@ -555,6 +585,7 @@ function update(dt) {
 }
 
 function draw(dt) {
+  if (G.r3d) return draw3D(dt);
   const st = G.st, p = st.player;
   G.cam.x += (p.x - VW / 2 - G.cam.x) * Math.min(1, dt * 8);
   G.cam.y += (p.y - VH / 2 - G.cam.y) * Math.min(1, dt * 8);
@@ -622,6 +653,29 @@ function draw(dt) {
   drawMinimap();
 }
 
+// 3D 모드: 월드는 WebGL, 2D 캔버스는 투명 오버레이(데미지 숫자·체력바·힌트·미니맵)
+function draw3D(dt) {
+  const st = G.st, p = st.player;
+  G.r3d.frame(G, dt);
+  ctx.clearRect(0, 0, VW, VH);
+  for (const m of G.mobs) {
+    if (m.hp >= m.maxHp) continue;
+    const s = G.r3d.project(m.x, m.y, m.kind === "enemy" && (m.type === "raider" || m.type === "ash_knight" || m.type === "mutant") ? 2.2 : 1.4);
+    if (s.vis) R.hpBar(ctx, s.x, s.y, m.hp / m.maxHp);
+  }
+  for (const f of G.fx) {
+    f.t -= dt; f.rise = (f.rise || 0) + dt * 0.9;
+    const s = G.r3d.project(f.x, f.y + 40, 2.2 + f.rise);
+    ctx.globalAlpha = Math.max(0, f.t); ctx.fillStyle = f.color; ctx.font = "bold 15px sans-serif"; ctx.strokeStyle = "rgba(0,0,0,.6)"; ctx.lineWidth = 3;
+    ctx.strokeText(f.txt, s.x - 8, s.y); ctx.fillText(f.txt, s.x - 8, s.y);
+  }
+  ctx.globalAlpha = 1;
+  G.fx = G.fx.filter((f) => f.t > 0);
+  drawHint(null);
+  if (p.hp < p.maxHp * 0.25) { const g = ctx.createRadialGradient(VW / 2, VH / 2, VH * 0.3, VW / 2, VH / 2, VH * 0.8); g.addColorStop(0, "rgba(160,0,0,0)"); g.addColorStop(1, `rgba(160,0,0,${0.35 + Math.sin(G.t * 5) * 0.1})`); ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH); }
+  drawMinimap();
+}
+
 function drawHint(cam) {
   const st = G.st, p = st.player;
   let txt = null, hx = 0, hy = 0;
@@ -630,6 +684,7 @@ function drawHint(cam) {
   if (!txt && Math.hypot((G.world.cx + 0.5) * TILE - p.x, (G.world.cy + 0.5) * TILE - p.y) < 2.2 * TILE) { txt = "기지 관리"; hx = p.x; hy = p.y - 60; }
   if (!txt && nearWater(G.world, p.x, p.y)) { txt = p.equip.hand?.id === "fishing_rod" ? "낚시" : "물 뜨기"; hx = p.x; hy = p.y - 60; }
   if (!txt) return;
+  if (!cam) { const s = G.r3d.project(hx, hy + 40, 2.4); cam = { x: hx - s.x, y: hy - s.y }; }
   ctx.font = "12px sans-serif";
   const w = ctx.measureText(txt).width + 34;
   ctx.fillStyle = "rgba(0,0,0,.6)"; R.roundRect(ctx, hx - cam.x - w / 2, hy - cam.y - 14, w, 22, 11); ctx.fill();

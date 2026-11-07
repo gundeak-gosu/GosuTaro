@@ -526,3 +526,38 @@ export const XP_CURVE = {
   runLevelCap: 60,
   legacyLevel: (totalXp) => Math.floor(Math.sqrt(totalXp / 400)), // 직업별 누적 경험치 → 혈통 레벨 (상한 없음)
 };
+
+// ---------------- 제작 품질 & 특성(접두어) ----------------
+// 같은 레시피라도 손재주·행운·혈통·시설에 따라 결과가 달라진다.
+export const QUALITY = [
+  { id: 0, name: "조악한", mult: 0.75, dur: 0.6, color: "#9a9a9a" },
+  { id: 1, name: "", mult: 1.0, dur: 1.0, color: "#ece4d8" },
+  { id: 2, name: "우수한", mult: 1.15, dur: 1.25, color: "#7ed957" },
+  { id: 3, name: "명품", mult: 1.35, dur: 1.5, color: "#5ab0e0" },
+  { id: 4, name: "전설의", mult: 1.6, dur: 2.0, color: "#e0a24a" },
+];
+// good: 좋은 특성 / 나쁜 특성. stat: 보정 대상, v: 배율 또는 가산
+export const AFFIXES = {
+  sharp: { name: "날카로운", good: true, atk: 1.12, desc: "공격 +12%" },
+  sturdy: { name: "튼튼한", good: true, dur: 1.25, desc: "내구도 +25%" },
+  light: { name: "가벼운", good: true, wear: 0.75, desc: "닳는 속도 -25%" },
+  warm: { name: "따뜻한", good: true, warmAdd: 4, desc: "보온 +4" },
+  guarded: { name: "단단한", good: true, defAdd: 2, desc: "방어 +2" },
+  lucky: { name: "행운의", good: true, luck: 0.1, desc: "채집 희귀품 확률 +10%" },
+  rusty: { name: "녹슨", good: false, dur: 0.7, desc: "내구도 -30%" },
+  dull: { name: "무딘", good: false, atk: 0.88, desc: "공격 -12%" },
+  creaky: { name: "삐걱대는", good: false, wear: 1.35, desc: "닳는 속도 +35%" },
+  drafty: { name: "바람 새는", good: false, warmAdd: -3, desc: "보온 -3" },
+};
+
+// ---------------- 던전 보스 (매 생애 같은 보스, 위치는 지도마다 다름) ----------------
+export const DUNGEONS = {
+  raider_camp: { boss: "붉은 손 두목 '강철곰'", hp: 600, power: 260, minChapter: 2, reward: [["ammo", 30], ["gunpowder", 6], ["leather", 8], ["pipe_pistol", 1]], look: "raider" },
+  iron_city: { boss: "폭주한 발전소 감독관", hp: 900, power: 520, minChapter: 5, reward: [["electronics", 10], ["iron", 15], ["fuel", 6]], look: "mutant" },
+  rad_river: { boss: "강의 포식자(거대 변이체)", hp: 1200, power: 800, minChapter: 8, reward: [["radaway", 4], ["hazmat", 1], ["electronics", 8]], look: "mutant" },
+  ash_fortress: { boss: "재의 군주", hp: 1400, power: 0, minChapter: 11, final: true, look: "knight" },
+};
+// 장소 배치 규칙: 기지에서의 거리 범위(월드 반폭 비율). 방향은 시드마다 무작위.
+export const POI_RULES = {
+  trader: [0.18, 0.3], radio_tower: [0.3, 0.45], raider_camp: [0.4, 0.6], iron_city: [0.45, 0.65], rad_river: [0.45, 0.65], ash_fortress: [0.78, 0.88],
+};

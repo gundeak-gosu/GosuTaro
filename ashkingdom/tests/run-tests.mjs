@@ -3,7 +3,7 @@
 import * as S from "../js/systems.js";
 import * as O from "../js/olympics.js";
 import * as Shop from "../js/shop.js";
-import { JOBS, DIFFICULTY, ITEMS, RECIPES, BUILDINGS, BASE_LEVELS, CHAPTERS, RESEARCH, ANIMALS, OLYMPIC_EVENTS, STORY_COMPANIONS, ENDINGS } from "../js/data.js";
+import { DUNGEONS, JOBS, DIFFICULTY, ITEMS, RECIPES, BUILDINGS, BASE_LEVELS, CHAPTERS, RESEARCH, ANIMALS, OLYMPIC_EVENTS, STORY_COMPANIONS, ENDINGS } from "../js/data.js";
 import { generateWorld, WORLD_W, WORLD_H, T, TILE, isBlocked } from "../js/world.js";
 import { makeRng } from "../js/rng.js";
 
@@ -94,6 +94,48 @@ test("월드: 모든 POI 가 기지에서 걸어서 도달 가능 (BFS)", () => 
     }
     for (const p of Object.values(w.pois)) ok(seen[p.ty * WORLD_W + p.tx], `seed ${seed}: ${p.name} 도달 불가`);
   }
+});
+
+test("월드: 생애마다 장소 위치가 달라지지만 장소·보스 구성은 동일", () => {
+  const a = generateWorld(11), b = generateWorld(12);
+  eq(Object.keys(a.pois).join(), Object.keys(b.pois).join());
+  ok(Object.keys(a.pois).some((k) => a.pois[k].tx !== b.pois[k].tx || a.pois[k].ty !== b.pois[k].ty), "positions should differ");
+  for (const k of Object.keys(DUNGEONS)) ok(a.pois[k] && b.pois[k], k);
+});
+test("월드: 무작위 배치 50개 시드 모두 모든 장소 도달 가능", () => {
+  for (let seed = 100; seed < 150; seed++) {
+    const w = generateWorld(seed);
+    const seen = new Uint8Array(WORLD_W * WORLD_H);
+    const q = [[w.cx, w.cy]]; seen[w.cy * WORLD_W + w.cx] = 1;
+    while (q.length) { const [x, y] = q.pop(); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= WORLD_W || ny >= WORLD_H) continue; const i = ny * WORLD_W + nx; if (seen[i] || w.tiles[i] === T.WATER) continue; seen[i] = 1; q.push([nx, ny]); } }
+    for (const p of Object.values(w.pois)) ok(seen[p.ty * WORLD_W + p.tx], `seed ${seed}: ${p.name}`);
+  }
+});
+
+// ---------------- 제작 품질 ----------------
+test("제작 품질: 확률 합 100%, 손재주가 높으면 좋은 결과↑ 나쁜 결과↓", () => {
+  const lo = fresh("politician").st, hi = fresh("engineer").st;
+  hi.player.stats.cra = 25;
+  const ql = S.qualityOdds(lo, null), qh = S.qualityOdds(hi, "forge");
+  ok(Math.abs(ql.reduce((a, b) => a + b) - 1) < 1e-9);
+  ok(qh[0] < ql[0], "poor less likely"); ok(qh[4] > ql[4], "legend more likely");
+  const al = S.affixOdds(lo), ah = S.affixOdds(hi, "forge");
+  ok(ah.good > al.good && ah.bad < al.bad, "good affix more likely");
+});
+test("제작 품질: 같은 레시피라도 결과가 다르고 능력치에 반영", () => {
+  const { st } = fresh("engineer");
+  st.base.buildings.push({ uid: "w", id: "workbench" }, { uid: "c", id: "cellar", storage: [] });
+  const seen = new Set();
+  for (let i = 0; i < 60; i++) {
+    give(st, { wood: 4, stone: 1, fiber: 3 });
+    const r = S.craft(st, "spear", { rng: makeRng(i) });
+    ok(r.ok); seen.add(r.quality.q + "|" + (r.quality.af || ""));
+  }
+  ok(seen.size >= 5, "variety " + seen.size);
+  const a = S.applyQuality(S.makeStack("spear", 1), 4, "sharp"), b = S.applyQuality(S.makeStack("spear", 1), 0, "dull");
+  ok(S.itemStat(a, "atk") > S.itemStat(b, "atk") * 2);
+  ok(a.maxDur > b.maxDur);
+  eq(S.itemLabel(a), "날카로운 전설의 창");
 });
 
 // ---------------- 생존/부패/내구도 ----------------
@@ -432,6 +474,26 @@ test("저장 크기 < 64KB (서버 비용 최소화)", () => {
   const n = JSON.stringify(st).length;
   ok(n < 64 * 1024, "size " + n);
 });
+
+// ---------------- 네트워크 절약 규칙 ----------------
+const Net = await import("../js/net.js");
+{
+  Net._reset();
+  const r1 = await Net.submitRecord({ season: "S1", kind: "quiz", bracket: 4, score: 100 });
+  const r2 = await Net.submitRecord({ season: "S1", kind: "quiz", bracket: 4, score: 100 });
+  const r3 = await Net.submitRecord({ season: "S1", kind: "quiz", bracket: 4, score: 150 });
+  const r4 = await Net.submitRecord({ season: "S1", kind: "sprint", bracket: 4, score: 150 });
+  test("네트워크: 첫 기록 저장 → 동일 기록 생략 → 1시간 내 변경은 보류 → 다른 종목은 별도", () => {
+    eq(r1, "offline"); eq(r2, "unchanged"); eq(r3, "throttled"); eq(r4, "offline");
+  });
+  const raw = JSON.parse(localStorage.getItem("ashk_net_v1"));
+  raw.sent["S1|quiz"].at -= 3600e3 + 1; localStorage.setItem("ashk_net_v1", JSON.stringify(raw));
+  const r5 = await Net.submitRecord({ season: "S1", kind: "quiz", bracket: 4, score: 150 });
+  test("네트워크: 1시간이 지나면 바뀐 기록 전송 허용", () => eq(r5, "offline"));
+  const n1 = await Net.rename("강철수"), n2 = await Net.rename("김철수"), bad = await (Net._reset(), Net.rename("!"));
+  test("네트워크: 이름 변경 하루 1회 + 형식 검사", () => { ok(n1.ok); eq(n2.ok, false); eq(bad.ok, false); });
+  test("네트워크: 서버 설정 없으면 완전 오프라인(요청 0회)", () => { eq(Net.stats.sent, 0); eq(Net.enabled(), false); });
+}
 
 // ---------------- 스토리 전체 진행(막힘 검사) ----------------
 for (const job of Object.keys(JOBS)) test(`스토리 0→12장 완주 가능 (${JOBS[job].name})`, () => {

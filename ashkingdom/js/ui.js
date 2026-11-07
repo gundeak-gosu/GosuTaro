@@ -5,14 +5,19 @@ import * as Shop from "./shop.js";
 import * as MG from "./minigames.js";
 import {
   ITEMS, RECIPES, BUILDINGS, BASE_LEVELS, RESEARCH, ANIMALS, VEHICLES, ROLES, JOBS, DIFFICULTY,
-  CHAPTERS, ERAS, OLYMPIC_EVENTS, OLYMPICS, SHOP, STATS, ENDINGS,
+  CHAPTERS, ERAS, OLYMPIC_EVENTS, OLYMPICS, SHOP, STATS, ENDINGS, QUALITY, AFFIXES,
 } from "./data.js";
 import { drawCharacter, drawCinematic } from "./render.js";
 import { makeRng } from "./rng.js";
 import { exportAll, importAll, saveGame, saveAccount } from "./storage.js";
+import * as Net from "./net.js";
 
 let G = null;
 export function bindUI(g) { G = g; }
+let viewer3d = null; // r3d.mountViewer (WebGL 가능 시)
+export function setViewer(fn) { viewer3d = fn; }
+const companionLook = (c) => ({ look: { skin: "#c9956d", hair: c.gender === "F" ? "long" : "short", hairColor: "#1b1410" }, gender: c.gender, equip: { body: { id: c.role === "soldier" ? "combat_vest" : "leather_jacket" }, legs: { id: "leather_pants" }, feet: { id: "boots" } } });
+const mountOf = (p) => (p.mount ? (p.mount.type === "animal" ? { kind: p.mount.kind } : { id: p.mount.id }) : null);
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -64,12 +69,17 @@ export function cinematic(title, text, scene = {}) {
     document.body.appendChild(el);
     const cv = el.querySelector("canvas");
     const dpr = Math.min(2, devicePixelRatio || 1);
-    const resize = () => { cv.width = innerWidth * dpr; cv.height = innerHeight * dpr; cv.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0); };
-    resize();
+    if (!viewer3d) { cv.width = innerWidth * dpr; cv.height = innerHeight * dpr; cv.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0); }
     let t = 0, run = true, last = performance.now();
-    const ctx = cv.getContext("2d");
-    const frame = (now) => { if (!run) return; t += (now - last) / 1000; last = now; drawCinematic(ctx, innerWidth, innerHeight, G.st, t, scene); requestAnimationFrame(frame); };
-    requestAnimationFrame(frame);
+    if (viewer3d) {
+      const p = G.st.player;
+      const comps = G.st.companions.filter((c) => c.story || c.spouse).slice(0, 2).map(companionLook);
+      viewer3d(cv, () => ({ look: p.look, gender: p.gender, equip: scene.crown ? { ...p.equip, head: { id: "crown" }, back: { id: "royal_robe" } } : p.equip, companions: comps }), { cinematic: true, palette: scene.palette });
+    } else {
+      const ctx = cv.getContext("2d");
+      const frame = (now) => { if (!run) return; t += (now - last) / 1000; last = now; drawCinematic(ctx, innerWidth, innerHeight, G.st, t, scene); requestAnimationFrame(frame); };
+      requestAnimationFrame(frame);
+    }
     const p = el.querySelector("p");
     let i = 0;
     const iv = setInterval(() => { p.textContent = text.slice(0, ++i); if (i >= text.length) clearInterval(iv); }, 28);
@@ -80,9 +90,10 @@ export function cinematic(title, text, scene = {}) {
 function itemTip(s) {
   const it = ITEMS[s.id];
   const bits = [];
-  if (it.atk) bits.push(`공격 ${it.atk}`);
-  if (it.def) bits.push(`방어 ${it.def}`);
-  if (it.warm) bits.push(`보온 ${it.warm}`);
+  if (it.atk) bits.push(`공격 ${S.itemStat(s, "atk")}`);
+  if (it.def || AFFIXES[s.af]?.defAdd) bits.push(`방어 ${S.itemStat(s, "def")}`);
+  if (it.warm) bits.push(`보온 ${S.itemStat(s, "warm")}`);
+  if (s.af) bits.push(`<span class="${AFFIXES[s.af].good ? "ok" : "no"}">특성: ${AFFIXES[s.af].name} (${AFFIXES[s.af].desc})</span>`);
   if (it.rad) bits.push(`방사능 차단 ${Math.round(it.rad * 100)}%`);
   if (it.bag) bits.push(`가방 +${it.bag}`);
   if (it.food) bits.push(Object.entries(it.food).map(([k, v]) => ({ hunger: "포만", thirst: "수분", hp: "체력", rad: "방사능", sick: "식중독" })[k] + (k === "sick" ? ` ${Math.round(v * 100)}%` : ` ${v > 0 ? "+" : ""}${v}`)).join(" "));
@@ -96,7 +107,8 @@ function slotHtml(s, idx, extra = "") {
   const it = ITEMS[s.id];
   const durPct = s.dur !== undefined ? Math.max(0, s.dur / s.maxDur) : null;
   const fr = s.fresh;
-  return `<button class="slot ${fr !== undefined ? (fr > 0.7 ? "f-good" : fr > 0.3 ? "f-mid" : "f-bad") : ""}" data-idx="${idx}" ${extra} title="${esc(it.name)}">
+  const qc = s.q !== undefined && s.q !== 1 ? `style="box-shadow: inset 0 0 0 2px ${QUALITY[s.q].color}"` : "";
+  return `<button class="slot ${fr !== undefined ? (fr > 0.7 ? "f-good" : fr > 0.3 ? "f-mid" : "f-bad") : ""}" data-idx="${idx}" ${extra} ${qc} title="${esc(S.itemLabel(s))}">
     <span class="ic">${it.icon}</span>${s.qty > 1 ? `<span class="q">${s.qty}</span>` : ""}
     ${durPct !== null ? `<span class="bar"><i style="width:${durPct * 100}%;background:${durPct > 0.5 ? "#7ed957" : durPct > 0.2 ? "#f2c14e" : "#e5534b"}"></i></span>` : ""}
     ${fr !== undefined ? `<span class="bar fresh"><i style="width:${Math.max(0, fr) * 100}%"></i></span>` : ""}
@@ -113,7 +125,7 @@ export function openBag() {
     <h2>🎒 가방 <small>${st.inv.length}/${S.bagSize(st)}칸</small></h2>
     <div class="bag-top">
       <div class="doll-wrap"><canvas id="doll" width="180" height="220"></canvas><button class="btn sm" id="detailBtn">🔍 자세히 보기·꾸미기</button></div>
-      <div class="equip">${slots.map((sl) => { const e = p.equip[sl]; return `<div class="eq" data-slot="${sl}"><small>${slotName[sl]}</small>${e ? `${slotHtml(e, -1, `data-eq="${sl}"`)}<span class="nm">${ITEMS[e.id].name}</span>` : `<span class="empty">비어 있음</span>`}</div>`; }).join("")}</div>
+      <div class="equip">${slots.map((sl) => { const e = p.equip[sl]; return `<div class="eq" data-slot="${sl}"><small>${slotName[sl]}</small>${e ? `${slotHtml(e, -1, `data-eq="${sl}"`)}<span class="nm" style="color:${QUALITY[e.q ?? 1].color}">${esc(S.itemLabel(e))}</span>` : `<span class="empty">비어 있음</span>`}</div>`; }).join("")}</div>
     </div>
     <div class="stats">
       <div>Lv.${p.level} <small>(경험치 ${p.xp}/${xpNeed()})</small> · 혈통 Lv.${p.legacyLevel} · 전투력 <b>${S.combatPower(st)}</b> ${p.statPoints ? `<span class="badge">포인트 ${p.statPoints}</span>` : ""}</div>
@@ -124,10 +136,14 @@ export function openBag() {
     <div id="itemInfo" class="iteminfo muted">아이템을 누르면 정보와 사용 버튼이 나옵니다. 막대: 초록=내구도, 파랑=신선도</div>
     ${G.atBase ? '<button class="btn" id="depositAll">📦 재료·음식 전부 기지 창고에 넣기</button>' : ""}
   `, { wide: true });
-  const doll = m.querySelector("#doll").getContext("2d");
-  let t = 0, run = true;
-  const anim = () => { if (!run || !m.isConnected) return; t += 0.05; doll.clearRect(0, 0, 180, 220); drawCharacter(doll, 90, 200, p.look, p.equip, 1, t, { scale: 4.2, detail: true, gender: p.gender, mount: null }); requestAnimationFrame(anim); };
-  anim();
+  let run = true;
+  if (viewer3d) viewer3d(m.querySelector("#doll"), () => ({ look: p.look, equip: p.equip, gender: p.gender }), { spin: false });
+  else {
+    const doll = m.querySelector("#doll").getContext("2d");
+    let t = 0;
+    const anim = () => { if (!run || !m.isConnected) return; t += 0.05; doll.clearRect(0, 0, 180, 220); drawCharacter(doll, 90, 200, p.look, p.equip, 1, t, { scale: 4.2, detail: true, gender: p.gender, mount: null }); requestAnimationFrame(anim); };
+    anim();
+  }
   m.querySelectorAll("[data-stat]").forEach((b) => (b.onclick = () => { S.spendStat(st, b.dataset.stat); run = false; m.close(); openBag(); }));
   m.querySelector("#detailBtn").onclick = () => { run = false; m.close(); openDetail(); };
   m.querySelector("#depositAll")?.addEventListener("click", () => { const n = S.depositAll(st, (s) => ["res", "food"].includes(ITEMS[s.id].type) && s.id !== "water_clean"); toast(`${n}개를 창고에 넣었습니다`); run = false; m.close(); openBag(); });
@@ -140,7 +156,7 @@ export function openBag() {
     if (s.dur !== undefined && s.dur < s.maxDur && S.hasStation(st, "workbench") && G.atBase) acts.push([`수리 (${costStr(S.repairCost(s.id))}, 최대내구 -10%)`, () => { if (!S.repair(st, s)) toast("재료 또는 작업대가 없습니다", "bad"); }]);
     if (G.atBase && S.allStorage(st).length) acts.push(["창고에 보관", () => { if (s.dur !== undefined) { const b2 = S.allStorage(st).find((x) => x.storage.length < BUILDINGS[x.id].storage.slots); if (b2) { b2.storage.push(s); st.inv.splice(i, 1); } } else { const n = S.storeToBase(st, s.id, s.qty, s.fresh ?? 1); s.qty -= n; if (s.qty <= 0) st.inv.splice(st.inv.indexOf(s), 1); } }]);
     acts.push(["버리기", () => st.inv.splice(i, 1)]);
-    info.innerHTML = `<b>${it.icon} ${it.name}</b> ${s.qty > 1 ? "×" + s.qty : ""} ${s.dur !== undefined ? `· 내구도 ${Math.ceil(s.dur)}/${s.maxDur}` : ""} ${s.fresh !== undefined ? `· ${S.freshLabel(s.fresh)} (${Math.round(s.fresh * 100)}%)` : ""}<br><small>${itemTip(s)}</small><div class="acts">${acts.map((a, k) => `<button class="btn sm" data-a="${k}">${a[0]}</button>`).join("")}</div>`;
+    info.innerHTML = `<b style="color:${QUALITY[s.q ?? 1].color}">${it.icon} ${esc(S.itemLabel(s))}</b> ${s.qty > 1 ? "×" + s.qty : ""} ${s.dur !== undefined ? `· 내구도 ${Math.ceil(s.dur)}/${s.maxDur}` : ""} ${s.fresh !== undefined ? `· ${S.freshLabel(s.fresh)} (${Math.round(s.fresh * 100)}%)` : ""}<br><small>${itemTip(s)}</small><div class="acts">${acts.map((a, k) => `<button class="btn sm" data-a="${k}">${a[0]}</button>`).join("")}</div>`;
     info.querySelectorAll("[data-a]").forEach((x) => (x.onclick = () => { acts[+x.dataset.a][1](); run = false; m.close(); openBag(); }));
   }));
   m.querySelectorAll("[data-eq]").forEach((b) => (b.onclick = () => { if (!S.unequip(st, b.dataset.eq)) toast("가방이 가득 찼습니다", "bad"); run = false; m.close(); openBag(); }));
@@ -159,11 +175,13 @@ export function openDetail() {
     <div class="pick"><small>피부</small>${skins.map((c) => `<button class="sw" style="background:${c}" data-skin="${c}"></button>`).join("")}</div>
     <div class="pick"><small>머리</small>${hairs.map((h) => `<button class="btn sm" data-hair="${h}">${hairNames[h]}</button>`).join("")}</div>
     <div class="pick"><small>머리색</small>${colors.map((c) => `<button class="sw" style="background:${c}" data-hc="${c}"></button>`).join("")}</div>
-    <p class="muted">옷·무기·탈것은 장착하면 그대로 모습에 반영됩니다. 맨몸(기본 속옷)에서 시작해 입는 옷에 따라 실루엣이 바뀝니다.</p>`, { wide: true });
-  const ctx = m.querySelector("#big").getContext("2d");
+    <p class="muted">드래그해서 돌려 보세요. 옷·무기·탈것은 장착하면 그대로 모습에 반영됩니다. 맨몸(기본 속옷)에서 시작해 입는 옷에 따라 실루엣이 바뀝니다.</p>`, { wide: true });
+  const mountObj = mountOf(p);
+  if (viewer3d) { viewer3d(m.querySelector("#big"), () => ({ look: p.look, equip: p.equip, gender: p.gender, mount: mountObj }), { spin: true }); }
+  const ctx = viewer3d ? null : m.querySelector("#big").getContext("2d");
   let t = 0;
-  const mountObj = p.mount ? (p.mount.type === "animal" ? { kind: p.mount.kind } : { id: p.mount.id }) : null;
   const draw = () => {
+    if (!ctx) return;
     if (!m.isConnected) return;
     t += 0.04;
     const g = ctx.createLinearGradient(0, 0, 0, 360); g.addColorStop(0, "#2a2420"); g.addColorStop(1, "#4b3a2c");
@@ -182,7 +200,11 @@ export function openCraft() {
   const st = G.st;
   const groups = { null: "맨손", campfire: "모닥불", workbench: "작업대", forge: "대장간", kitchen: "주방", smokehouse: "훈제실", lab: "연구소" };
   const list = RECIPES.filter((r) => S.researched(st, r.research));
+  const qo = S.qualityOdds(st, "workbench"), ao = S.affixOdds(st, "workbench");
   const m = modal(`<h2>🛠️ 제작</h2><p class="muted">시설이 필요한 제작은 기지 안에서만 가능합니다. 기지 창고의 재료도 자동으로 사용됩니다.</p>
+    <div class="card"><b>🎲 제작 품질 확률</b> <small class="muted">(손재주 ${st.player.stats.cra}${JOBS[st.player.job].perks.luck ? " · 행운" : ""} · 혈통 ${st.player.legacyLevel} · 작업대 기준, 대장간은 더 좋음)</small><br>
+    ${QUALITY.map((q, i) => `<span style="color:${q.color}">${q.name || "보통"} ${(qo[i] * 100).toFixed(1)}%</span>`).join(" · ")}<br>
+    <small>좋은 특성 <span class="ok">${(ao.good * 100).toFixed(0)}%</span> · 나쁜 특성 <span class="no">${(ao.bad * 100).toFixed(0)}%</span> — 손재주를 올리면 좋은 결과가 늘고 나쁜 결과가 줄어듭니다. 소모품은 솜씨에 따라 '대성공'으로 1개 더.</small></div>
     ${Object.entries(groups).map(([k, name]) => {
       const rs = list.filter((r) => String(r.station) === k);
       if (!rs.length) return "";
@@ -193,7 +215,7 @@ export function openCraft() {
       }).join("")}</div>`;
     }).join("")}
     <h3>탈것</h3><div class="rlist">${Object.entries(VEHICLES).map(([id, v]) => `<div class="recipe"><span class="ic">${v.icon}</span><div><b>${v.name}</b><small>${costHave(v.cost)}</small><small class="muted">이동 ×${v.mount} · 연구: ${RESEARCH.find((r) => r.id === v.research).name}</small></div><button class="btn sm" data-v="${id}" ${st.vehicles.includes(id) ? "disabled" : ""}>${st.vehicles.includes(id) ? "보유" : "제작"}</button></div>`).join("")}</div>`, { wide: true });
-  m.querySelectorAll("[data-r]").forEach((b) => (b.onclick = () => { const r = S.craft(st, b.dataset.r, { atBase: G.atBase }); toast(r.ok ? `${ITEMS[r.id].name} ×${r.q} 제작!` : r.why, r.ok ? "good" : "bad"); m.close(); G.afterAction(); openCraft(); }));
+  m.querySelectorAll("[data-r]").forEach((b) => (b.onclick = () => { const r = S.craft(st, b.dataset.r, { atBase: G.atBase }); toast(!r.ok ? r.why : r.quality?.label ? `${r.quality.q >= 3 ? "🌟 " : ""}${r.quality.label} 제작!${r.quality.af ? (AFFIXES[r.quality.af].good ? " (좋은 특성!)" : " (나쁜 특성…)") : ""}` : r.quality?.bonus ? `대성공! ${ITEMS[r.id].name} ×${r.q}` : `${ITEMS[r.id].name} ×${r.q} 제작!`, !r.ok ? "bad" : r.quality?.q === 0 || (r.quality?.af && !AFFIXES[r.quality.af].good) ? "warn" : "good"); m.close(); G.afterAction(); openCraft(); }));
   m.querySelectorAll("[data-v]").forEach((b) => (b.onclick = () => { const r = S.buildVehicle(st, b.dataset.v); toast(r.ok ? "제작 완료!" : r.why, r.ok ? "good" : "bad"); m.close(); openCraft(); }));
 }
 
@@ -360,10 +382,20 @@ export function openOlympics() {
     <label class="muted">출전 선수: <select id="ent">${ents.map((e) => `<option value="${e.uid}">${esc(e.name)}</option>`).join("")}</select></label>
     <div class="rlist">${ov.per.map(({ ev, rank, best }) => `<div class="recipe"><span class="ic">${ev.icon}</span><div><b>${ev.name}</b> <small>${best ? `최고 ${best}점 · ${rank}위` : "미참가"} · 오늘 ${O.triesLeft(acc, ev.id, today)}회</small><small class="muted">${Object.entries(ev.w).map(([k, w]) => STATS.find((s) => s.id === k).name + Math.round(w * 100) + "%").join(" ")}${ev.needAnimal ? " · 말 필요" : ""}</small></div>
       <div class="acts"><button class="btn sm" data-auto="${ev.id}">맡기기</button><button class="btn sm primary" data-man="${ev.id}">직접</button></div></div>`).join("")}</div>
+    <h3>🌐 전국 순위 <small id="netState">${Net.enabled() ? "불러오는 중…" : "오프라인 모드 — 같은 브래킷의 시뮬레이션 라이벌과 경쟁"}</small></h3>
+    <div id="netBoard" class="muted small"></div>
     <h3>⚔️ 영토 전쟁 (비동기 PvP)</h3>
     <div class="card">비슷한 전투력(±15%)의 다른 왕국 방어 기록에 도전합니다. 상대는 실시간 접속이 필요 없습니다(서버 비용 최소화).<br><button class="btn" id="war">상대 찾기</button> <small class="muted">하루 3회 · 승리 시 금화·영토 점수</small></div>`, { wide: true });
   const re = () => { m.close(); G.afterAction(); openOlympics(); };
-  const entrant = () => ents.find((e) => e.uid === m.querySelector("#ent").value);
+  // 랭킹 화면을 열 때만 기록을 보낸다(바뀐 것만, 종류별 1시간 1회) — 받기도 1시간 캐시·상위 100명
+  if (acc.war?.season !== sid) acc.war = { date: "", n: 0, score: 0, season: sid };
+  const recs = OLYMPIC_EVENTS.filter((ev) => acc.olympics.entries[ev.id]?.best).map((ev) => ({ kind: ev.id, score: acc.olympics.entries[ev.id].best }));
+  if (acc.war.score) recs.push({ kind: "war", score: acc.war.score });
+  if (Net.enabled() && !st.__tampered && recs.length) Net.openRanking(recs, sid, st.base.lv).then((boards) => {
+    const el = m.querySelector("#netBoard"); if (!el) return;
+    m.querySelector("#netState").textContent = boards.error ? `연결 실패(캐시 표시): ${boards.error}` : "1시간마다 갱신";
+    el.innerHTML = recs.map((r) => { const rows = boards[r.kind] || []; const my = rows.findIndex((x) => x.score <= r.score); const ev = OLYMPIC_EVENTS.find((e) => e.id === r.kind); return `<div>${ev ? ev.icon + ev.name : "⚔️ 영토"}: 내 기록 ${r.score} · ${my >= 0 ? `약 ${my + 1}위` : rows.length >= 100 ? "100위 밖" : `${rows.length + 1}위`} / 1위 ${esc(rows[0]?.name || "-")} ${rows[0]?.score ?? ""}</div>`; }).join("");
+  }).catch(() => {}); ents.find((e) => e.uid === m.querySelector("#ent").value);
   m.querySelector("#claimS")?.addEventListener("click", () => { const r = O.claimSeason(acc, st.base.lv, JOBS[st.player.job].perks.prize || 0); if (r) { st.gold += r.gold; toast(`시즌 ${r.rank}위! 💎${r.gems} 금화${r.gold}`, "good"); if (r.item) S.giveItem(st, r.item, 1); } re(); });
   m.querySelectorAll("[data-auto]").forEach((b) => (b.onclick = () => {
     const ev = OLYMPIC_EVENTS.find((e) => e.id === b.dataset.auto);
@@ -393,7 +425,7 @@ export function openOlympics() {
   }));
   m.querySelector("#war").onclick = async () => {
     const t = S.todayStr();
-    acc.war = acc.war?.date === t ? acc.war : { date: t, n: 0, score: acc.war?.score || 0 };
+    if (acc.war.date !== t) Object.assign(acc.war, { date: t, n: 0 });
     if (acc.war.n >= 3) return toast("오늘 전쟁 횟수를 모두 썼습니다", "bad");
     const myPow = S.combatPower(st);
     const rng = makeRng(`${sid}|war|${t}|${acc.war.n}`);
@@ -454,6 +486,8 @@ export function openMenu() {
       <button class="btn" id="save">💾 지금 저장</button>
       <button class="btn" id="exp">📤 저장 코드 내보내기 (기기 변경)</button>
       <button class="btn" id="imp">📥 저장 코드 가져오기</button>
+      <button class="btn" id="news">📢 공지 · 🏛️ 명예의 전당</button>
+      <button class="btn" id="rename">✏️ 랭킹 이름 변경 (하루 1회)</button>
       <button class="btn" id="help">❓ 조작법·도움말</button>
       <button class="btn danger" id="newg">🆕 새 생애 시작 (현재 세계 포기)</button>
     </div>`);
@@ -461,6 +495,18 @@ export function openMenu() {
   m.querySelector("#exp").onclick = () => { const code = exportAll(st, G.acc); m.close(); const mm = modal(`<h3>저장 코드</h3><textarea readonly class="code">${code}</textarea><p class="muted">다른 기기에서 [가져오기]에 붙여넣으세요.</p>`); mm.querySelector("textarea").select(); };
   m.querySelector("#imp").onclick = () => { m.close(); const mm = modal(`<h3>저장 코드 붙여넣기</h3><textarea class="code" id="code"></textarea><button class="btn primary" id="go">불러오기</button>`); mm.querySelector("#go").onclick = () => { const o = importAll(mm.querySelector("#code").value); if (!o) return toast("올바르지 않은 코드", "bad"); saveGame(o.st); saveAccount(o.acc); location.reload(); }; };
   m.querySelector("#help").onclick = () => { m.close(); help(); };
+  m.querySelector("#news").onclick = async () => {
+    m.close();
+    const [ns, hof] = await Promise.all([Net.notices().catch(() => []), Net.hallOfFame().catch(() => [])]);
+    modal(`<h2>📢 공지</h2>${ns.length ? ns.map((n) => `<div class="card"><b>${esc(n.title)}</b><br><small>${esc(n.body)}</small></div>`).join("") : '<p class="muted">공지가 없습니다(오프라인이거나 1시간 내 확인함).</p>'}
+      <h2>🏛️ 명예의 전당</h2><p class="muted small">주간 1위는 영원히 기록됩니다. 한 번 받은 기록은 기기에 저장되고, 새 주의 1위만 주 1회 받아옵니다.</p>
+      ${hof.length ? hof.slice().reverse().map((h) => `<div>${h.week}주차 · ${esc(h.kind)} · <b>${esc(h.name)}</b> ${h.score}</div>`).join("") : '<p class="muted">아직 기록이 없습니다.</p>'}`);
+  };
+  m.querySelector("#rename").onclick = async () => {
+    m.close();
+    const mm = modal(`<h3>랭킹 이름</h3><input id="rn" maxlength="10" class="code" style="height:auto;padding:10px" value="${esc(st.player.name)}"><button class="btn primary" id="ok">변경</button><p class="muted small">${Net.canRename() ? "하루에 한 번 바꿀 수 있습니다." : "오늘은 이미 바꿨습니다."}</p>`);
+    mm.querySelector("#ok").onclick = async () => { try { const r = await Net.rename(mm.querySelector("#rn").value); toast(r.ok ? "변경했습니다" : r.why, r.ok ? "good" : "bad"); if (r.ok) mm.close(); } catch (e) { toast("연결 실패: " + e.message, "bad"); } };
+  };
   m.querySelector("#newg").onclick = async () => { m.close(); if (await choice("새 생애", "현재 세계를 포기하고 처음부터 시작합니다. 혈통 경험치는 보존됩니다.", [{ label: "새로 시작", value: 1, cls: "danger" }, { label: "취소", value: 0 }], { closable: true })) { S.bankLegacy(st, G.acc); saveAccount(G.acc); G.newLife(); } };
 }
 

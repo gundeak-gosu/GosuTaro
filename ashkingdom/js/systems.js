@@ -4,7 +4,7 @@
 // =====================================================================
 import {
   VERSION, TIME, DIFFICULTY, JOBS, ITEMS, RECIPES, BUILDINGS, BASE_LEVELS, RESEARCH, ANIMALS,
-  VEHICLES, ROLES, STORY_COMPANIONS, SURVIVOR_NAMES, CHAPTERS, ENDINGS, XP_CURVE, ENEMIES,
+  VEHICLES, ROLES, STORY_COMPANIONS, SURVIVOR_NAMES, CHAPTERS, ENDINGS, XP_CURVE, ENEMIES, QUALITY, AFFIXES,
 } from "./data.js";
 import { makeRng } from "./rng.js";
 
@@ -287,7 +287,7 @@ export function unequip(st, slot) {
 export function wear(st, slot, amount = 1) {
   const s = st.player.equip[slot];
   if (!s || s.dur === undefined) return;
-  const mult = 1 + (JOBS[st.player.job].perks.wear || 0);
+  const mult = (1 + (JOBS[st.player.job].perks.wear || 0)) * (AFFIXES[s.af]?.wear || 1);
   s.dur -= amount * mult;
   if (s.dur <= 0) {
     st.player.equip[slot] = null;
@@ -313,10 +313,67 @@ export function repair(st, stack) {
   return true;
 }
 
+// 개별 아이템 능력치: 기본값 × 품질 배율 + 특성 보정
+export function itemStat(s, key) {
+  if (!s) return 0;
+  const base = ITEMS[s.id][key] || 0;
+  const q = QUALITY[s.q ?? 1];
+  const af = AFFIXES[s.af];
+  let v = key === "rad" || key === "bag" ? base : base * q.mult;
+  if (af) {
+    if (key === "atk" && af.atk) v *= af.atk;
+    if (key === "warm" && af.warmAdd && base) v += af.warmAdd;
+    if (key === "def" && af.defAdd) v += af.defAdd;
+  }
+  return Math.max(0, Math.round(v * 10) / 10);
+}
+export function itemLabel(s) {
+  const q = QUALITY[s.q ?? 1];
+  const af = AFFIXES[s.af];
+  return [af?.name, q.name, ITEMS[s.id].name].filter(Boolean).join(" ");
+}
 export function equipStat(st, key) {
   let n = 0;
-  for (const s of Object.values(st.player.equip)) if (s) n += ITEMS[s.id][key] || 0;
+  for (const s of Object.values(st.player.equip)) if (s) n += itemStat(s, key);
   return n;
+}
+
+// ---------------- 제작 품질 굴림 ----------------
+// 손재주·행운·혈통·시설 등급이 높을수록 좋은 품질/좋은 특성 확률이 올라가고 나쁜 결과가 줄어든다.
+const STATION_TIER = { null: 0, campfire: 0, workbench: 2, kitchen: 2, smokehouse: 1, forge: 5, lab: 4 };
+export function craftSkill(st, station = null) {
+  const luck = (JOBS[st.player.job].perks.luck || 0) * 20;
+  return (eff(st, "cra") - 5) * 2 + luck + st.player.legacyLevel * 0.5 + (STATION_TIER[station] ?? 0) + (st.buffs.xp ? 0 : 0);
+}
+export function qualityOdds(st, station = null) {
+  const k = craftSkill(st, station);
+  const w = [Math.max(2, 25 - k * 1.2), 0, 15 + k * 0.7, Math.max(1, 4 + k * 0.3), Math.max(0.3, 1 + k * 0.1)];
+  w[1] = Math.max(10, 100 - w[0] - w[2] - w[3] - w[4]);
+  const tot = w.reduce((a, b) => a + b, 0);
+  return w.map((x) => x / tot);
+}
+export function affixOdds(st, station = null) {
+  const k = craftSkill(st, station);
+  const any = Math.min(0.6, 0.3 + k * 0.01);
+  const goodShare = Math.max(0.15, Math.min(0.92, 0.5 + k * 0.025));
+  return { good: any * goodShare, bad: any * (1 - goodShare) };
+}
+export function rollQuality(st, station, rng) {
+  const odds = qualityOdds(st, station);
+  let r = rng.next(), q = 0;
+  for (; q < odds.length - 1; q++) { r -= odds[q]; if (r <= 0) break; }
+  const ao = affixOdds(st, station);
+  const r2 = rng.next();
+  const pool = (good) => Object.entries(AFFIXES).filter(([, a]) => a.good === good).map(([k]) => k);
+  const af = r2 < ao.good ? rng.pick(pool(true)) : r2 < ao.good + ao.bad ? rng.pick(pool(false)) : null;
+  return { q, af };
+}
+export function applyQuality(s, q, af) {
+  s.q = q; if (af) s.af = af;
+  const m = QUALITY[q].dur * (AFFIXES[af]?.dur || 1);
+  s.maxDur = Math.max(5, Math.round(s.maxDur * m));
+  s.dur = s.maxDur;
+  return s;
 }
 
 export function eff(st, stat) { return st.player.stats[stat] + (hasSkill(st, "accidental") ? 5 : 0); }
@@ -370,8 +427,8 @@ export function hasPower(st) { return powerSupply(st) >= powerDemand(st) && powe
 export function ambientTemp(st, atBase, nearFire) {
   let t = season(st).temp;
   if (isNight(st)) t -= 8;
-  if (atBase) t += 6 + st.base.lv; // 벽과 지붕
-  if (nearFire) t += 15;
+  if (atBase) t += Math.min(6 + st.base.lv, Math.max(0, 18 - t)); // 벽과 지붕: 추울 때만 데워 준다
+  if (nearFire) t += Math.min(15, Math.max(0, 22 - t)); // 모닥불: 쾌적 온도까지만
   return t;
 }
 
@@ -392,7 +449,9 @@ export function tick(st, minutes, ctx = {}) {
   p.thirst = clamp(p.thirst - 4.2 * h * needMul * (season(st).id === "summer" ? 1.3 : 1), 0, 100);
 
   // 체온
-  const amb = ambientTemp(st, ctx.atBase, ctx.nearFire) + equipStat(st, "warm") + (st.buffs.warm ? 6 : 0);
+  const base = ambientTemp(st, ctx.atBase, ctx.nearFire);
+  const clothes = equipStat(st, "warm") + (st.buffs.warm ? 6 : 0);
+  const amb = base < 18 ? Math.min(base + clothes, Math.max(base, 24)) : base + clothes * 0.15; // 옷은 추울 때 효과적, 더울 땐 약간만 더해짐
   p.warmth = amb;
   let dmg = 0;
   if (amb < 0) dmg += (-amb / 6) * h * d.needs;
@@ -662,12 +721,30 @@ export function craft(st, recipeId, ctx = {}) {
   if (r.station && !(hasStation(st, r.station) && (ctx.atBase !== false))) return { ok: false, why: `${stationName(r.station)} 필요(기지)` };
   if (!pay(st, r.in, ctx.atBase !== false)) return { ok: false, why: "재료 부족: " + missing(st, r.in).join(", ") };
   let [id, q] = r.out;
+  const rng = ctx.rng || makeRng(Date.now() ^ (st.stats.crafted * 2654435761));
   if (hasSkill(st, "preserve") && (id === "jerky" || id === "salted_meat")) q *= 2;
-  giveItem(st, id, q);
+  let quality = null;
+  if (ITEMS[id].dur) {
+    // 장비: 품질 + 특성 굴림
+    for (let i = 0; i < q; i++) {
+      const roll = rollQuality(st, r.station, rng);
+      const s = applyQuality(makeStack(id, 1), roll.q, roll.af);
+      if (st.inv.length < bagSize(st)) st.inv.push(s);
+      else { const b = allStorage(st).find((x) => x.storage.length < BUILDINGS[x.id].storage.slots); if (b) b.storage.push(s); else log(st, "가방과 창고가 가득 차 제작품을 버렸습니다", "warn"); }
+      quality = { q: roll.q, af: roll.af, label: itemLabel(s) };
+    }
+  } else {
+    // 소모품: 솜씨가 좋으면 '대성공'으로 1개 더
+    const bonus = rng.next() < Math.min(0.35, Math.max(0, craftSkill(st, r.station)) * 0.015) ? 1 : 0;
+    q += bonus;
+    giveItem(st, id, q);
+    if (bonus) quality = { bonus: true };
+  }
   st.story.crafted[id] = true;
   st.stats.crafted++;
-  gainXp(st, 5);
-  return { ok: true, id, q };
+  gainXp(st, 5 + (quality?.q >= 3 ? 10 : 0));
+  if (quality?.q === 4) log(st, `🌟 전설급 제작! ${quality.label}`, "good");
+  return { ok: true, id, q, quality };
 }
 
 export function stationName(s) {
@@ -807,7 +884,7 @@ export function useItem(st, index) {
 export function gather(st, nodeType, rng = makeRng(Date.now())) {
   const hand = st.player.equip.hand;
   const tool = hand ? ITEMS[hand.id].tool || {} : {};
-  const luck = 1 + (JOBS[st.player.job].perks.luck || 0);
+  const luck = 1 + (JOBS[st.player.job].perks.luck || 0) + (AFFIXES[hand?.af]?.luck || 0);
   const loot = diff(st).loot;
   const out = [];
   const add = (id, q) => { if (q > 0) out.push([id, Math.max(1, Math.round(q))]); };
@@ -840,7 +917,7 @@ export function gather(st, nodeType, rng = makeRng(Date.now())) {
 export function playerAttack(st) {
   const hand = st.player.equip.hand;
   const it = hand ? ITEMS[hand.id] : null;
-  let atk = (it?.atk || 2) + eff(st, "str") * 0.8;
+  let atk = (hand ? itemStat(hand, "atk") : 2) + eff(st, "str") * 0.8;
   let ranged = false;
   if (it?.ranged) {
     if (count(st.inv, it.ranged) > 0) { removeFrom(st.inv, it.ranged, 1); ranged = true; atk += eff(st, "agi") * 0.6; if (hasSkill(st, "aim")) atk *= 1.15; }
@@ -875,7 +952,7 @@ export function combatPower(st) {
   const p = st.player;
   const hand = p.equip.hand ? ITEMS[p.equip.hand.id] : null;
   const statSum = Object.values(p.stats).reduce((a, b) => a + b, 0) + (hasSkill(st, "accidental") ? 30 : 0);
-  let pow = p.level * 8 + statSum * 2 + (hand?.atk || 2) * 3 + equipStat(st, "def") * 3 + p.legacyLevel * 12;
+  let pow = p.level * 8 + statSum * 2 + (p.equip.hand ? itemStat(p.equip.hand, "atk") : 2) * 3 + equipStat(st, "def") * 3 + p.legacyLevel * 12;
   pow *= 1 + (JOBS[p.job].perks.dmg || 0) * 0.5;
   const cmd = hasSkill(st, "command") ? 1.25 : 1;
   for (const c of st.companions) {

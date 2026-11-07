@@ -1,7 +1,7 @@
 // 월드 생성 — 시드로부터 결정적으로 생성하므로 저장 파일에는 '고갈된 자원 노드'만 저장한다.
 // (저장 용량 최소화 + 서버 저장 비용 최소화)
 import { makeRng, valueNoise2D, hashStr } from "./rng.js";
-import { POIS } from "./data.js";
+import { POIS, POI_RULES } from "./data.js";
 
 export const TILE = 32;
 export const WORLD_W = 128;
@@ -64,8 +64,19 @@ export function generateWorld(seed) {
   }
   // POI 주변은 지나갈 수 있도록
   const pois = {};
+  // 장소 위치: 시드마다 방향이 바뀐다(거리 규칙은 같아서 난이도 동선은 유지). 서로 최소 거리 보장.
+  const placed = [];
+  const prng = makeRng(s ^ 0x51ed27);
   for (const [id, p] of Object.entries(POIS)) {
-    const px = Math.round(p.fx * WORLD_W), py = Math.round(p.fy * WORLD_H);
+    const [d0, d1] = POI_RULES[id] || [0.3, 0.6];
+    let px = 0, py = 0;
+    for (let tries = 0; tries < 200; tries++) {
+      const a = prng.range(0, Math.PI * 2), d = prng.range(d0, d1) * (WORLD_W / 2 - 6);
+      px = Math.round(cx + Math.cos(a) * d); py = Math.round(cy + Math.sin(a) * d);
+      if (px < 6 || py < 6 || px > WORLD_W - 7 || py > WORLD_H - 7) continue;
+      if (placed.every(([qx, qy]) => Math.hypot(qx - px, qy - py) > 18)) break;
+    }
+    placed.push([px, py]);
     for (let y = -3; y <= 3; y++) for (let x = -3; x <= 3; x++) {
       const tt = id === "rad_river" ? T.RAD : id === "iron_city" ? T.RUIN : T.ASH;
       setT(tiles, px + x, py + y, tt);
@@ -77,6 +88,16 @@ export function generateWorld(seed) {
   for (let i = -20; i <= 20; i++) {
     const yy = rr.ty + 5 + Math.round(Math.sin(i / 4) * 2);
     if (inside(rr.tx + i, yy)) setT(tiles, rr.tx + i, yy, T.WATER);
+  }
+
+  // 기지 → 각 장소로 옛 도로(물 위는 다리)를 낸다: 무작위 배치여도 항상 도달 가능
+  for (const q of Object.values(pois)) {
+    let x = cx, y = cy, guard = 0;
+    while ((x !== q.tx || y !== q.ty) && guard++ < 400) {
+      if (Math.abs(q.tx - x) > Math.abs(q.ty - y) || (Math.abs(q.tx - x) === Math.abs(q.ty - y) && prng.chance(0.5))) x += Math.sign(q.tx - x); else y += Math.sign(q.ty - y);
+      const t = tiles[y * WORLD_W + x];
+      if (t !== T.BASE && t !== T.RAD) setT(tiles, x, y, T.ROAD);
+    }
   }
 
   // 자원 노드

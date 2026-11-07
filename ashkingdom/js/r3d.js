@@ -1078,6 +1078,8 @@ function buildingModel(b, st) {
 // =====================================================================
 const viewers = new Set();
 export function mountViewer(canvas, getState, opts = {}) {
+  // 화면 표시 크기를 처음 크기로 고정(고밀도 폰에서 캔버스가 매 프레임 2~3배씩 커지는 문제 방지)
+  if (!opts.cinematic) { const r = canvas.getBoundingClientRect(); if (r.width && !canvas.style.width) { canvas.style.width = r.width + "px"; canvas.style.height = r.height + "px"; } }
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: !opts.cinematic, preserveDrawingBuffer: false });
   renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;

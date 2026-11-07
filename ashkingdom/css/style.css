@@ -29,6 +29,7 @@ small { font-size: 12px; }
 .btn:active:not(:disabled) { transform: scale(.97); }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
 .btn.primary { background: linear-gradient(#e0a24a, #b87828); border-color: #f2c06a; color: #1a1209; font-weight: 700; }
+.btn.primary:hover:not(:disabled) { background: linear-gradient(#ecb25a, #c88632); }
 .btn.danger { background: #5a2420; border-color: #8a3a32; }
 .btn.pink { background: #5a2440; border-color: #8a3a62; }
 .btn.sm { padding: 6px 10px; min-height: 32px; font-size: 13px; border-radius: 8px; }
@@ -121,12 +122,12 @@ details { margin-top: 12px; color: var(--muted); font-size: 13px; }
 .slot .bar.fresh i { background: #5ab0e0; }
 .slot.f-mid { border-color: #8a7a32; } .slot.f-bad { border-color: #8a3a32; background: #2a1a17; }
 .iteminfo { margin-top: 10px; background: var(--panel2); border-radius: 10px; padding: 10px; font-size: 13px; line-height: 1.5; }
-.bigdoll { width: 100%; max-width: 300px; display: block; margin: 0 auto 8px; border-radius: 12px; }
+.bigdoll { width: 100%; max-width: min(300px, 46vh); display: block; margin: 0 auto 8px; border-radius: 12px; }
 .pick { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
 .pick small { width: 48px; color: var(--muted); }
 .sw { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--line); }
 
-.earthmap { width: 100%; aspect-ratio: 2 / 1; border-radius: 10px; border: 1px solid var(--line); display: block; background: #1e2c34; }
+.earthmap { width: min(100%, 76vh); margin: 0 auto; aspect-ratio: 2 / 1; border-radius: 10px; border: 1px solid var(--line); display: block; background: #1e2c34; }
 .klist { display: flex; flex-direction: column; gap: 4px; }
 .krow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
 .krow > span:first-child { min-width: 22px; color: var(--accent); font-weight: 700; }
@@ -191,3 +192,6 @@ svg.gi { display: inline-block; vertical-align: middle; flex: none; }
 .quiz h3 { line-height: 1.5; }
 
 @keyframes fade { from { opacity: 0; } }
+
+/* 화면이 낮아도(가로 폰·브라우저 축소) 그림이 창을 밀어내지 않고, 확인 버튼은 항상 보이게 */
+.modal .btn.primary.big { position: sticky; bottom: -16px; box-shadow: 0 -10px 18px var(--panel); }

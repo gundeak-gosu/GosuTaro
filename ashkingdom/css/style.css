@@ -130,6 +130,14 @@ details { margin-top: 12px; color: var(--muted); font-size: 13px; }
 .krow.me { border-color: var(--accent); background: #33281c; }
 .krow .btn { margin-left: auto; }
 .badge.bot { background: #4a4a52; color: #ddd; }
+canvas#gl.pixel { image-rendering: pixelated; image-rendering: crisp-edges; }
+body.joy-right #joy { left: auto; right: 18px; }
+body.joy-right #act { right: auto; left: 20px; }
+#tut { position: fixed; left: 50%; top: calc(110px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 7; background: rgba(29,23,18,.9); border: 2px solid var(--accent); border-radius: 12px; padding: 8px 14px 8px; max-width: min(92vw, 460px); display: flex; flex-direction: column; gap: 2px; text-align: center; pointer-events: auto; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
+#tut small { color: var(--accent); font-size: 11px; }
+#tut b { font-size: 15px; }
+#tut span { font-size: 12.5px; color: var(--muted); }
+#tut .mini { position: absolute; right: 6px; top: 4px; background: none; border: 0; color: var(--muted); font-size: 11px; }
 /* 아이콘 세트 */
 svg.gi { display: inline-block; vertical-align: middle; flex: none; }
 .gi-fb { display: inline-block; min-width: 1em; }

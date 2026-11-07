@@ -613,9 +613,22 @@ export class Field3D {
     this.resize();
   }
 
+  // 픽셀 화면: 낮은 해상도로 그린 뒤 '계단'이 보이게 확대(가볍고 레트로한 느낌, 모바일 배터리 절약)
+  setPixel(on) {
+    this.pixel = !!on;
+    this.canvas.classList.toggle("pixel", this.pixel);
+    this.resize();
+  }
   resize() {
     const w = innerWidth, h = innerHeight;
-    this.renderer.setSize(w, h, false);
+    if (this.pixel) {
+      const scale = Math.max(2, Math.round(Math.min(w, h) / 240)); // 짧은 변이 약 240px 이 되게
+      this.renderer.setPixelRatio(1);
+      this.renderer.setSize(Math.ceil(w / scale), Math.ceil(h / scale), false);
+    } else {
+      this.renderer.setPixelRatio(Math.min(LOW ? 1.5 : 2, devicePixelRatio || 1));
+      this.renderer.setSize(w, h, false);
+    }
     this.camera.aspect = w / h;
     this.camera.fov = w < h ? 55 : 42;
     this.camera.updateProjectionMatrix();

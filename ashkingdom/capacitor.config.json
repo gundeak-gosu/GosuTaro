@@ -1,0 +1,9 @@
+{
+  "appId": "com.gosutaro.ashkingdom",
+  "appName": "잿빛 왕국",
+  "webDir": ".",
+  "bundledWebRuntime": false,
+  "backgroundColor": "#1a1714",
+  "android": { "allowMixedContent": false },
+  "ios": { "contentInset": "never" }
+}

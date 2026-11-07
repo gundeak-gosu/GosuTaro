@@ -11,6 +11,8 @@ import { drawCharacter, drawCinematic } from "./render.js";
 import { makeRng } from "./rng.js";
 import { exportAll, importAll, saveGame, saveAccount } from "./storage.js";
 import * as Net from "./net.js";
+import * as Sync from "./sync.js";
+import * as Sfx from "./sfx.js";
 import * as Ic from "./icons.js";
 import * as Earth from "./earth.js";
 import * as MM from "./matchmaking.js";
@@ -221,7 +223,7 @@ export function openCraft() {
       }).join("")}</div>`;
     }).join("")}
     <h3>탈것</h3><div class="rlist">${Object.entries(VEHICLES).map(([id, v]) => `<div class="recipe"><span class="ic">${Ic.icon("v." + id, 34, v.icon)}</span><div><b>${v.name}</b><small>${costHave(v.cost)}</small><small class="muted">이동 ×${v.mount} · 연구: ${RESEARCH.find((r) => r.id === v.research).name}</small></div><button class="btn sm" data-v="${id}" ${st.vehicles.includes(id) ? "disabled" : ""}>${st.vehicles.includes(id) ? "보유" : "제작"}</button></div>`).join("")}</div>`, { wide: true });
-  m.querySelectorAll("[data-r]").forEach((b) => (b.onclick = () => { const r = S.craft(st, b.dataset.r, { atBase: G.atBase }); toast(!r.ok ? r.why : r.quality?.label ? `${r.quality.q >= 3 ? "🌟 " : ""}${r.quality.label} 제작!${r.quality.af ? (AFFIXES[r.quality.af].good ? " (좋은 특성!)" : " (나쁜 특성…)") : ""}` : r.quality?.bonus ? `대성공! ${ITEMS[r.id].name} ×${r.q}` : `${ITEMS[r.id].name} ×${r.q} 제작!`, !r.ok ? "bad" : r.quality?.q === 0 || (r.quality?.af && !AFFIXES[r.quality.af].good) ? "warn" : "good"); m.close(); G.afterAction(); openCraft(); }));
+  m.querySelectorAll("[data-r]").forEach((b) => (b.onclick = () => { const r = S.craft(st, b.dataset.r, { atBase: G.atBase }); Sfx.play(r.ok ? "craft" : "bad"); toast(!r.ok ? r.why : r.quality?.label ? `${r.quality.q >= 3 ? "🌟 " : ""}${r.quality.label} 제작!${r.quality.af ? (AFFIXES[r.quality.af].good ? " (좋은 특성!)" : " (나쁜 특성…)") : ""}` : r.quality?.bonus ? `대성공! ${ITEMS[r.id].name} ×${r.q}` : `${ITEMS[r.id].name} ×${r.q} 제작!`, !r.ok ? "bad" : r.quality?.q === 0 || (r.quality?.af && !AFFIXES[r.quality.af].good) ? "warn" : "good"); m.close(); G.afterAction(); openCraft(); }));
   m.querySelectorAll("[data-v]").forEach((b) => (b.onclick = () => { const r = S.buildVehicle(st, b.dataset.v); toast(r.ok ? "제작 완료!" : r.why, r.ok ? "good" : "bad"); m.close(); openCraft(); }));
 }
 
@@ -266,7 +268,7 @@ export function openBase(tab = "build") {
   m.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => re(b.dataset.tab)));
   m.querySelector("#upg")?.addEventListener("click", async () => { const r = S.upgradeBase(st); if (r.ok) { m.close(); G.afterAction(); await cinematic(`🏰 ${BASE_LEVELS[st.base.lv - 1].name}`, `기지가 커졌다. 성벽은 높아지고, 사람들의 목소리도 커졌다. 이제 ${BASE_LEVELS[st.base.lv - 1].slots}개의 시설을 세울 수 있다.`, { palette: ["#1d2433", "#4a4a5e", "#b7884f"] }); openBase(); } else toast(r.why, "bad"); });
   m.querySelectorAll("[data-b]").forEach((b) => {
-    if (tab === "build") b.onclick = () => { const r = S.build(st, b.dataset.b); toast(r.ok ? "건설 완료!" : r.why, r.ok ? "good" : "bad"); re(); };
+    if (tab === "build") b.onclick = () => { const r = S.build(st, b.dataset.b); Sfx.play(r.ok ? "build" : "bad"); toast(r.ok ? "건설 완료!" : r.why, r.ok ? "good" : "bad"); re(); };
   });
   if (tab === "storage") m.querySelectorAll(".slot[data-b]").forEach((b) => (b.onclick = () => { const bb = st.base.buildings.find((x) => x.uid === b.dataset.b); if (!S.withdraw(st, bb, +b.dataset.idx)) toast("가방이 가득 찼습니다", "bad"); re(); }));
   m.querySelectorAll("[data-demo]").forEach((b) => (b.onclick = async () => { if (await choice("철거", "이 시설을 철거하고 재료 절반을 돌려받을까요?", [{ label: "철거", value: 1, cls: "danger" }, { label: "취소", value: 0 }], { closable: true })) { if (!S.demolish(st, b.dataset.demo)) toast("창고가 비어 있어야 철거할 수 있습니다", "bad"); } re(); }));
@@ -547,6 +549,8 @@ export function openMenu() {
       <button class="btn" id="save">💾 지금 저장</button>
       <button class="btn" id="exp">📤 저장 코드 내보내기 (기기 변경)</button>
       <button class="btn" id="imp">📥 저장 코드 가져오기</button>
+      <button class="btn" id="cloud">☁️ 기기 연결 (PC·휴대폰 이어하기)</button>
+      <button class="btn" id="settings">⚙️ 설정 (그래픽·소리)</button>
       <button class="btn" id="globe">🌍 세계 지도 · 내 위치</button>
       <button class="btn" id="news">📢 공지 · 🏛️ 명예의 전당</button>
       <button class="btn" id="rename">✏️ 랭킹 이름 변경 (하루 1회)</button>
@@ -558,6 +562,8 @@ export function openMenu() {
   m.querySelector("#imp").onclick = () => { m.close(); const mm = modal(`<h3>저장 코드 붙여넣기</h3><textarea class="code" id="code"></textarea><button class="btn primary" id="go">불러오기</button>`); mm.querySelector("#go").onclick = () => { const o = importAll(mm.querySelector("#code").value); if (!o) return toast("올바르지 않은 코드", "bad"); saveGame(o.st); saveAccount(o.acc); location.reload(); }; };
   m.querySelector("#help").onclick = () => { m.close(); help(); };
   m.querySelector("#globe").onclick = () => { m.close(); openWorldMap(); };
+  m.querySelector("#cloud").onclick = () => { m.close(); openSync(); };
+  m.querySelector("#settings").onclick = () => { m.close(); openSettings(); };
   m.querySelector("#news").onclick = async () => {
     m.close();
     const [ns, hof] = await Promise.all([Net.notices().catch(() => []), Net.hallOfFame().catch(() => [])]);
@@ -613,9 +619,59 @@ export function openWorldMap() {
   Earth.drawEarthMap(m.querySelector("#earth").getContext("2d"), 720, 360, [{ lat: g.lat, lon: g.lon, r: 8 + G.st.story.restore / 10 }]);
 }
 
+// ---------------- 기기 연결(이어하기) ----------------
+export function openSync() {
+  const st = Sync.state();
+  if (!Net.enabled()) {
+    return modal(`<h2>☁️ 기기 연결</h2><p>PC와 휴대폰에서 같은 계정으로 로그인하면 이어서 플레이할 수 있습니다.</p>
+      <div class="card warn">아직 게임 서버가 연결되지 않은 버전입니다. 서버(Supabase)를 연결하면 이 메뉴에서 이메일로 로그인할 수 있습니다.<br><small>지금은 [메뉴 → 저장 코드 내보내기/가져오기]로 기기를 옮길 수 있습니다.</small></div>`);
+  }
+  if (st.auth?.email) {
+    const m = modal(`<h2>☁️ 기기 연결</h2><div class="card">로그인: <b>${esc(st.auth.email)}</b><br><small class="muted">서버 리비전 ${st.rev || 0} · ${st.dirty ? "올릴 진행 있음" : "최신 상태"} · 이 기기: ${esc(Sync.deviceName())}</small></div>
+      <p class="muted small">게임을 시작할 때 받고, 끄거나 10분마다(바뀐 경우만) 올립니다. 두 기기에서 따로 진행했다면 시작할 때 어느 쪽을 쓸지 묻습니다.</p>
+      <div class="choices"><button class="btn primary" id="now">지금 올리기</button><button class="btn danger" id="out">로그아웃</button></div>`);
+    m.querySelector("#now").onclick = async () => { try { Sync.markDirty(); const r = await Sync.push(G.st, G.acc, { force: true }); toast(r === "pushed" ? "올렸습니다" : r, "good"); } catch (e) { toast("실패: " + e.message, "bad"); } m.close(); };
+    m.querySelector("#out").onclick = () => { Sync.logout(); toast("로그아웃했습니다"); m.close(); };
+    return m;
+  }
+  const m = modal(`<h2>☁️ 기기 연결</h2><p>이메일로 로그인하면 PC·휴대폰 어디서든 이어서 플레이할 수 있습니다. 비밀번호 없이 메일로 온 6자리 코드를 입력합니다.</p>
+    <input id="em" type="email" placeholder="이메일" class="code" style="height:auto;padding:10px">
+    <button class="btn primary" id="send">코드 받기</button>
+    <div id="step2" hidden><input id="cd" inputmode="numeric" maxlength="6" placeholder="6자리 코드" class="code" style="height:auto;padding:10px"><button class="btn primary" id="ok">로그인</button></div>`);
+  m.querySelector("#send").onclick = async () => { const em = m.querySelector("#em").value.trim(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return toast("이메일을 확인하세요", "bad"); try { await Sync.sendCode(em); m.querySelector("#step2").hidden = false; toast("메일로 코드를 보냈습니다", "good"); } catch (e) { toast("실패: " + e.message, "bad"); } };
+  m.querySelector("#ok").onclick = async () => { try { await Sync.verifyCode(m.querySelector("#em").value.trim(), m.querySelector("#cd").value.trim()); m.close(); toast("로그인했습니다. 동기화를 확인합니다…", "good"); await G.syncOnStart(true); } catch (e) { toast("코드가 맞지 않습니다", "bad"); } };
+  return m;
+}
+
+// 두 기기에서 따로 진행 → 어느 쪽을 쓸지 묻기
+export function syncConflict(localSt, remote) {
+  const l = Sync.summary(localSt);
+  return choice("☁️ 진행 기록이 두 개입니다", `<b>이 기기</b>: ${esc(l?.name || "-")} · ${l?.day}일차 · ${l?.chapter}장 · Lv.${l?.level}<br><b>${esc(remote.device || "다른 기기")}</b>: ${remote.day}일차 · ${remote.chapter}장 · Lv.${remote.level} <small class="muted">(${new Date(remote.updated_at).toLocaleString()})</small><br><small>선택하지 않은 쪽은 사라집니다.</small>`, [
+    { label: "이 기기 것으로 계속", value: "local", cls: "primary" },
+    { label: `${esc(remote.device || "다른 기기")} 것으로 계속`, value: "remote" },
+  ]);
+}
+
+// ---------------- 설정 ----------------
+export function openSettings() {
+  const s = G.acc.settings;
+  const m = modal(`<h2>⚙️ 설정</h2>
+    <h3>그래픽</h3><div class="seg"><button class="btn ${s.gfx !== "hd" ? "on" : ""}" data-gfx="pixel">픽셀 화면(가볍고 빠름)</button><button class="btn ${s.gfx === "hd" ? "on" : ""}" data-gfx="hd">고화질 3D</button></div>
+    <small class="muted">필드 화면 스타일입니다. '자세히 보기'와 이야기 장면은 항상 고화질로 보입니다.</small>
+    <h3>소리</h3><div class="seg"><button class="btn ${s.sound !== false ? "on" : ""}" data-snd="1">효과음 켜기</button><button class="btn ${s.sound === false ? "on" : ""}" data-snd="0">끄기</button></div>
+    <h3>조작</h3><div class="seg"><button class="btn ${s.joyRight ? "" : "on"}" data-joy="left">조이스틱 왼쪽</button><button class="btn ${s.joyRight ? "on" : ""}" data-joy="right">오른쪽</button></div>
+    <h3>튜토리얼</h3><button class="btn" id="tut">처음 안내 다시 보기</button>`);
+  const re = () => { m.close(); G.applySettings(); openSettings(); };
+  m.querySelectorAll("[data-gfx]").forEach((b) => (b.onclick = () => { s.gfx = b.dataset.gfx; re(); }));
+  m.querySelectorAll("[data-snd]").forEach((b) => (b.onclick = () => { s.sound = b.dataset.snd === "1"; Sfx.setEnabled(s.sound); Sfx.play("click"); re(); }));
+  m.querySelectorAll("[data-joy]").forEach((b) => (b.onclick = () => { s.joyRight = b.dataset.joy === "right"; re(); }));
+  m.querySelector("#tut").onclick = () => { G.st.tut = 0; m.close(); toast("처음 안내를 다시 시작합니다", "good"); };
+}
+
 // ---------------- 이벤트 모달 ----------------
 export async function deathModal() {
   const st = G.st, acc = G.acc;
+  Sfx.play("death");
   const opts = S.reviveOptions(st, acc);
   const v = await choice("💀 쓰러졌다", `${esc(st.player.name)}은(는) <b>${st.dead.cause}</b>(으)로 쓰러졌습니다.<br><small>${S.day(st)}일 생존 · ${S.chapter(st).title}</small>`, opts.map((o) => ({ label: o.label, value: o.id, disabled: o.disabled, cls: o.id === "accept" ? "danger" : o.id === "heir" ? "primary" : "" })));
   if (v === "ad" && !(await G.watchAd(true))) return deathModal();
@@ -668,6 +724,18 @@ export async function encounterModal() {
   const msg = e.o[v][1](G.st);
   toast(msg);
   G.afterAction();
+}
+
+// ---------------- 튜토리얼 배너 ----------------
+let lastTut = -2;
+export function renderTutorial(step, idx) {
+  let el = document.getElementById("tut");
+  if (!step) { if (el) el.remove(); lastTut = -1; return; }
+  if (idx === lastTut && el) return;
+  lastTut = idx;
+  if (!el) { el = document.createElement("div"); el.id = "tut"; document.body.appendChild(el); }
+  el.innerHTML = `<small>처음 안내 ${idx + 1}/8</small><b>${esc(step.title)}</b><span>${esc(step.text)}</span><button class="mini" id="tutSkip">건너뛰기</button>`;
+  el.querySelector("#tutSkip").onclick = () => { G.st.tut = 99; el.remove(); };
 }
 
 // ---------------- HUD ----------------

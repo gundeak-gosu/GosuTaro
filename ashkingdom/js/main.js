@@ -6,6 +6,9 @@ import { JOBS, DIFFICULTY, ANIMALS, ENEMIES, CHAPTERS, ITEMS, TIME, BUILDINGS, D
 import { Field3D, webglAvailable, mountViewer, preloadHeroes } from "./r3d.js";
 import { randomSpawn } from "./earth.js";
 import * as Net from "./net.js";
+import * as Sync from "./sync.js";
+import * as Sfx from "./sfx.js";
+import { TUTORIAL, tutorialStep } from "./tutorial.js";
 import { BIOMES } from "./data.js";
 import { generateWorld, TILE, WORLD_W, WORLD_H, tileAt, isBlocked, nearWater, T, NODE_TYPES } from "./world.js";
 import * as R from "./render.js";
@@ -43,7 +46,22 @@ if (webglAvailable() && !/[?&]2d\b/.test(location.search)) {
 }
 
 // ================= 타이틀 / 캐릭터 생성 =================
-function title() {
+// 시작 시 다른 기기와 진행 맞추기(서버·로그인 있을 때만)
+G.syncOnStart = async (reload = false) => {
+  try {
+    const local = loadGame();
+    const r = await Sync.onStart(!!local);
+    if (r.action === "pull" || (r.action === "conflict" && (await UI.syncConflict(local, r.remote)) === "remote")) {
+      const o = await Sync.pull();
+      if (o) { saveGame(o.st); saveAccount(o.acc); UI.toast("다른 기기의 진행을 불러왔습니다", "good"); location.reload(); return; }
+    } else if (r.action === "conflict") await Sync.keepLocal(local, G.acc, r.remote.rev);
+    else if (r.action === "push" && local) await Sync.push(local, G.acc, { force: true });
+    if (reload) location.reload();
+  } catch (e) { console.warn("sync", e); }
+};
+
+async function title() {
+  if (Sync.loggedIn()) await G.syncOnStart();
   const has = loadGame();
   const el = document.getElementById("title");
   el.hidden = false;
@@ -124,11 +142,13 @@ async function startGame(st, isNew = false) {
   if (g) UI.toast(`월정액 보상 💎${g}`, "good");
   if (st.__tampered) UI.toast("저장 데이터 변조가 감지되어 온라인 경쟁 기능이 제한됩니다", "bad");
   UI.renderHud();
+  if (st.tut === undefined) st.tut = isNew ? 0 : 99; // 옛 세이브는 튜토리얼 생략
+  G.applySettings();
   if (isNew) {
     await UI.cinematic(CHAPTERS[0].title, CHAPTERS[0].text, { palette: ["#0e0e14", "#3a2e2e", "#d0753a"] });
     await UI.spawnReveal();
-    UI.toast("💡 나무·돌·섬유를 모아 [제작]에서 돌도끼를 만드세요", "info");
   }
+  G.tutStart = { x: st.player.x, y: st.player.y };
   G.save();
   if (!G.running) { G.running = true; requestAnimationFrame(frame); }
 }
@@ -153,9 +173,20 @@ G.save = () => {
   if (!G.st.ended) saveGame(G.st);
   saveAccount(G.acc);
   G.lastSave = performance.now();
+  if (Sync.loggedIn()) { Sync.markDirty(); Sync.push(G.st, G.acc).catch(() => {}); } // 10분 간격·바뀐 경우만
 };
-addEventListener("visibilitychange", () => { if (document.hidden) G.save(); });
-addEventListener("pagehide", () => G.save());
+const flushSync = () => { G.save(); if (G.st && Sync.loggedIn() && Sync.state().dirty) Sync.push(G.st, G.acc, { force: true, keepalive: true }).catch(() => {}); };
+addEventListener("visibilitychange", () => { if (document.hidden) flushSync(); });
+addEventListener("pagehide", flushSync);
+
+// 설정 적용: 그래픽(픽셀/고화질)·소리·조이스틱 위치
+G.applySettings = () => {
+  const s = G.acc.settings;
+  Sfx.setEnabled(s.sound !== false);
+  G.r3d?.setPixel(s.gfx !== "hd");
+  document.body.classList.toggle("joy-right", !!s.joyRight);
+  saveAccount(G.acc);
+};
 
 G.refreshHud = () => G.st && UI.renderHud();
 G.afterAction = () => { if (!G.st) return; handleStory(); UI.renderHud(); };
@@ -332,6 +363,7 @@ function hitMob(m, dmg, color = "#fff") {
   m.aggro = true;
   m.hitFlash = true;
   fxText(m.x, m.y - 40, String(dmg), color);
+  Sfx.play("hit");
   if (m.hp <= 0) {
     if (m.kind === "enemy") {
       const drops = S.onKill(G.st, m.type, makeRng(Date.now()));
@@ -380,7 +412,7 @@ function attack(m) {
   G.attackCd = r.ranged ? 0.5 : 0.42;
   G.swing = 0.2; G.swingStart = true;
   G.moveYaw = Math.atan2(m.x - p.x, m.y - p.y);
-  if (r.ranged) { const d = Math.hypot(m.x - p.x, m.y - p.y) || 1; G.shots.push({ x: p.x, y: p.y - 20, vx: ((m.x - p.x) / d) * 520, vy: ((m.y - 14 - p.y + 20) / d) * 520, dmg: r.dmg, life: 0.6 }); }
+  if (r.ranged) { Sfx.play("shoot"); const d = Math.hypot(m.x - p.x, m.y - p.y) || 1; G.shots.push({ x: p.x, y: p.y - 20, vx: ((m.x - p.x) / d) * 520, vy: ((m.y - 14 - p.y + 20) / d) * 520, dmg: r.dmg, life: 0.6 }); }
   else hitMob(m, r.dmg);
   G.facing = m.x < p.x ? -1 : 1;
 }
@@ -424,6 +456,7 @@ function gatherNode(n) {
   G.moveYaw = Math.atan2((n.tx + 0.5) * TILE - G.st.player.x, (n.ty + 0.5) * TILE - G.st.player.y);
   G.attackCd = 0.35;
   const out = S.gather(st, n.type, makeRng(Date.now() + n.id));
+  Sfx.play(n.type === "tree" ? "chop" : n.type === "rock" || n.type === "scrap" || n.type === "car" ? "mine" : "gather");
   for (const [id, q] of out) fxText((n.tx + 0.5) * TILE, n.ty * TILE - 10, `${ITEMS[id].icon}+${q}`, "#ffe9a8");
   if (n.hits >= NODE_TYPES[n.type].hp) {
     n.hits = 0;
@@ -536,7 +569,7 @@ function handleEvents(evs) {
 // ================= 루프 =================
 let last = performance.now();
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const dt = Math.min(0.1, (now - last) / 1000); // 느린 기기(저프레임)에서도 게임 속도 유지
   last = now;
   G.t += dt;
   if (G.st && !G.st.ended) {
@@ -593,6 +626,16 @@ function update(dt) {
   // 무작위 조우
   if (!G.atBase) { G.encounterT -= dt; if (G.encounterT <= 0) { G.encounterT = 150 + Math.random() * 120; UI.encounterModal(); } }
   // HUD/저장
+  // 피격·레벨업 효과음
+  if (G.lastHp !== undefined && p.hp < G.lastHp - 0.5) Sfx.play("hurt");
+  if (G.lastLv !== undefined && p.level > G.lastLv) Sfx.play("levelup");
+  G.lastHp = p.hp; G.lastLv = p.level;
+  // 튜토리얼 진행
+  if (st.tut < TUTORIAL.length) {
+    const step = TUTORIAL[st.tut];
+    if (step.done(st, G)) { st.tut++; Sfx.play("good"); if (st.tut < TUTORIAL.length) UI.toast("✔ " + step.title, "good"); else UI.toast("기본기를 익혔습니다! 이제 이야기(📖)를 따라가세요", "good"); }
+  }
+  UI.renderTutorial(st.tut < TUTORIAL.length ? TUTORIAL[st.tut] : null, st.tut);
   G.hudT = (G.hudT || 0) - dt;
   if (G.hudT <= 0) { G.hudT = 0.5; UI.renderHud(); handleStory(); }
   if (performance.now() - G.lastSave > 15000) G.save();
@@ -652,6 +695,7 @@ function draw(dt) {
   G.fx = G.fx.filter((f) => f.t > 0);
   // 상호작용 힌트
   drawHint(cam);
+  drawTutArrow();
   // 날씨/조명
   const sea = S.season(st);
   const tileHere = tileAt(G.world, p.x, p.y);
@@ -686,8 +730,36 @@ function draw3D(dt) {
   ctx.globalAlpha = 1;
   G.fx = G.fx.filter((f) => f.t > 0);
   drawHint(null);
+  drawTutArrow();
   if (p.hp < p.maxHp * 0.25) { const g = ctx.createRadialGradient(VW / 2, VH / 2, VH * 0.3, VW / 2, VH / 2, VH * 0.8); g.addColorStop(0, "rgba(160,0,0,0)"); g.addColorStop(1, `rgba(160,0,0,${0.35 + Math.sin(G.t * 5) * 0.1})`); ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH); }
   drawMinimap();
+}
+
+// 튜토리얼 화살표: 지금 단계의 목표 위치를 가리킨다(화면 밖이면 가장자리에)
+function drawTutArrow() {
+  const st = G.st;
+  if (!(st.tut < TUTORIAL.length)) return;
+  const tgt = tutorialStep(st, G, visibleNodes, nearWater);
+  if (!tgt) return;
+  const sp = G.r3d ? G.r3d.project(tgt.x, tgt.y, 1.6) : { x: tgt.x - G.cam.x, y: tgt.y - G.cam.y - 40 };
+  const me = G.r3d ? G.r3d.project(st.player.x, st.player.y, 1.0) : { x: st.player.x - G.cam.x, y: st.player.y - G.cam.y };
+  const pad = 70;
+  const onScreen = sp.x > pad && sp.y > pad && sp.x < VW - pad && sp.y < VH - pad;
+  const t = performance.now() / 300;
+  ctx.save();
+  if (onScreen) {
+    const bob = Math.sin(t) * 6;
+    ctx.translate(sp.x, sp.y - 30 + bob);
+    ctx.fillStyle = "#e0a24a"; ctx.strokeStyle = "#1d1712"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(0, 18); ctx.lineTo(-13, -2); ctx.lineTo(-5, -2); ctx.lineTo(-5, -18); ctx.lineTo(5, -18); ctx.lineTo(5, -2); ctx.lineTo(13, -2); ctx.closePath(); ctx.fill(); ctx.stroke();
+  } else {
+    const a = Math.atan2(sp.y - me.y, sp.x - me.x);
+    const r = Math.min(VW, VH) * 0.32;
+    ctx.translate(me.x + Math.cos(a) * r, me.y + Math.sin(a) * r); ctx.rotate(a);
+    ctx.fillStyle = "#e0a24a"; ctx.strokeStyle = "#1d1712"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(22, 0); ctx.lineTo(0, -14); ctx.lineTo(0, -6); ctx.lineTo(-18, -6); ctx.lineTo(-18, 6); ctx.lineTo(0, 6); ctx.lineTo(0, 14); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function drawHint(cam) {

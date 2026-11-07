@@ -284,6 +284,37 @@ test("국가 카드: 위치는 0.5° 단위로 뭉개서(약 50km) 저장", () =
   eq(c.lat * 2 % 1, 0); eq(c.lon * 2 % 1, 0); eq(c.continent, "asia");
 });
 
+// ---------------- 기기 간 이어하기 결정 로직 ----------------
+const Sync = await import("../js/sync.js");
+test("동기화: 서버 없음→올리기 / 같은 리비전+로컬 변경→올리기 / 다른 기기 진행→받기 / 양쪽 진행→충돌(묻기)", () => {
+  eq(Sync.decide({ rev: 0, dirty: false, hasSave: true }, null), "push");
+  eq(Sync.decide({ rev: 0, dirty: false, hasSave: false }, null), "none");
+  eq(Sync.decide({ rev: 5, dirty: true }, { rev: 5 }), "push");
+  eq(Sync.decide({ rev: 5, dirty: false }, { rev: 5 }), "none");
+  eq(Sync.decide({ rev: 5, dirty: false }, { rev: 7 }), "pull");
+  eq(Sync.decide({ rev: 5, dirty: true }, { rev: 7 }), "conflict");
+});
+test("동기화: 충돌 화면 요약(이름·일차·장·레벨·지역)", () => {
+  const { st } = fresh(); st.time.min = 1440 * 9; st.story.chapter = 3;
+  const s = Sync.summary(st); eq(s.day, 10); eq(s.chapter, 3); eq(s.level, 1);
+});
+
+// ---------------- 처음 안내(튜토리얼) ----------------
+const Tut = await import("../js/tutorial.js");
+test("튜토리얼: 8단계, 각 단계 완료 조건이 실제 플레이로 충족됨", () => {
+  eq(Tut.TUTORIAL.length, 8);
+  const { st } = fresh("soldier");
+  const G = { tutStart: { x: 0, y: 0 } };
+  st.player.x = 200; st.player.y = 0; ok(Tut.TUTORIAL[0].done(st, G));
+  S.addItem(st, st.inv, "wood", 3); ok(Tut.TUTORIAL[1].done(st, G));
+  S.addItem(st, st.inv, "stone", 2); ok(Tut.TUTORIAL[2].done(st, G));
+  S.addItem(st, st.inv, "fiber", 2); ok(Tut.TUTORIAL[3].done(st, G));
+  ok(S.craft(st, "stone_axe").ok); ok(Tut.TUTORIAL[4].done(st, G));
+  ok(S.equipFromInv(st, "stone_axe")); ok(Tut.TUTORIAL[5].done(st, G));
+  give(st, { wood: 10, stone: 10 }); ok(S.build(st, "campfire").ok); ok(Tut.TUTORIAL[6].done(st, G));
+  S.addItem(st, st.inv, "water_dirty", 1); ok(S.craft(st, "water_clean").ok); ok(Tut.TUTORIAL[7].done(st, G));
+});
+
 // ---------------- 생존/부패/내구도 ----------------
 test("새 게임: 체력 가득, 옷 착용, 시작 아이템", () => {
   for (const job of Object.keys(JOBS)) for (const d of Object.keys(DIFFICULTY)) {

@@ -210,6 +210,40 @@ create or replace view ashk_group_view with (security_invoker = true) as
   select m.season, m.group_id, m.user_id, m.continent, m.grade, coalesce(k.name, '생존자') as name, k.power, k.level
   from ashk_olympic_members m left join ashk_kingdoms k on k.user_id = m.user_id;
 
+-- ---------- 기기 간 이어하기: 계정당 세이브 1행(gzip 압축, 200KB 이하) ----------
+-- 이메일 로그인(Authentication → Email OTP 켜기). 시작 시 메타만 받고, 본문은 필요할 때만.
+create table if not exists ashk_saves (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  rev int not null,
+  data text not null check (octet_length(data) <= 204800),
+  device text not null default '',
+  day int not null default 1,
+  chapter int not null default 0,
+  level int not null default 1,
+  updated_at timestamptz not null default now()
+);
+alter table ashk_saves enable row level security;
+create policy "saves read own" on ashk_saves for select using (user_id = auth.uid());
+-- 쓰기는 RPC 로만: 리비전이 정확히 +1 일 때만 받아서 두 기기가 서로 덮어쓰지 못하게(낙관적 잠금)
+create or replace function ashk_save_push(p_rev int, p_data text, p_device text, p_day int, p_chapter int, p_level int)
+returns int language plpgsql security definer set search_path = public as $$
+declare cur ashk_saves;
+begin
+  if auth.uid() is null then raise exception 'login required'; end if;
+  select * into cur from ashk_saves where user_id = auth.uid() for update;
+  if cur is null then
+    if p_rev < 1 then raise exception 'bad rev'; end if;
+    insert into ashk_saves (user_id, rev, data, device, day, chapter, level) values (auth.uid(), p_rev, p_data, left(p_device, 40), p_day, p_chapter, p_level);
+    return p_rev;
+  end if;
+  if p_rev <> cur.rev + 1 then raise exception 'conflict'; end if;
+  if cur.updated_at > now() - interval '50 seconds' then raise exception 'too frequent'; end if;
+  update ashk_saves set rev = p_rev, data = p_data, device = left(p_device, 40), day = p_day, chapter = p_chapter, level = p_level, updated_at = now() where user_id = auth.uid();
+  return p_rev;
+end $$;
+revoke all on function ashk_save_push(int, text, text, int, int, int) from public;
+grant execute on function ashk_save_push(int, text, text, int, int, int) to authenticated;
+
 -- ---------- 공지 (최근 10개만 조회) ----------
 create table if not exists ashk_notices (
   id bigserial primary key,

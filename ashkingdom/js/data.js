@@ -200,6 +200,7 @@ export const ITEMS = {
   rotten_food: { name: "썩은 음식", type: "res", icon: "🤢" },
 
   // 물
+  bottle: { name: "빈 물병", type: "misc", icon: "🍶", desc: "물을 뜨려면 필요하다. 물을 마시면 다시 빈 병이 된다." },
   water_dirty: { name: "더러운 물", type: "food", icon: "🫗", spoil: 0, food: { thirst: 25, rad: 6, sick: 0.4 }, raw: true },
   water_clean: { name: "깨끗한 물", type: "food", icon: "💧", spoil: 0, food: { thirst: 35 } },
 
@@ -335,6 +336,8 @@ export const RECIPES = [
   { id: "stone_pick", out: ["stone_pick", 1], in: { twig: 3, stone: 3, fiber: 2 }, station: null },
   { id: "stone_hoe", out: ["stone_hoe", 1], in: { twig: 3, stone: 1, fiber: 2 }, station: null },
   { id: "spear", out: ["spear", 1], in: { wood: 2, twig: 2, stone: 1, fiber: 3 }, station: null },
+  { id: "bottle", out: ["bottle", 1], in: { leather: 1, fiber: 2 }, station: null, name: "가죽 물주머니" },
+  { id: "bottle_scrap", out: ["bottle", 2], in: { scrap: 2 }, station: "workbench" },
   { id: "sleeping_bag", out: ["sleeping_bag", 1], in: { cloth: 3, fiber: 4 }, station: null },
   { id: "rag_shirt", out: ["rag_shirt", 1], in: { cloth: 3, fiber: 2 }, station: null },
   { id: "rag_pants", out: ["rag_pants", 1], in: { cloth: 3, fiber: 2 }, station: null },

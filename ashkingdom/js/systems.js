@@ -96,6 +96,7 @@ export function newGame({ name, gender, job, difficulty, seed, account, look, ge
   st.player.hp = st.player.maxHp;
   // 기본 속옷 상태(맨몸) → 시작 옷: 누더기 셔츠·바지
   for (const [id, q] of jd.start) addItem(st, st.inv, id, q);
+  addItem(st, st.inv, "bottle", 1); // 누구나 빈 물병 하나로 시작
   for (const [id, q] of BIOMES[st.geo.biome]?.start || []) addItem(st, st.inv, id, q); // 지역 생존 최소 준비물
   addItem(st, st.inv, "rag_shirt", 1); equipFromInv(st, "rag_shirt");
   addItem(st, st.inv, "rag_pants", 1); equipFromInv(st, "rag_pants");
@@ -1047,6 +1048,7 @@ export function useItem(st, index) {
     if (sickChance > 0 && Math.random() < sickChance && !hasSkill(st, "vaccine")) { p.sick = Math.max(p.sick, 8); sick = true; }
     if (it.buff?.warm) st.buffs.warm = (hasSkill(st, "gourmet") ? 2 : 1) * it.buff.warm * 60;
     removeFrom(st.inv, s.id, 1);
+    if (s.id === "water_clean" || s.id === "water_dirty") giveItem(st, "bottle", 1); // 마시면 빈 병이 남는다
     return { ok: true, sick };
   }
   if (it.type === "med") {
@@ -1089,19 +1091,19 @@ export function gather(st, nodeType, rng = makeRng(Date.now())) {
     case "rock": add("stone", (1 + rng.int(0, 1)) * (tool.stone || 0.6) * loot); if (rng.chance(0.15 * luck)) add("scrap", 1); if (rng.chance(0.12)) add("salt", 1);
       if (tool.stone && rng.chance(0.18 * luck * (tool.stone >= 4 ? 1.6 : 1))) add("iron_ore", 1); // 철광석은 곡괭이로만
       break;
-    case "scrap": add("scrap", (1 + rng.int(0, 2)) * Math.max(1, tool.scrap || 0.7) * loot); if (rng.chance(0.35)) add("cloth", 1); if (rng.chance(0.08 * luck * (hasSkill(st, "analyze") ? 1.5 : 1))) add("electronics", 1); break;
+    case "scrap": add("scrap", (1 + rng.int(0, 2)) * Math.max(1, tool.scrap || 0.7) * loot); if (rng.chance(0.35)) add("cloth", 1); if (rng.chance(0.15)) add("bottle", 1); if (rng.chance(0.08 * luck * (hasSkill(st, "analyze") ? 1.5 : 1))) add("electronics", 1); break;
     case "car": add("scrap", 3 * loot); if (rng.chance(0.5)) add("fuel", 1); if (rng.chance(0.3 * luck)) add("electronics", 1); if (rng.chance(0.3)) add("cloth", 2); break;
     case "bush": add("berry", rng.int(1, 3) * loot); add("fiber", rng.int(1, 2) * (tool.fiber || 1)); add("twig", rng.int(1, 2)); if (rng.chance(0.15)) add("seed", 1); break;
     case "herb": add("herb", rng.int(1, 2)); if (rng.chance(0.4)) add("mushroom", 1); break;
     case "crate": {
-      const table = ["canned_food", "cloth", "ammo", "electronics", "bandage", "seed", "fuel", "salt", "gunpowder", "water_clean", "instant_noodle", "leather", "arrow", "whetstone", "shuriken"];
+      const table = ["bottle", "canned_food", "cloth", "ammo", "electronics", "bandage", "seed", "fuel", "salt", "gunpowder", "water_clean", "instant_noodle", "leather", "arrow", "whetstone", "shuriken"];
       const n = 2 + (rng.chance(0.3 * luck) ? 1 : 0) + (hasSkill(st, "lucky") ? 1 : 0);
       for (let i = 0; i < n; i++) add(rng.pick(table), rng.int(1, 2));
       if (st.base.lv >= 4 && rng.chance(0.2)) add("iron", 2);
       if (rng.chance(0.03 * luck)) add(rng.pick(["book_firearms1", "book_blade1"]), 1); // 드물게 교본
       break;
     }
-    case "water": add("water_dirty", 1); break;
+    case "water": if (count(st.inv, "bottle") > 0) { removeFrom(st.inv, "bottle", 1); add("water_dirty", 1); } break; // 빈 물병이 있어야 뜬다
     case "fish": if (rng.chance(0.55 + eff(st, "agi") * 0.02)) add("raw_fish", 1); break;
     default: break;
   }

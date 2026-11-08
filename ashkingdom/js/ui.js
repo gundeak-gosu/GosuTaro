@@ -278,11 +278,11 @@ export function openBase(tab = "build") {
   let body = "";
   if (tab === "build") {
     body = `<div class="card"><b>🏰 ${L.name} (Lv.${st.base.lv})</b> · 부지 ${st.base.buildings.length}/${L.slots} · 주민 ${st.companions.length}/${S.residentCap(st)}
-      ${next ? `<div>다음: <b>${next.name}</b> — ${costHave(S.baseUpgradeCost(st))}</div><button class="btn primary" id="upg" ${why ? "disabled" : ""}>거점 확장</button> ${why ? `<small class="no">${why}</small>` : ""}` : "<div>최대 레벨 — 새 수도</div>"}</div>
+      ${next ? `<div>다음: <b>${next.name}</b></div>${needTiles(S.baseUpgradeCost(st))}<button class="btn primary" id="upg" ${why ? "disabled" : ""}>거점 확장</button> ${why ? `<small class="no">${why}</small>` : ""}` : "<div>최대 레벨 — 새 수도</div>"}</div>
       <h3>건설된 시설</h3><div class="chips">${st.base.buildings.map((b) => `<span class="chip">${bicon(b.id, 20)} ${BUILDINGS[b.id].name}${b.id === "generator" ? (b.fueled ? " ⚡" : " ⛽없음") : ""}<button class="mini" data-demo="${b.uid}" title="철거(재료 절반 회수)">✕</button></span>`).join("") || '<span class="muted">아직 없음</span>'}</div>
       <h3>건설 가능</h3><div class="rlist">${Object.entries(BUILDINGS).filter(([, d]) => d.baseLv <= st.base.lv + 1).map(([id, d]) => {
         const w = S.canBuild(st, id);
-        return `<div class="recipe ${w ? "dim" : ""}"><span class="ic">${bicon(id, 34)}</span><div><b>${d.name}</b> <small>${S.countB(st, id)}/${d.max}</small><small>${costHave(S.buildCost(st, id))}</small><small class="muted">${buildingDesc(d)}${w ? ` — <span class="no">${w}</span>` : ""}</small></div><button class="btn sm" data-b="${id}" ${w ? "disabled" : ""}>건설</button></div>`;
+        return `<div class="recipe ${w ? "dim" : ""}"><span class="ic slot g1">${bicon(id, 44)}</span><div class="rinfo"><b>${d.name}</b> <small>${S.countB(st, id)}/${d.max}</small><small class="muted">${buildingDesc(d)}${w ? ` — <span class="no">${w}</span>` : ""}</small></div>${needTiles(S.buildCost(st, id))}<button class="btn sm" data-b="${id}" ${w ? "disabled" : ""}>건설</button></div>`;
       }).join("")}</div>`;
   } else if (tab === "quest") {
     const qs = S.questBoard(st);

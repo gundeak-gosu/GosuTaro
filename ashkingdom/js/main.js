@@ -552,7 +552,8 @@ function bridgeTarget() {
 function waterAction() {
   const st = G.st, p = st.player;
   if (p.equip.hand?.id === "fishing_rod") { const r = S.gather(st, "fish", makeRng(Date.now())); UI.toast(r.length ? "🐟 물고기를 낚았다!" : "놓쳤다…"); }
-  else { S.gather(st, "water", makeRng(Date.now())); UI.toast("더러운 물을 떴습니다 (모닥불에서 끓이세요)"); }
+  else if (S.count(st.inv, "bottle") < 1) UI.toast("물을 담을 빈 물병이 없습니다 — 물을 마시면 병이 남고, 가죽·고철로 만들 수 있어요", "warn");
+  else { S.gather(st, "water", makeRng(Date.now())); UI.toast(`더러운 물을 떴습니다 (빈 병 ${S.count(st.inv, "bottle")}개 남음 · 모닥불에서 끓이세요)`); }
 }
 
 // 플레이어 피격: 구르는 중(무적)이면 무시
@@ -1168,7 +1169,7 @@ function drawHint(cam) {
   for (const n of visibleNodes()) { const nx = (n.tx + 0.5) * TILE, ny = (n.ty + 0.5) * TILE; if (Math.hypot(nx - p.x, ny - p.y) < 50) { const gp = S.gatherPower(G.st, n.type); txt = `${NODE_TYPES[n.type].name} 채집${gp.need ? ` · ${gp.need} 없음(아주 느림)` : ""}`; hx = nx; hy = ny - 36; break; } }
   for (const m of G.mobs) if (Math.hypot(m.x - p.x, m.y - p.y) < 56) { txt = m.kind === "enemy" ? `${ENEMIES[m.type].name} 공격` : `${ANIMALS[m.type].name} (길들이기/사냥)`; hx = m.x; hy = m.y - 50; break; }
   if (!txt && G.world.home && Math.hypot((G.world.cx + 0.5) * TILE - p.x, (G.world.cy + 0.5) * TILE - p.y) < 2.2 * TILE) { txt = "기지 관리"; hx = p.x; hy = p.y - 60; }
-  if (!txt && nearWater(G.world, p.x, p.y)) { txt = p.equip.hand?.id === "fishing_rod" ? "낚시" : "물 뜨기"; hx = p.x; hy = p.y - 60; }
+  if (!txt && nearWater(G.world, p.x, p.y)) { txt = p.equip.hand?.id === "fishing_rod" ? "낚시" : S.count(st.inv, "bottle") ? `물 뜨기 (빈 병 ${S.count(st.inv, "bottle")})` : "물 뜨기 — 빈 물병 필요"; hx = p.x; hy = p.y - 60; }
   if (!txt) return;
   // 화면 아래 가운데(메뉴 위)에 고정 표시 — 캐릭터 머리 위를 가리지 않는다
   ctx.font = "bold 14px sans-serif";

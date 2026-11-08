@@ -260,6 +260,8 @@ export const ITEMS = {
   shuriken: { name: "표창", type: "weapon", icon: "⭐", throw: { atk: 9, recover: 0.85 }, era: 1, desc: "던지기(R). 대부분 다시 주울 수 있다." },
   throw_knife: { name: "투척 단검", type: "weapon", icon: "🔪", throw: { atk: 13, recover: 0.9 }, era: 1, desc: "던지기(R). 묵직한 한 방." },
   scent_lure: { name: "냄새 미끼", type: "misc", icon: "🍖", desc: "동물 탐색을 기다리지 않고 바로 1회 쓴다." },
+  rusty_key: { name: "녹슨 열쇠", type: "misc", icon: "🗝️", desc: "건물 안 잠긴 문 하나를 연다. 그 층의 적이 지니고 있다." },
+  keycard: { name: "보안 카드키", type: "misc", icon: "💳", desc: "보안문을 연다. 보안 담당자가 가지고 있다." },
   whetstone: { name: "정화 숫돌", type: "misc", icon: "🪨", desc: "장비에 붙은 특성(좋든 나쁘든)을 갈아 없앤다." },
   book_firearms1: { name: "총기 교본 Ⅰ", type: "misc", icon: "📕", book: { skill: "firearms", lv: 1 }, desc: "읽으면 '총기 다루기 1' — 권총을 쓸 수 있다." },
   book_firearms2: { name: "총기 교본 Ⅱ", type: "misc", icon: "📕", book: { skill: "firearms", lv: 2 }, era: 2, desc: "'총기 다루기 2' — 소총을 쓸 수 있다(1단계 필요)." },

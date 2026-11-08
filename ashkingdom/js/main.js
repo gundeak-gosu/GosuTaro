@@ -261,6 +261,18 @@ function respawnAtBase() {
   G.st.player.y = (G.world.cy + 2.5) * TILE;
 }
 G.respawnAtBase = respawnAtBase;
+// 부활: 쓰러진 자리에서(체력 절반) — 주변 적은 조금 밀려나고 2초간 무적
+G.reviveHere = () => {
+  const p = G.st.player;
+  for (const m of G.mobs) { const d = Math.hypot(m.x - p.x, m.y - p.y) || 1; if (d < 220 && m.kind === "enemy") { const nx = m.x + ((m.x - p.x) / d) * 160, ny = m.y + ((m.y - p.y) / d) * 160; if (!isBlocked(G.world, nx, ny)) { m.x = nx; m.y = ny; } m.cd = 2; m.windup = 0; m.burst = 0; } }
+  G.shots = G.shots.filter((s) => !s.foe);
+  G.iframe = 2; G.stamina = 50;
+  UI.toast("💫 그 자리에서 다시 일어났다 (체력 절반)", "good");
+};
+// 사건 인물이 필드에도 잠시 나타난다
+G.eventNpcs = [];
+G.showEventNpcs = (pic) => { const p = G.st.player; G.eventNpcs = pic.who.map((w, i) => ({ ...w, x: p.x + 46 + i * 26, y: p.y + 6, until: G.t + 25 })); if (pic.animal) G.eventNpcs.push({ animal: pic.animal, x: p.x + 46 + pic.who.length * 26, y: p.y + 10, until: G.t + 25 }); };
+UI.setAnimalDrawer((g, type, x, y, ph, mv, f) => R.drawAnimal(g, type, x, y, ph, mv, f));
 
 G.newLife = () => {
   deleteGame();
@@ -475,27 +487,38 @@ function updateMobs(dt) {
       ai = AAI.stepAnimal(m, { d, dx, dy, dt, night, hurt: m.hurtT > 0, herdPanic: h?.panic, packAggro: h?.aggro && d < 300, bait: S.count(st.inv, ANIMALS[m.type].food) > 0, herdDx: h && h.n > 1 ? h.x / h.n - m.x : undefined, herdDy: h && h.n > 1 ? h.y / h.n - m.y : undefined });
       hostile = ai.hostile || (m.aggro && m.state === "attack");
       m.emote = ai.emote;
-    } else hostile = true;
+    } else hostile = !(m.calm && !m.aggro && d > 70);
     // 기지 안으로는 들어오지 않음(성벽)
     const inBase = Math.hypot(m.x - baseX, m.y - baseY) < (2 + st.base.lv) * TILE;
     if (hostile && d < (m.kind === "enemy" ? 260 : 200) && !G.atBase) {
       const def = m.kind === "enemy" ? ENEMIES[m.type] : null;
       sp = def ? def.speed : ai.sp;
-      if (def?.ranged && d < 170) sp = 0;
       tx = dx / d; ty = dy / d;
       m.cd -= dt;
-      const reach = def?.ranged ? 190 : 26;
       const atk = (def ? def.atk : ANIMALS[m.type].combat || 5) * (m.elite ? 1.5 : 1) * (m.atkMul || 1);
-      // 공격 예고: 0.45초 동안 붉은 원이 차오르고, 그 안에 있으면 맞는다 → 구르기로 피할 수 있다
-      if (m.windup > 0) {
-        m.windup -= dt; sp = 0;
-        if (m.windup <= 0) {
-          if (def?.ranged) G.shots.push({ x: m.x, y: m.y - 16, vx: (dx / d) * 260, vy: (dy / d) * 260, dmg: atk, foe: true, life: 1.2 });
-          else if (d < reach * 1.6) hurtPlayer(atk);
-        }
-      } else if (d < reach && m.cd <= 0) {
-        m.cd = def?.ranged ? 1.8 : 1.1;
-        m.windup = def?.ranged ? 0.35 : 0.45;
+      if (def?.ranged) {
+        // 총잡이: 거리를 150 안팎으로 유지하며 옆으로 돌고(가만히 서 있지 않음), 2~3발씩 불규칙하게 연사
+        m.strafeT = (m.strafeT || 0) - dt;
+        if (m.strafeT <= 0) { m.strafeT = 0.8 + Math.random() * 1.6; m.strafe = Math.random() < 0.5 ? -1 : 1; }
+        const want = d > 210 ? 1 : d < 120 ? -1 : 0;
+        tx = (dx / d) * want + (-dy / d) * m.strafe * 0.8; ty = (dy / d) * want + (dx / d) * m.strafe * 0.8;
+        const L = Math.hypot(tx, ty) || 1; tx /= L; ty /= L;
+        sp = def.speed * (want ? 1 : 0.6);
+        if (m.burst > 0) {
+          m.burstT -= dt;
+          if (m.burstT <= 0) {
+            m.burst--; m.burstT = 0.12 + Math.random() * 0.12;
+            const a = Math.atan2(dy, dx) + (Math.random() - 0.5) * 0.22; // 조금씩 빗나감
+            G.shots.push({ x: m.x, y: m.y - 16, vx: Math.cos(a) * 280, vy: Math.sin(a) * 280, dmg: atk * 0.7, foe: true, life: 1.1 });
+            Sfx.play("shoot");
+          }
+        } else if (m.windup > 0) { m.windup -= dt; sp *= 0.3; if (m.windup <= 0) { m.burst = 2 + (Math.random() < 0.5 ? 1 : 0); m.burstT = 0; } }
+        else if (d < 260 && m.cd <= 0) { m.cd = 1.4 + Math.random() * 1.8; m.windup = 0.3; } // 다음 연사까지 1.4~3.2초(불규칙)
+      } else {
+        const reach = 26;
+        // 공격 예고: 0.45초 동안 붉은 원이 차오르고, 그 안에 있으면 맞는다 → 구르기로 피할 수 있다
+        if (m.windup > 0) { m.windup -= dt; sp = 0; if (m.windup <= 0 && d < reach * 1.6) hurtPlayer(atk); }
+        else if (d < reach && m.cd <= 0) { m.cd = 1.1; m.windup = 0.45; }
       }
     } else if (ai) { sp = ai.sp; tx = ai.tx; ty = ai.ty; }
     else {
@@ -547,6 +570,7 @@ function hitMob(m, dmg, color = "#fff") {
     if (m.kind === "enemy") {
       // 전리품은 바닥에 떨어진다 → 걸어가서 줍기
       const drops = S.onKill(G.st, m.type, makeRng(Date.now()), false);
+      if (m.carry) drops.push(m.carry);
       if (m.elite) { S.gainXp(G.st, ENEMIES[m.type].xp * 2); for (let i = 0; i < 2; i++) drops.push(...S.onKill(G.st, m.type, makeRng(Date.now() + i + 1), false)); G.st.gold += 30; UI.toast("정예 처치! 전리품이 떨어졌다", "good"); }
       scatterDrops(m.x, m.y, drops.map((id) => [id, 1]));
     } else {
@@ -567,7 +591,18 @@ async function interact() {
   const atk = p.equip.hand && ITEMS[p.equip.hand.id].ranged && S.count(st.inv, ITEMS[p.equip.hand.id].ranged) > 0 ? 230 : 52;
   let best = null, bd = 1e9;
   for (const m of G.mobs) { const d = Math.hypot(m.x - p.x, m.y - p.y); if (d < bd) { bd = d; best = m; } }
-  if (best && bd < atk && G.attackCd <= 0 && (best.kind === "enemy" || best.aggro)) return attack(best);
+  if (best && best.guard && best.calm && best.carry && bd < 60 && !best.stealTried) {
+    best.stealTried = true;
+    const chance = Math.min(0.85, 0.2 + S.eff(st, "agi") * 0.05);
+    UI.choice("👮 보안 담당자", `졸린 눈으로 경계를 서고 있다. 허리춤에 카드키가 보인다.`, [{ label: `🤏 몰래 빼앗기 (성공 ${Math.round(chance * 100)}%)`, value: "steal", cls: "primary" }, { label: "⚔️ 공격한다", value: "fight", cls: "danger" }], { closable: true }).then((v) => {
+      if (v === "steal" && Math.random() < chance) { best.carry = null; best.leader = "👮"; S.giveItem(st, "keycard", 1); UI.toast("💳 카드키를 슬쩍했다!", "good"); }
+      else if (v === "steal") { best.calm = false; best.aggro = true; best.atkMul = (best.atkMul || 1) * 1.3; UI.toast("들켰다! 담당자가 덤벼든다", "bad"); }
+      else if (v === "fight") { best.calm = false; attack(best); }
+      G.afterAction();
+    });
+    return;
+  }
+  if (best && bd < atk && G.attackCd <= 0 && (best.kind === "enemy" || best.aggro)) { best.calm = false; return attack(best); }
   if (best && bd < 56 && best.kind === "animal") return animalChoice(best);
   // 1.5) 건물: 입구/출구/계단/사건(자원보다 먼저)
   if (siteInteract()) return;
@@ -610,6 +645,8 @@ function siteInteract() {
     const W = G.world.site;
     const ev = (G.world.events || []).find((e) => !e.done && Math.hypot((e.tx + 0.5) * TILE - p.x, (e.ty + 0.5) * TILE - p.y) < 1.6 * TILE);
     if (ev) { siteEvent(ev); return true; }
+    const door = doorNear();
+    if (door) { doorInteract(door); return true; }
     if (nearTile(T.EXIT)) { leaveSite(); return true; }
     if (nearTile(T.STAIRS)) { enterSite(W.sid, W.floor + 1); return true; }
     return false;
@@ -630,13 +667,19 @@ function enterSite(sid, floor) {
   const seed = (st.seed ^ (outer.world.rid * 7919) ^ (sid * 104729)) >>> 0;
   const f = Sites.generateFloor(seed, q.kind, floor, { rid: outer.world.rid, sid });
   G.siteOuter = outer;
-  G.world = { seed: seed + floor, tiles: f.tiles, nodes: f.nodes, pois: {}, cx: 64, cy: 64, biome: outer.world.biome, home: false, rid: outer.world.rid, region: outer.world.region, sites: [], events: f.events, site: { sid, kind: q.kind, floor, isTop: f.isTop, name: D.name } };
+  G.world = { seed: seed + floor, tiles: f.tiles, nodes: f.nodes, pois: {}, cx: 64, cy: 64, biome: outer.world.biome, home: false, rid: outer.world.rid, region: outer.world.region, sites: [], events: f.events, doors: f.doors, site: { sid, kind: q.kind, floor, isTop: f.isTop, name: D.name } };
   G.fog = new Uint8Array(WORLD_W * WORLD_H); G.fogPctV = 0; G.lastRevealT = -1;
   R.clearTerrainCache(); miniCache = null; G.r3d?.setWorld(G.world);
   G.mobs = []; G.shots = []; G.drops = [];
   p.x = (f.entry.tx + 0.5) * TILE; p.y = (f.entry.ty + 0.5) * TILE;
   const tier = outer.world.region?.tier || 0, k = 1 + tier * 0.25 + floor * 0.12;
-  for (const sp of f.spawns) for (let i = 0; i < sp.n; i++) { const m = mobAt(sp.type, "enemy", (sp.tx + 0.5 + i) * TILE, (sp.ty + 0.5) * TILE); m.hp = m.maxHp = Math.round(m.hp * k); m.atkMul = k; m.aggro = false; G.mobs.push(m); }
+  for (const sp of f.spawns) for (let i = 0; i < sp.n; i++) {
+    const m = mobAt(sp.type, "enemy", (sp.tx + 0.5 + i) * TILE, (sp.ty + 0.5) * TILE); m.hp = m.maxHp = Math.round(m.hp * k); m.atkMul = k; m.aggro = false;
+    if (sp.guard) { m.guard = true; m.carry = "keycard"; m.leader = "👮 보안 담당자"; m.calm = true; }
+    G.mobs.push(m);
+  }
+  // 열쇠 문: 이 층의 적 하나가 열쇠를 지닌다(머리 위에 🗝️ 표시)
+  if (f.doors.some((d) => d.kind === "key")) { const c = G.mobs.filter((m) => !m.guard); const m = c[Math.floor(Math.random() * c.length)]; if (m) { m.carry = "rusty_key"; m.leader = "🗝️"; } else f.doors.forEach((d) => d.kind === "key" && (d.kind = "wood")); }
   const ss = siteState(sid);
   const hk = !D.safe && floor === 0 ? S.heroineFor(st, q.kind) : null;
   if (hk && Math.random() < 0.55) { const r = f.events.length ? f.events[0] : null; G.world.events.push({ kind: "heroine", key: hk, tx: (r ? r.tx : f.entry.tx + 3), ty: (r ? r.ty + 2 : f.entry.ty) }); }
@@ -650,6 +693,44 @@ function enterSite(sid, floor) {
   Meta.addActivity(st, "site");
   UI.toast(`${D.icon} ${D.name} ${D.under ? "지하 " + (floor + 1) + "층" : floor + 1 + "층"}${f.isTop && !D.safe ? (ss.cleared ? "" : " — 보스가 있다!") : ""}`, f.isTop && !ss.cleared && !D.safe ? "warn" : "good");
 }
+// ---------- 잠긴 문 ----------
+function doorNear() {
+  const p = G.st.player, tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE);
+  return (G.world.doors || []).find((d) => !d.open && d.tiles.some((i) => Math.abs((i % WORLD_W) - tx) <= 1 && Math.abs(Math.floor(i / WORLD_W) - ty) <= 1));
+}
+function openDoor(d, msg) {
+  d.open = true; for (const i of d.tiles) G.world.tiles[i] = T.FLOOR;
+  R.clearTerrainCache(); miniCache = null; G.r3d?.setWorld(G.world);
+  Sfx.play("build"); UI.toast("🚪 " + msg, "good");
+}
+function doorInteract(d) {
+  const st = G.st;
+  if (d.kind === "wood") {
+    // 부수기: 도끼·망치·곡괭이면 3번, 맨손이면 8번 정도. 시끄러워서 근처 적이 몰려온다
+    const tool = ITEMS[st.player.equip.hand?.id]?.tool;
+    d.prog += tool && (tool.wood || tool.stone || tool.scrap) ? 0.34 : 0.13;
+    G.swing = 0.25; G.swingStart = true; G.attackCd = 0.4; Sfx.play("chop");
+    for (const m of G.mobs) if (m.kind === "enemy" && Math.hypot(m.x - st.player.x, m.y - st.player.y) < 420) m.aggro = true;
+    fxText(st.player.x, st.player.y - 50, `쾅! ${Math.min(100, Math.round(d.prog * 100))}%`, "#ffd36b");
+    if (d.prog >= 1) openDoor(d, "문을 부쉈다!");
+    else if (!d.warned) { d.warned = true; UI.toast(tool ? "문을 부수는 중… (소리에 적이 몰려온다)" : "맨손으로는 오래 걸린다 — 도끼·망치가 있으면 빠르다", "warn"); }
+    return;
+  }
+  if (d.kind === "key") { if (S.count(st.inv, "rusty_key")) { S.removeFrom(st.inv, "rusty_key", 1); openDoor(d, "녹슨 열쇠로 문을 열었다"); } else UI.toast("🔒 잠겨 있다. 녹슨 열쇠가 필요하다 — 🗝️ 표시가 붙은 적이 갖고 있다", "warn"); return; }
+  if (d.kind === "card") { if (S.count(st.inv, "keycard")) { S.removeFrom(st.inv, "keycard", 1); openDoor(d, "카드키를 대자 보안문이 열렸다"); } else UI.toast("💳 보안문. 카드키가 필요하다 — 👮 보안 담당자가 갖고 있다(쓰러뜨리거나 몰래 빼앗기)", "warn"); return; }
+  if (d.kind === "code") {
+    UI.askCode(`🔢 비밀번호 잠금장치${G.world.noteSeen ? " (쪽지에서 본 번호를 떠올려 보자)" : " — 어딘가에 비밀번호 쪽지가 있을지도"}`, d.tries).then((v) => {
+      if (v == null) return;
+      if (v === d.code) openDoor(d, "삑— 비밀번호가 맞았다!");
+      else {
+        d.tries++; Sfx.play("bad");
+        if (d.tries >= 3) { d.tries = 0; UI.toast("🚨 경보! 경비들이 몰려온다", "bad"); const p = G.st.player; for (let i = 0; i < 2; i++) { const m = mobAt("raider", "enemy", p.x + (i ? 120 : -120), p.y + 40); if (!isBlocked(G.world, m.x, m.y)) { m.aggro = true; G.mobs.push(m); } } }
+        else UI.toast(`틀렸다 (${d.tries}/3 — 3번 틀리면 경보)`, "warn");
+      }
+    });
+  }
+}
+
 function leaveSite() {
   const o = G.siteOuter; if (!o) return;
   G.world = o.world; G.fog = o.fog; G.fogPctV = Reg.fogPct(G.fog); G.siteOuter = null;
@@ -663,6 +744,7 @@ G.leaveSite = leaveSite;
 // 건물 안 사건: 생존자 구조·일기·숨겨진 보급품·함정
 function siteEvent(ev) {
   const st = G.st; ev.done = true;
+  if (ev.kind === "note") { G.world.noteSeen = true; UI.choice("📝 구겨진 쪽지", `<div class="notepaper">"보안실 비번 바꿈. 잊지 말 것 —<br><b style="font-size:28px;letter-spacing:6px">${ev.code}</b>"</div><small class="muted">잘 기억해 두세요(문 앞에서 입력).</small>`, [{ label: "기억했다", value: 1, cls: "primary" }]); G.afterAction(); return; }
   if (ev.kind === "heroine") {
     const h = HEROINES[ev.key];
     UI.choice(`⭐ ${h.name} — ${h.title}`, `${h.bio}<br>특기 <b>${TALENTS[h.talent].name}</b>: ${TALENTS[h.talent].desc}<br><small class="muted">매력 ${h.req} 이상이면 마음을 연다 (내 매력 ${S.eff(st, "cha")})</small>`, [{ label: "함께 가자고 한다", value: 1, cls: "primary" }, { label: "그냥 지나간다", value: 0 }], { closable: true }).then((v) => {
@@ -1250,7 +1332,13 @@ function draw(dt) {
   // 탄/효과
   ctx.fillStyle = "#ffd36b";
   for (const s of G.shots) { ctx.fillStyle = s.foe ? "#ff6b5b" : s.thrown ? "#d9d9d9" : "#ffd36b"; ctx.fillRect(s.x - cam.x - 2, s.y - cam.y - 2, s.item && !s.thrown ? 7 : 4, 4); }
-  for (const e of G.world.events || []) if (!e.done) R.emoji(ctx, { survivor: "🙋", diary: "📓", stash: "📦", trap: "❓", heroine: "👩" }[e.kind], (e.tx + 0.5) * TILE - cam.x, (e.ty + 0.5) * TILE - cam.y - 6, 26);
+  for (const e of G.world.events || []) if (!e.done) R.emoji(ctx, { survivor: "🙋", diary: "📓", stash: "📦", trap: "❓", heroine: "👩", note: "📝" }[e.kind], (e.tx + 0.5) * TILE - cam.x, (e.ty + 0.5) * TILE - cam.y - 6, 26);
+  G.eventNpcs = (G.eventNpcs || []).filter((n) => n.until > G.t);
+  for (const n of G.eventNpcs) {
+    if (n.animal) { R.drawAnimal(ctx, n.animal, n.x - cam.x, n.y - cam.y, G.t * 4, false, -1); continue; }
+    const L = { child: [{ skin: "#e3b48e", hair: "short", hairColor: "#3a2a1a" }, 0.7], adult: [{ skin: "#d1a07a", hair: "short", hairColor: "#2b211b" }, 0.95], old: [{ skin: "#d9b090", hair: "pony", hairColor: "#d8d0c0" }, 0.9], raider: [{ skin: "#c08a64", hair: "mohawk", hairColor: "#8a2b2b" }, 0.95], merchant: [{ skin: "#d1a07a", hair: "beard", hairColor: "#4a3a2a" }, 0.95] }[n.k] || [{}, 0.9];
+    R.drawCharacter(ctx, n.x - cam.x, n.y - cam.y, L[0], { body: { id: n.k === "raider" || n.k === "merchant" ? "leather_jacket" : n.k === "old" ? "fur_coat" : "rag_shirt" }, legs: { id: "rag_pants" } }, -1, G.t * 2, { scale: L[1], gender: n.g });
+  }
   for (const d of G.drops) {
     const dx = d.x - cam.x, dy = d.y - cam.y;
     ctx.fillStyle = "rgba(255,230,140,.25)"; ctx.beginPath(); ctx.ellipse(dx, dy + 8, 12, 4, 0, 0, Math.PI * 2); ctx.fill(); // 반짝이는 받침(눈에 띄게)
@@ -1359,7 +1447,7 @@ function drawHint(cam) {
   if (!txt) for (const n of visibleNodes()) { const nx = (n.tx + 0.5) * TILE, ny = (n.ty + 0.5) * TILE; if (Math.hypot(nx - p.x, ny - p.y) < 50) { const gp = S.gatherPower(G.st, n.type); txt = `${NODE_TYPES[n.type].name} 채집${gp.need ? ` · ${gp.need} 없음(아주 느림)` : ""}`; hx = nx; hy = ny - 36; break; } }
   for (const m of G.mobs) if (Math.hypot(m.x - p.x, m.y - p.y) < 56) { txt = m.kind === "enemy" ? `${ENEMIES[m.type].name} 공격` : `${ANIMALS[m.type].name} (길들이기/사냥)`; hx = m.x; hy = m.y - 50; break; }
   if (!txt && G.world.home && Math.hypot((G.world.cx + 0.5) * TILE - p.x, (G.world.cy + 0.5) * TILE - p.y) < 2.2 * TILE) { txt = "기지 관리"; hx = p.x; hy = p.y - 60; }
-  if (!txt && G.world.site) { if (nearTile(T.EXIT)) txt = "밖으로 나가기"; else if (nearTile(T.STAIRS)) txt = Sites.SITES[G.world.site.kind].under ? "더 깊이 내려가기" : "위층으로 올라가기"; else { const ev = (G.world.events || []).find((e) => !e.done && Math.hypot((e.tx + 0.5) * TILE - p.x, (e.ty + 0.5) * TILE - p.y) < 1.6 * TILE); if (ev) txt = ev.kind === "heroine" ? `⭐ ${HEROINES[ev.key].name}에게 말 걸기` : { survivor: "갇힌 생존자 돕기", diary: "일기 읽기", stash: "보급품 뒤지기", trap: "수상한 상자 열기" }[ev.kind]; } }
+  if (!txt && G.world.site) { if (nearTile(T.EXIT)) txt = "밖으로 나가기"; else if (nearTile(T.STAIRS)) txt = Sites.SITES[G.world.site.kind].under ? "더 깊이 내려가기" : "위층으로 올라가기"; else { const ev = (G.world.events || []).find((e) => !e.done && Math.hypot((e.tx + 0.5) * TILE - p.x, (e.ty + 0.5) * TILE - p.y) < 1.6 * TILE); const dn = doorNear(); if (dn) txt = { wood: "문 부수기", key: "잠긴 문 (녹슨 열쇠)", card: "보안문 (카드키)", code: "비밀번호 입력" }[dn.kind]; else if (ev) txt = ev.kind === "note" ? "쪽지 읽기" : ev.kind === "heroine" ? `⭐ ${HEROINES[ev.key].name}에게 말 걸기` : { survivor: "갇힌 생존자 돕기", diary: "일기 읽기", stash: "보급품 뒤지기", trap: "수상한 상자 열기" }[ev.kind]; } }
   if (!txt) { const q = !G.world.site && siteNear(); if (q) txt = `${Sites.SITES[q.kind].name} 들어가기`; }
   if (!txt && nearWater(G.world, p.x, p.y)) { txt = p.equip.hand?.id === "fishing_rod" ? "낚시" : S.count(st.inv, "bottle") ? `물 뜨기 (빈 병 ${S.count(st.inv, "bottle")})` : "물 뜨기 — 빈 물병 필요"; hx = p.x; hy = p.y - 60; }
   if (!txt) return;
@@ -1395,7 +1483,7 @@ function drawMinimap() {
   if (!miniCache || miniCache.seed !== G.world.seed || miniCache.biome !== G.world.biome || (G.fogDirty && G.t - miniCache.t > 0.4)) {
     const c = miniCache?.c?.width === WORLD_W ? miniCache.c : document.createElement("canvas"); c.width = c.height = WORLD_W;
     const g = c.getContext("2d"); const img = g.createImageData(WORLD_W, WORLD_H);
-    const cols = { 0: [111, 106, 96], 1: [79, 107, 58], 2: [90, 90, 94], 3: [47, 79, 99], 4: [92, 122, 46], 5: [87, 80, 74], 6: [122, 106, 82], 7: [61, 59, 57], 8: [200, 176, 122], 9: [227, 231, 234], 10: [77, 122, 140], 11: [122, 90, 58], 12: [44, 42, 40], 13: [94, 88, 80], 14: [200, 150, 70], 15: [230, 210, 120] };
+    const cols = { 0: [111, 106, 96], 1: [79, 107, 58], 2: [90, 90, 94], 3: [47, 79, 99], 4: [92, 122, 46], 5: [87, 80, 74], 6: [122, 106, 82], 7: [61, 59, 57], 8: [200, 176, 122], 9: [227, 231, 234], 10: [77, 122, 140], 11: [122, 90, 58], 12: [44, 42, 40], 13: [94, 88, 80], 14: [200, 150, 70], 15: [230, 210, 120], 16: [140, 60, 40] };
     const fog = G.fog, dark = [14, 12, 11];
     for (let i = 0; i < WORLD_W * WORLD_H; i++) { const c3 = fog && !fog[i] ? dark : cols[G.world.tiles[i]] || cols[0]; img.data[i * 4] = c3[0]; img.data[i * 4 + 1] = c3[1]; img.data[i * 4 + 2] = c3[2]; img.data[i * 4 + 3] = 255; }
     g.putImageData(img, 0, 0);

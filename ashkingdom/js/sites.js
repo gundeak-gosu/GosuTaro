@@ -89,10 +89,31 @@ export function generateFloor(seed, kind, floor, opts = {}) {
   const spawns = [];
   if (!S.safe) for (const r of rooms.slice(1, isTop ? -1 : undefined)) if (rng.chance(0.75)) spawns.push({ type: rng.pick(S.enemies), tx: r.cx, ty: r.cy, n: rng.int(1, 2 + Math.floor(floor / 2)) });
   const boss = !S.safe && isTop ? { tx: last.cx, ty: last.cy } : null;
+  // 잠긴 문: 마지막 방(계단·보스방) 입구를 막는다. 종류: 부수기(나무문)·열쇠(적이 가짐)·카드키(보안 담당자)·비밀번호(쪽지)
+  const doors = [];
+  if (rooms.length >= 3 && !S.safe) {
+    const hi = ["broadcast", "power", "airport", "hospital", "highrise"].includes(kind);
+    const dk = rng.pick(hi ? ["card", "code", "card", "wood"] : ["wood", "key", "wood", "key", "code"]);
+    const cells = [];
+    for (let y = last.y - 1; y <= last.y + last.h; y++) for (let x = last.x - 1; x <= last.x + last.w; x++) {
+      const inside = x >= last.x && x < last.x + last.w && y >= last.y && y < last.y + last.h;
+      if (inside || (x !== last.x - 1 && x !== last.x + last.w && y !== last.y - 1 && y !== last.y + last.h)) continue;
+      if (tiles[y * WORLD_W + x] === T.FLOOR) { tiles[y * WORLD_W + x] = T.DOOR; cells.push(y * WORLD_W + x); }
+    }
+    if (cells.length) {
+      const door = { kind: dk, tiles: cells, open: false, prog: 0, tries: 0 };
+      const others = rooms.slice(1, -1);
+      if (dk === "code") { door.code = String(rng.int(1000, 9999)); const r = rng.pick(others.length ? others : [first]); var noteAt = { kind: "note", code: door.code, tx: r.x + r.w - 2, ty: r.y + 1 }; }
+      if (dk === "card") { const r = rng.pick(others.length ? others : [first]); spawns.push({ type: "raider", tx: r.cx, ty: r.cy, n: 1, guard: true }); }
+      if (dk === "key") door.keyFrom = true; // 이 층 적 하나가 열쇠를 지닌다(main.js 에서 지정)
+      doors.push(door);
+    }
+  }
   // 이야기 사건(구조할 생존자·일기·보급실) — 층마다 하나쯤
   const events = [];
   if (!S.safe && rng.chance(0.6)) { const r = rng.pick(rooms.slice(1)); events.push({ kind: rng.pick(["survivor", "diary", "stash", "trap"]), tx: r.x + 1, ty: r.y + 1 }); }
-  return { tiles, nodes, spawns, boss, events, entry: { tx: first.x + 2, ty: first.cy }, isTop };
+  if (typeof noteAt !== "undefined") events.push(noteAt);
+  return { tiles, nodes, spawns, boss, events, doors, entry: { tx: first.x + 2, ty: first.cy }, isTop };
 }
 
 export function siteKey(rid, sid) { return `${rid}:${sid}`; }

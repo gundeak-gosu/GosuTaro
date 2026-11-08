@@ -984,7 +984,7 @@ export async function deathModal() {
   if (!r.ok) { toast(r.why || "불가", "bad"); return deathModal(); }
   if (r.heir) await cinematic("👑 계승", `${r.heir.name}은(는) 부모의 무덤 앞에서 맹세했다. 이 왕국은 끝나지 않는다. (${st.generation}대)`, { palette: ["#14141c", "#3a2a3a", "#8a5a3a"] });
   if (r.reset) { await cinematic(st.ended.ending[0], st.ended.ending[1], { palette: ["#0c0c10", "#2a2a30", "#4a4040"] }); saveAccount(acc); G.newLife(); return; }
-  G.respawnAtBase();
+  G.reviveHere(); // 쓰러진 그 자리에서 체력 절반으로 일어난다
   G.save();
 }
 
@@ -1016,15 +1016,57 @@ export async function visitorModal(sv) {
 }
 
 const ENCOUNTERS = [
-  { t: "굶주린 가족", d: "아이를 안은 부부가 먹을 것을 구걸합니다.", o: [["음식을 나눠준다", (st) => (S.pay(st, { canned_food: 1 }, false) || S.pay(st, { cooked_meat: 1 }, false) || S.pay(st, { berry: 3 }, false)) ? (st.karma += 3, "감사 인사를 받았습니다 (업보 +3)") : "줄 음식이 없었습니다"], ["외면한다", (st) => (st.karma -= 1, "뒤돌아섰습니다 (업보 -1)")]] },
-  { t: "부상당한 약탈자", d: "'붉은 손' 문신의 약탈자가 다리를 다쳐 쓰러져 있습니다.", o: [["치료해 보내준다", (st) => (S.pay(st, { bandage: 1 }, false) ? (st.karma += 3, "그는 고개를 숙이고 떠났습니다 (업보 +3)") : (st.karma += 1, "붕대가 없어 물만 주었습니다 (업보 +1)"))], ["소지품을 빼앗는다", (st) => (st.karma -= 3, S.giveItem(st, "ammo", 6), S.giveItem(st, "scrap", 4), "탄약과 고철을 얻었습니다 (업보 -3)")]] },
-  { t: "떠돌이 상인", d: "\"금화만 있으면 뭐든 팔지.\"", o: [["통조림 3개 (금화 60)", (st) => (st.gold >= 60 ? (st.gold -= 60, S.giveItem(st, "canned_food", 3), "거래 완료") : "금화가 부족합니다")], ["전자부품 2개 (금화 150)", (st) => (st.gold >= 150 ? (st.gold -= 150, S.giveItem(st, "electronics", 2), "거래 완료") : "금화가 부족합니다")], ["그냥 간다", () => "상인은 어깨를 으쓱했습니다"]] },
-  { t: "방사능 폭풍 경보", d: "하늘이 초록빛으로 물듭니다. 곧 방사능 폭풍이 옵니다.", o: [["서둘러 몸을 숨긴다", (st) => (st.player.hunger = Math.max(0, st.player.hunger - 8), "폭풍을 피했지만 배가 고파졌습니다")], ["무시하고 탐색을 계속한다", (st) => (st.player.rad = Math.min(150, st.player.rad + 25 * (1 - S.equipStat(st, "rad"))), S.giveItem(st, "electronics", 1), "피폭됐지만 전자부품을 찾았습니다")]] },
-  { t: "버려진 벙커", d: "녹슨 해치가 반쯤 열려 있습니다.", o: [["들어가 본다", (st) => { const r = Math.random(); if (r < 0.6) { S.giveItem(st, "canned_food", 2); S.giveItem(st, "medkit", 1); return "보급품을 찾았습니다!"; } S.damagePlayer(st, 15); return "함정이었습니다! 부상을 입었습니다"; }], ["지나친다", () => "조심하는 게 상책입니다"]] },
+  { t: "배고픈 아이", pic: { bg: "ruin", who: [{ k: "child", g: "F" }], prop: "🥺" }, d: "작은 아이가 다가와 옷자락을 잡아당깁니다. \"아저씨… 먹을 거 있어요? 이틀 동안 아무것도 못 먹었어요.\"", o: [["음식을 준다", (st) => (S.pay(st, { canned_food: 1 }, false) || S.pay(st, { cooked_meat: 1 }, false) || S.pay(st, { berry: 2 }, false) || S.pay(st, { jerky: 1 }, false)) ? (st.karma += 3, S.gainXp(st, 15), "아이가 환하게 웃으며 고맙다고 했습니다 (업보 +3)") : "줄 음식이 없었습니다… 아이는 시무룩하게 돌아섰습니다"], ["기지로 데려간다", (st) => { const sv = S.randomSurvivor(makeRng(Date.now())); Object.assign(sv, { child: true, age: 8, task: "base" }); const r = S.recruit(st, sv); if (r.ok) st.karma += 4; return r.ok ? `${sv.name}이(가) 기지의 가족이 되었습니다 (업보 +4)` : r.why; }], ["모른 척한다", (st) => (st.karma -= 2, "아이의 울음소리가 오래 들렸습니다 (업보 -2)")]] },
+  { t: "길 잃은 할머니", pic: { bg: "road", who: [{ k: "old", g: "F" }], prop: "🧭" }, d: "지팡이를 짚은 할머니가 길을 묻습니다. \"우리 손주가 남쪽 대피소에 있다는데…\"", o: [["길을 알려 주고 물을 나눈다", (st) => (S.pay(st, { water_clean: 1 }, false) ? (st.karma += 2, S.giveItem(st, "herb", 3), "할머니가 약초 한 줌을 쥐여 주었습니다 (업보 +2)") : (st.karma += 1, "길만 알려 드렸습니다 (업보 +1)"))], ["지나친다", () => "할머니는 천천히 걸어갔습니다"]] },
+  { t: "다친 강아지", pic: { bg: "grass", who: [], animal: "dog", prop: "🩹" }, d: "다리를 다친 강아지가 낑낑거리며 당신을 바라봅니다.", o: [["붕대를 감아 준다", (st) => (S.pay(st, { bandage: 1 }, false) ? (st.karma += 2, S.addTamed(st, "dog"), "강아지가 꼬리를 흔들며 따라옵니다! (동물 +1)") : "붕대가 없습니다")], ["그냥 둔다", () => "강아지는 덤불 속으로 사라졌습니다"]] },
+  { t: "굶주린 가족", pic: { bg: "ruin", who: [{ k: "adult", g: "M" }, { k: "adult", g: "F" }, { k: "child", g: "M" }] }, d: "아이를 안은 부부가 먹을 것을 구걸합니다.", o: [["음식을 나눠준다", (st) => (S.pay(st, { canned_food: 1 }, false) || S.pay(st, { cooked_meat: 1 }, false) || S.pay(st, { berry: 3 }, false)) ? (st.karma += 3, "감사 인사를 받았습니다 (업보 +3)") : "줄 음식이 없었습니다"], ["외면한다", (st) => (st.karma -= 1, "뒤돌아섰습니다 (업보 -1)")]] },
+  { t: "부상당한 약탈자", pic: { bg: "ruin", who: [{ k: "raider", g: "M", lying: true }], prop: "🩸" }, d: "'붉은 손' 문신의 약탈자가 다리를 다쳐 쓰러져 있습니다.", o: [["치료해 보내준다", (st) => (S.pay(st, { bandage: 1 }, false) ? (st.karma += 3, "그는 고개를 숙이고 떠났습니다 (업보 +3)") : (st.karma += 1, "붕대가 없어 물만 주었습니다 (업보 +1)"))], ["소지품을 빼앗는다", (st) => (st.karma -= 3, S.giveItem(st, "ammo", 6), S.giveItem(st, "scrap", 4), "탄약과 고철을 얻었습니다 (업보 -3)")]] },
+  { t: "떠돌이 상인", pic: { bg: "road", who: [{ k: "merchant", g: "M" }], prop: "🛒" }, d: "\"금화만 있으면 뭐든 팔지.\"", o: [["통조림 3개 (금화 60)", (st) => (st.gold >= 60 ? (st.gold -= 60, S.giveItem(st, "canned_food", 3), "거래 완료") : "금화가 부족합니다")], ["전자부품 2개 (금화 150)", (st) => (st.gold >= 150 ? (st.gold -= 150, S.giveItem(st, "electronics", 2), "거래 완료") : "금화가 부족합니다")], ["그냥 간다", () => "상인은 어깨를 으쓱했습니다"]] },
+  { t: "방사능 폭풍 경보", pic: { bg: "rad", who: [], prop: "☢️" }, d: "하늘이 초록빛으로 물듭니다. 곧 방사능 폭풍이 옵니다.", o: [["서둘러 몸을 숨긴다", (st) => (st.player.hunger = Math.max(0, st.player.hunger - 8), "폭풍을 피했지만 배가 고파졌습니다")], ["무시하고 탐색을 계속한다", (st) => (st.player.rad = Math.min(150, st.player.rad + 25 * (1 - S.equipStat(st, "rad"))), S.giveItem(st, "electronics", 1), "피폭됐지만 전자부품을 찾았습니다")]] },
+  { t: "버려진 벙커", pic: { bg: "ruin", who: [], prop: "🛖" }, d: "녹슨 해치가 반쯤 열려 있습니다.", o: [["들어가 본다", (st) => { const r = Math.random(); if (r < 0.6) { S.giveItem(st, "canned_food", 2); S.giveItem(st, "medkit", 1); return "보급품을 찾았습니다!"; } S.damagePlayer(st, 15); return "함정이었습니다! 부상을 입었습니다"; }], ["지나친다", () => "조심하는 게 상책입니다"]] },
 ];
+// 숫자 비밀번호 입력(4자리)
+export function askCode(title, tries = 0) {
+  return new Promise((resolve) => {
+    let done = false;
+    const m = modal(`<h2>${title}</h2><input id="code" inputmode="numeric" maxlength="4" pattern="[0-9]*" placeholder="숫자 4자리" class="codein" autocomplete="off"><small class="muted">틀린 횟수 ${tries}/3 — 3번 틀리면 경보</small><button class="btn primary big" id="ok">입력</button>`, { onClose: () => { if (!done) resolve(null); } });
+    const inp = m.querySelector("#code"); setTimeout(() => inp.focus(), 50);
+    const go = () => { done = true; const v = inp.value.trim(); m.close(); resolve(v); };
+    m.querySelector("#ok").onclick = go; inp.onkeydown = (e) => { e.stopPropagation(); if (e.key === "Enter") go(); };
+  });
+}
+
+// 사건 삽화: 2등신 인물·동물·소품을 그린 작은 장면(필드에도 같은 인물이 나타난다)
+const LOOKS = {
+  child: { look: { skin: "#e3b48e", hair: "short", hairColor: "#3a2a1a" }, equip: { body: { id: "rag_shirt" }, legs: { id: "rag_pants" } }, scale: 2.1 },
+  adult: { look: { skin: "#d1a07a", hair: "short", hairColor: "#2b211b" }, equip: { body: { id: "rag_shirt" }, legs: { id: "rag_pants" } }, scale: 2.7 },
+  old: { look: { skin: "#d9b090", hair: "pony", hairColor: "#d8d0c0" }, equip: { body: { id: "fur_coat" }, legs: { id: "rag_pants" } }, scale: 2.5 },
+  raider: { look: { skin: "#c08a64", hair: "mohawk", hairColor: "#8a2b2b" }, equip: { body: { id: "leather_jacket" }, legs: { id: "leather_pants" }, hand: { id: "knife" } }, scale: 2.7 },
+  merchant: { look: { skin: "#d1a07a", hair: "beard", hairColor: "#4a3a2a" }, equip: { body: { id: "leather_jacket" }, legs: { id: "rag_pants" }, back: { id: "backpack" } }, scale: 2.7 },
+};
+const BGS = { ruin: ["#3a3532", "#5a554e"], road: ["#4a463f", "#6a6458"], grass: ["#3e5233", "#5b7a3e"], rad: ["#2e3a22", "#6d8a35"] };
+function drawEventPic(cv, pic) {
+  const g = cv.getContext("2d"), W = cv.width, H = cv.height;
+  const [c1, c2] = BGS[pic.bg] || BGS.ruin;
+  const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, c1); gr.addColorStop(1, c2); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(0, H * 0.72, W, H * 0.28);
+  if (pic.bg === "ruin") { g.fillStyle = "rgba(20,18,16,.6)"; g.fillRect(20, 30, 60, 90); g.fillRect(W - 90, 50, 50, 70); }
+  if (pic.bg === "rad") { g.fillStyle = "rgba(160,255,80,.15)"; g.fillRect(0, 0, W, H); }
+  const n = pic.who.length + (pic.animal ? 1 : 0);
+  pic.who.forEach((w, i) => {
+    const L = LOOKS[w.k], x = W / 2 + (i - (n - 1) / 2) * 70;
+    g.save(); if (w.lying) { g.translate(x, H * 0.8); g.rotate(-Math.PI / 2); g.translate(-x, -H * 0.8); }
+    drawCharacter(g, x, H * 0.86, L.look, L.equip, i % 2 ? -1 : 1, 0, { scale: L.scale, gender: w.g });
+    g.restore();
+  });
+  if (pic.animal) { g.save(); g.translate(W / 2 + ((n - 1) / 2) * 70, H * 0.84); g.scale(2.4, 2.4); drawAnimalFn?.(g, pic.animal, 0, 0, 0, false, -1); g.restore(); }
+  if (pic.prop) { g.font = "34px sans-serif"; g.textAlign = "center"; g.fillText(pic.prop, W / 2 + n * 40 + 20, H * 0.35); g.textAlign = "start"; }
+}
+let drawAnimalFn = null; export function setAnimalDrawer(f) { drawAnimalFn = f; }
 export async function encounterModal() {
   const e = ENCOUNTERS[Math.floor(Math.random() * ENCOUNTERS.length)];
-  const v = await choice(`❗ ${e.t}`, e.d, e.o.map((o, i) => ({ label: o[0], value: i })));
+  if (e.pic) { G.showEventNpcs?.(e.pic); setTimeout(() => { const cv = document.querySelector(".evpic:not([data-done])"); if (cv) { cv.dataset.done = 1; drawEventPic(cv, e.pic); } }, 0); }
+  const v = await choice(`❗ ${e.t}`, `${e.pic ? '<canvas class="evpic" width="420" height="200"></canvas>' : ""}<p>${e.d}</p>`, e.o.map((o, i) => ({ label: o[0], value: i })));
   if (v == null) return;
   const msg = e.o[v][1](G.st);
   toast(msg);

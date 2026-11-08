@@ -264,3 +264,6 @@ body.joy-right #throwBtn { right: auto; left: 20px; } body.joy-right #specBtn { 
 .vault .vicon { font-size: 54px; } .v-bunker { border-color: #e0a24a; }
 .jrow { display: flex; align-items: center; gap: 8px; }
 .slot.w2 { grid-column: span 2; aspect-ratio: 2 / 1; } .slot .q i { font-style: normal; font-weight: 400; opacity: .6; font-size: 9px; }
+.evpic { width: 100%; max-height: 34vh; aspect-ratio: 420 / 200; height: auto; display: block; border-radius: 10px; border: 1px solid var(--line); margin-bottom: 8px; }
+.codein { width: 100%; font-size: 30px; letter-spacing: 12px; text-align: center; padding: 10px; background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 10px; }
+.notepaper { background: #e8dcc0; color: #3a2a1a; padding: 14px; border-radius: 6px; transform: rotate(-1deg); font-family: serif; text-align: center; }

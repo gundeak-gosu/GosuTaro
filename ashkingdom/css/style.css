@@ -66,7 +66,7 @@ body.joy-right #dodge { right: auto; left: 112px; }
 @media (hover: hover) and (pointer: fine) { #joy { display: none; } #act { width: 64px; height: 64px; font-size: 26px; } }
 
 /* ---------- 모달 ---------- */
-.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 20; padding: 12px; animation: fade .15s; }
+.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 35; padding: 12px; animation: fade .15s; }
 .modal { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; width: min(460px, 100%); max-height: calc(100% - 8px); overflow: auto; padding: 18px 16px 16px; box-shadow: 0 20px 60px rgba(0,0,0,.6); touch-action: pan-y; user-select: text; }
 .modal.wide { width: min(720px, 100%); }
 .modal h2 { margin: 0 34px 10px 0; font-size: 19px; }
@@ -245,3 +245,21 @@ body.joy-right #throwBtn { right: auto; left: 20px; } body.joy-right #specBtn { 
 #throwBtn .gi-fb, #specBtn .gi-fb { font-size: 24px; line-height: 1; }
 #zoomBox { position: fixed; top: 252px; right: 12px; display: flex; flex-direction: column; gap: 4px; }
 #zoomBox button { width: 34px; height: 34px; border-radius: 8px; background: rgba(20,17,14,.82); border: 1px solid var(--line); color: #fff; font-size: 20px; line-height: 1; }
+#dailyBtn { margin-top: 4px; pointer-events: auto; position: relative; } #dailyBtn .dot { position: absolute; top: -3px; right: -3px; width: 10px; height: 10px; border-radius: 50%; background: #e5534b; }
+/* 타이틀 허브·슬롯 카드(야생소년식) */
+.tbar { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 6px 0; } .tbar span { background: rgba(20,17,14,.8); border: 1px solid var(--line); border-radius: 10px; padding: 4px 10px; }
+.slot-card .dif { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); font-size: 11px; padding: 1px 10px; border-radius: 8px 8px 0 0; background: #5a4a3a; }
+.slot-card .dif-easy { background: #3e6a4a; } .slot-card .dif-hard { background: #7a2b2b; }
+.slot-card .skull { position: absolute; top: 6px; left: 8px; font-size: 12px; opacity: .8; }
+.slot-card .por { width: 96px; height: 104px; }
+.hub { display: flex; gap: 10px; justify-content: center; margin: 10px 0; } .hub .btn { display: flex; flex-direction: column; align-items: center; font-size: 26px; min-width: 96px; } .hub .btn span { font-size: 12px; margin-top: 2px; }
+.charpage { display: grid; grid-template-columns: 220px 1fr; gap: 12px; } @media (max-width: 640px) { .charpage { grid-template-columns: 1fr; } }
+.cleft { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; } .cleft h2 { margin: 0; }
+.rrow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); } .rrow > b { width: 72px; }
+.relic { width: 76px; min-height: 76px; border-radius: 10px; border: 2px solid #6e6253; background: #1c1814; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text); font: inherit; }
+.relic span { font-size: 30px; } .relic small { font-size: 10px; } .relic.r1 { border-color: #4a95d0; } .relic.r2 { border-color: #9b6ad0; } .relic.r3 { border-color: #e0a24a; box-shadow: 0 0 8px rgba(224,162,74,.5); }
+.relic.on { outline: 3px solid var(--accent); } .relic.empty, .relic.lock { color: var(--muted); font-size: 12px; text-align: center; }
+.vaults { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; } @media (max-width: 640px) { .vaults { grid-template-columns: 1fr; } }
+.vault { background: #1c1814; border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 6px; align-items: center; text-align: center; }
+.vault .vicon { font-size: 54px; } .v-bunker { border-color: #e0a24a; }
+.jrow { display: flex; align-items: center; gap: 8px; }

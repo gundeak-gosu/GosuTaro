@@ -14,6 +14,8 @@ import * as Net from "./net.js";
 import * as Sync from "./sync.js";
 import * as Sfx from "./sfx.js";
 import * as Reg from "./regions.js";
+import * as Meta from "./meta.js";
+import * as Relics from "./relics.js";
 import * as Ic from "./icons.js";
 import * as Earth from "./earth.js";
 import * as MM from "./matchmaking.js";
@@ -265,7 +267,7 @@ export function openCraft() {
       }).join("")}</div>`;
     }).join("")}
     <h3>탈것</h3><div class="rlist">${Object.entries(VEHICLES).map(([id, v]) => `<div class="recipe"><span class="ic slot">${Ic.icon("v." + id, 44, v.icon)}</span><div class="rinfo"><b>${v.name}</b><small class="muted">이동 ×${v.mount} · 연구: ${RESEARCH.find((r) => r.id === v.research).name}</small></div>${needTiles(v.cost)}<button class="btn sm" data-v="${id}" ${st.vehicles.includes(id) ? "disabled" : ""}>${st.vehicles.includes(id) ? "보유" : "제작"}</button></div>`).join("")}</div>`, { wide: true });
-  m.querySelectorAll("[data-r]").forEach((b) => (b.onclick = () => { const r = S.craft(st, b.dataset.r, { atBase: G.atBase }); Sfx.play(r.ok ? "craft" : "bad"); toast(!r.ok ? r.why : r.quality?.label ? `${r.quality.q >= 3 ? "🌟 " : ""}${r.quality.label} 제작!${r.quality.af ? (AFFIXES[r.quality.af].good ? " (좋은 특성!)" : " (나쁜 특성…)") : ""}` : r.quality?.bonus ? `대성공! ${ITEMS[r.id].name} ×${r.q}` : `${ITEMS[r.id].name} ×${r.q} 제작!`, !r.ok ? "bad" : r.quality?.q === 0 || (r.quality?.af && !AFFIXES[r.quality.af].good) ? "warn" : "good"); m.close(); G.afterAction(); openCraft(); }));
+  m.querySelectorAll("[data-r]").forEach((b) => (b.onclick = () => { const r = S.craft(st, b.dataset.r, { atBase: G.atBase }); if (r.ok) Meta.addActivity(st, "craft"); Sfx.play(r.ok ? "craft" : "bad"); toast(!r.ok ? r.why : r.quality?.label ? `${r.quality.q >= 3 ? "🌟 " : ""}${r.quality.label} 제작!${r.quality.af ? (AFFIXES[r.quality.af].good ? " (좋은 특성!)" : " (나쁜 특성…)") : ""}` : r.quality?.bonus ? `대성공! ${ITEMS[r.id].name} ×${r.q}` : `${ITEMS[r.id].name} ×${r.q} 제작!`, !r.ok ? "bad" : r.quality?.q === 0 || (r.quality?.af && !AFFIXES[r.quality.af].good) ? "warn" : "good"); m.close(); G.afterAction(); openCraft(); }));
   m.querySelectorAll("[data-v]").forEach((b) => (b.onclick = () => { const r = S.buildVehicle(st, b.dataset.v); toast(r.ok ? "제작 완료!" : r.why, r.ok ? "good" : "bad"); m.close(); openCraft(); }));
 }
 
@@ -278,7 +280,7 @@ export function openBase(tab = "build") {
   let body = "";
   if (tab === "build") {
     body = `<div class="card"><b>🏰 ${L.name} (Lv.${st.base.lv})</b> · 부지 ${st.base.buildings.length}/${L.slots} · 주민 ${st.companions.length}/${S.residentCap(st)}
-      ${next ? `<div>다음: <b>${next.name}</b></div>${needTiles(S.baseUpgradeCost(st))}<button class="btn primary" id="upg" ${why ? "disabled" : ""}>거점 확장</button> ${why ? `<small class="no">${why}</small>` : ""}` : "<div>최대 레벨 — 새 수도</div>"}</div>
+      ${Meta.buildState(st) ? buildCard(st) : next ? `<div>다음: <b>${next.name}</b> <small class="muted">공사 ${fmtMin(Meta.BUILD_MIN[st.base.lv + 1])}</small></div>${needTiles(S.baseUpgradeCost(st))}<button class="btn primary" id="upg" ${why ? "disabled" : ""}>거점 확장</button> ${why ? `<small class="no">${why}</small>` : ""}` : "<div>최대 레벨 — 새 수도</div>"}</div>
       <h3>건설된 시설</h3><div class="chips">${st.base.buildings.map((b) => `<span class="chip">${bicon(b.id, 20)} ${BUILDINGS[b.id].name}${b.id === "generator" ? (b.fueled ? " ⚡" : " ⛽없음") : ""}<button class="mini" data-demo="${b.uid}" title="철거(재료 절반 회수)">✕</button></span>`).join("") || '<span class="muted">아직 없음</span>'}</div>
       <h3>건설 가능</h3><div class="rlist">${Object.entries(BUILDINGS).filter(([, d]) => d.baseLv <= st.base.lv + 1).map(([id, d]) => {
         const w = S.canBuild(st, id);
@@ -319,7 +321,8 @@ export function openBase(tab = "build") {
   const re = (t = tab) => { m.close(); G.afterAction(); openBase(t); };
   m.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => re(b.dataset.tab)));
   m.querySelectorAll("[data-train]").forEach((b) => (b.onclick = () => { const r = S.train(st, b.dataset.train); toast(r.ok ? `${WSKILLS[b.dataset.train].name} ${r.lv}단계를 익혔다!` : r.why, r.ok ? "good" : "bad"); re("train"); }));
-  m.querySelector("#upg")?.addEventListener("click", async () => { const r = S.upgradeBase(st); if (r.ok) { m.close(); G.afterAction(); await cinematic(`🏰 ${BASE_LEVELS[st.base.lv - 1].name}`, `기지가 커졌다. 성벽은 높아지고, 사람들의 목소리도 커졌다. 이제 ${BASE_LEVELS[st.base.lv - 1].slots}개의 시설을 세울 수 있다.`, { palette: ["#1d2433", "#4a4a5e", "#b7884f"] }); openBase(); } else toast(r.why, "bad"); });
+  m.querySelectorAll("[data-speed]").forEach((b) => (b.onclick = () => { speedUse(st, b.dataset.speed); re(); }));
+  m.querySelector("#upg")?.addEventListener("click", async () => { const r0 = Meta.startBuild(st, S); if (r0.ok) { Meta.addActivity(st, "build"); toast(`🔨 확장 공사 시작 (${fmtMin(r0.minutes)}) — 오프라인에도 진행됩니다`, "good"); re(); return; } const r = { ok: false, why: r0.why }; if (r.ok) { m.close(); G.afterAction(); await cinematic(`🏰 ${BASE_LEVELS[st.base.lv - 1].name}`, `기지가 커졌다. 성벽은 높아지고, 사람들의 목소리도 커졌다. 이제 ${BASE_LEVELS[st.base.lv - 1].slots}개의 시설을 세울 수 있다.`, { palette: ["#1d2433", "#4a4a5e", "#b7884f"] }); openBase(); } else toast(r.why, "bad"); });
   m.querySelectorAll("[data-b]").forEach((b) => {
     if (tab === "build") b.onclick = () => { const r = S.build(st, b.dataset.b); Sfx.play(r.ok ? "build" : "bad"); toast(r.ok ? "건설 완료!" : r.why, r.ok ? "good" : "bad"); re(); };
   });
@@ -707,6 +710,136 @@ export function spawnReveal() {
     m.querySelector("#ok").onclick = () => m.close();
   });
 }
+// ---------------- 기지 공사 · 가속 ----------------
+const fmtMin = (m) => (m >= 60 ? `${Math.floor(m / 60)}시간${m % 60 ? " " + (m % 60) + "분" : ""}` : `${Math.ceil(m)}분`);
+function buildCard(st) {
+  const b = Meta.buildState(st), left = Math.ceil(b.left / 60000), pct = Math.round((1 - b.left / b.total) * 100);
+  const items = Object.entries(Meta.SPEED_ITEMS).filter(([k]) => S.count(st.inv, k) > 0);
+  const free = Meta.vipPerk(G.acc).speed, freeUsed = G.acc.vipSpeedDay === Math.floor(Date.now() / 86400e3);
+  return `<div>🔨 <b>${BASE_LEVELS[b.to - 1].name}</b>(으)로 확장 공사 중 · 남은 시간 <b>${fmtMin(left)}</b></div>
+    <div class="hb th" style="height:10px;margin:6px 0"><i style="width:${pct}%"></i></div>
+    <div class="acts">${items.map(([k, mm]) => `<button class="btn sm" data-speed="${k}">${ITEMS[k].icon} ${ITEMS[k].name} (${S.count(st.inv, k)})</button>`).join("")}
+    ${free && !freeUsed ? `<button class="btn sm" data-speed="vip">👑 VIP 무료 가속 ${free}분</button>` : ""}
+    <button class="btn sm" data-speed="ad">📺 광고 보고 30분</button>
+    <button class="btn sm primary" data-speed="gem">💎${Meta.gemsToFinish(st)} 즉시 완료</button></div>
+    <small class="muted">기다리면 무료(오프라인에도 진행). 가속은 출석·활동 상자·보스에서도 얻습니다.</small>`;
+}
+function speedUse(st, k) {
+  if (Meta.SPEED_ITEMS[k]) { if (S.count(st.inv, k) < 1) return; S.removeFrom(st.inv, k, 1); Meta.speedBuild(st, Meta.SPEED_ITEMS[k]); }
+  else if (k === "vip") { G.acc.vipSpeedDay = Math.floor(Date.now() / 86400e3); Meta.speedBuild(st, Meta.vipPerk(G.acc).speed); }
+  else if (k === "ad") { if (!Shop.watchAd(G.acc)) return toast("오늘 광고 보상을 다 받았습니다", "warn"); Meta.speedBuild(st, 30); }
+  else if (k === "gem") { const g = Meta.gemsToFinish(st); if (G.acc.gems < g) return toast(`보석 ${g} 필요`, "bad"); G.acc.gems -= g; Meta.speedBuild(st, 1e7); }
+  Meta.finishBuildIfDone(st, S);
+  G.save(); G.afterAction();
+}
+
+// ---------------- 일일·VIP·원정 ----------------
+export function openDaily(tab = "attend") {
+  const st = G.st, acc = G.acc;
+  const tabs = { attend: "출석", activity: "활동 상자", vip: "VIP", exp: "원정 채집" };
+  let body = "";
+  if (tab === "attend") {
+    const a = Meta.attendState(acc);
+    body = `<p class="muted">매일 접속하면 받습니다(7일 순환). 연속 접속할수록 VIP 점수도 더 많이 오릅니다. 연속 ${a.streak}일 · 누적 ${a.total}일</p>
+      <div class="grid">${Meta.ATTEND.map((r, i) => `<div class="slot g${i === 6 ? 4 : 1} ${i < a.dayIndex || (i === a.dayIndex && !a.canClaim) ? "dim" : ""}" style="${i === a.dayIndex && a.canClaim ? "outline:2px solid var(--accent)" : ""}"><span class="ic">${r.item ? icon(r.item[0], 36) : r.key ? "🗝️" : Ic.icon("ui.gem", 36)}</span><span class="nm">${i + 1}일 · ${r.gems ? "💎" + r.gems : ""}${r.item ? " " + ITEMS[r.item[0]].name + "×" + r.item[1] : ""}${r.key ? " 금고 열쇠" : ""}</span></div>`).join("")}</div>
+      <button class="btn primary big" id="att" ${a.canClaim ? "" : "disabled"}>${a.canClaim ? "오늘 출석 보상 받기" : "내일 다시 오세요"}</button>`;
+  } else if (tab === "activity") {
+    const a = Meta.activity(st);
+    body = `<p class="muted">채집·전투·제작·건물 탐험·공사·원정으로 활동 점수를 모으면 상자가 열립니다(매일 초기화).</p>
+      <div class="card">오늘 활동 점수 <b>${a.pts}</b> · ${Object.entries(Meta.ACTIVITY.pts).map(([k, v]) => `${({ gather: "채집", kill: "처치", craft: "제작", site: "건물 층", boss: "보스", build: "공사", expedition: "원정" })[k]} +${v}`).join(" · ")}</div>
+      <div class="hb th" style="height:12px"><i style="width:${Math.min(100, a.pts / 1.2)}%"></i></div>
+      <div class="rlist">${Meta.ACTIVITY.chests.map((c, i) => `<div class="recipe ${a.pts < c.at ? "dim" : ""}"><span class="ic slot g${i + 2}">🎁</span><div class="rinfo"><b>${c.at}점 상자</b><small>💎${c.gems} + ${ITEMS[c.item[0]].name}×${c.item[1]}</small></div><span></span><button class="btn sm" data-chest="${i}" ${a.pts >= c.at && !a.got.includes(i) ? "" : "disabled"}>${a.got.includes(i) ? "받음" : "열기"}</button></div>`).join("")}</div>`;
+  } else if (tab === "vip") {
+    const pts = acc.vip?.pts || 0, lv = Meta.vipLevel(pts), nx = Meta.VIP.levels[lv + 1];
+    body = `<div class="card">👑 <b>VIP ${lv}</b> · 점수 ${pts}${nx ? ` / 다음 ${nx}` : " (최고)"}<div class="hb th" style="height:10px;margin-top:6px"><i style="width:${nx ? Math.min(100, ((pts - Meta.VIP.levels[lv]) / (nx - Meta.VIP.levels[lv])) * 100) : 100}%"></i></div>
+      <small class="muted">매일 접속만 해도 20~90점(연속 접속 보너스). 결제하면 1,000원당 100점. VIP 는 '편의'만 줍니다 — 전투력은 팔지 않습니다.</small></div>
+      <div class="rlist">${Meta.VIP.perks.map((p, i) => `<div class="recipe ${i > lv ? "dim" : ""}"><span class="ic slot g${Math.min(4, Math.ceil(i / 2))}">👑${i}</span><div class="rinfo"><b>VIP ${i}</b> <small class="muted">${Meta.VIP.levels[i]}점</small><small>${[p.offH && `오프라인 상한 +${p.offH}시간`, p.speed && `매일 무료 가속 ${p.speed}분`, p.scout && `동물 탐색 +${p.scout}회`, p.exp && `원정 슬롯 +${p.exp}`, p.gold && `금화 +${p.gold}%`, p.pick && `줍기 반경 +${p.pick}`].filter(Boolean).join(" · ") || "기본"}</small></div><span></span>${i === lv ? '<span class="badge">현재</span>' : ""}</div>`).join("")}</div>`;
+  } else if (tab === "exp") {
+    const slots = Meta.expSlots(acc), ex = st.expeditions || [];
+    const opened = (G.regions || []).filter((r) => Reg.isUnlocked(st, G.regions, r.id));
+    const idle = st.companions.filter((c) => c.task === "base" && S.isAdult(c));
+    body = `<p class="muted">기지의 동료를 열린 지역에 보내 자원을 모아 옵니다(실제 시간, 오프라인에도 진행). 먼 지역·힘센 동료일수록 많이. 슬롯 ${ex.length}/${slots} (VIP로 늘어남)</p>
+      ${ex.map((e) => { const c = st.companions.find((x) => x.uid === e.uid); const left = Math.max(0, Math.ceil((e.end - Date.now()) / 60000)); return `<div class="card">🧭 ${esc(c?.name ?? "?")} → ${esc(G.regions.find((r) => r.id === e.rid)?.name ?? "")} · ${e.hours}시간 · ${left ? "남은 " + fmtMin(left) : "귀환 중"} · 예상: ${Meta.expeditionLoot(e, c).map(([i, n]) => ITEMS[i].name + " " + n).join(", ")}</div>`; }).join("")}
+      ${ex.length < slots ? `<div class="card"><label>동료 <select id="exC">${idle.map((c) => `<option value="${c.uid}">${esc(c.name)} (힘${c.stats.str} 지${c.stats.int})</option>`).join("") || '<option value="">보낼 동료 없음</option>'}</select></label>
+        <label>지역 <select id="exR">${opened.map((r) => `<option value="${r.id}">${esc(r.name)} ★${r.tier}</option>`).join("")}</select></label>
+        <div class="acts">${Meta.EXPEDITION.hours.map((h) => `<button class="btn sm" data-exh="${h}">${h}시간 보내기</button>`).join("")}</div></div>` : ""}`;
+  }
+  const m = modal(`<h2>🎁 일일 · VIP · 원정</h2><div class="tabs">${Object.entries(tabs).map(([k, v]) => `<button class="tab ${k === tab ? "on" : ""}" data-tab="${k}">${v}</button>`).join("")}</div>${body}`, { wide: true });
+  const re = (t = tab) => { m.close(); G.afterAction(); openDaily(t); };
+  m.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => re(b.dataset.tab)));
+  m.querySelector("#att")?.addEventListener("click", () => { const r = Meta.claimAttend(acc, st, S.giveItem); toast(r.ok ? `출석 보상! (연속 ${r.streak}일)` : r.why, r.ok ? "good" : "warn"); G.save(); re(); });
+  m.querySelectorAll("[data-chest]").forEach((b) => (b.onclick = () => { if (Meta.claimChest(acc, st, +b.dataset.chest, S.giveItem)) toast("🎁 상자를 열었다!", "good"); G.save(); re(); }));
+  m.querySelectorAll("[data-exh]").forEach((b) => (b.onclick = () => {
+    const cu = m.querySelector("#exC")?.value, rid = +m.querySelector("#exR")?.value;
+    const r = Meta.startExpedition(st, acc, cu, G.regions.find((x) => x.id === rid), +b.dataset.exh);
+    if (r.ok) { Meta.addActivity(st, "expedition"); toast("🧭 원정을 보냈다", "good"); } else toast(r.why, "bad");
+    G.save(); re("exp");
+  }));
+}
+export function dailyBadge() { const st = G.st; if (!st) return false; const a = Meta.activity(st); return Meta.attendState(G.acc).canClaim || Meta.ACTIVITY.chests.some((c, i) => a.pts >= c.at && !a.got.includes(i)) || (st.expeditions || []).some((e) => Date.now() >= e.end); }
+
+// ---------------- 캐릭터·유물(직업별 장착) ----------------
+const relicTile = (id, extra = "") => { const d = Relics.RELICS[id], lv = Relics.relicLv(G.acc, id); return `<button class="relic r${d.r}" ${extra} title="${esc(d.name)}: ${esc(d.desc)}"><span>${d.icon}</span><small>${esc(d.name)}${lv > 1 ? " +" + (lv - 1) : ""}</small></button>`; };
+export function openCharacters(onClose, jobIdx = 0) {
+  const acc = G.acc, ids = Object.keys(JOBS), job = ids[(jobIdx + ids.length) % ids.length], J = JOBS[job];
+  const leg = S.legacyOf(acc, job), R = Relics.relicState(acc), L = R.load[job] || {};
+  const best = acc.maxDays?.[job] || 0, ends = acc.endings.filter((e) => e.startsWith(J.ending + ":")).length;
+  const row = (cat) => {
+    const open = Relics.slotOpen(acc, job, cat), rule = Relics.SLOT_RULE[cat], cur = L[cat];
+    const owned = Object.keys(Relics.RELICS).filter((k) => Relics.RELICS[k].cat === cat && R.own[k]);
+    return `<div class="rrow"><b>${Relics.CATS[cat]}</b>
+      ${open ? (cur ? relicTile(cur, `data-unrel="${cat}" class="on"`) : '<span class="relic empty">비어 있음</span>') : `<span class="relic lock">${rule.days}일<br>생존 시 오픈</span><button class="btn sm" data-buyslot="${cat}">바로 오픈 💎${rule.gems}</button>`}
+      ${open ? owned.filter((k) => k !== cur).map((k) => relicTile(k, `data-rel="${k}"`)).join("") : ""}
+      ${open && !owned.length ? '<small class="muted">구세계 금고에서 유물을 얻으세요</small>' : ""}</div>`;
+  };
+  const m = modal(`<div class="charpage"><div class="cleft"><div class="jrow"><button class="btn sm" id="prevJ">《</button><h2>${J.icon} ${J.name}</h2><button class="btn sm" id="nextJ">》</button></div>
+      <div>혈통 LV ${leg.level}</div><canvas id="cpor" width="150" height="160"></canvas>
+      <div class="statrow">${Object.entries(J.stats).map(([k, v]) => `<span>${({ str: "힘", agi: "민첩", vit: "체력", int: "지능", cha: "매력", cra: "손재주" })[k]} <b>${v}</b></span>`).join("")}</div>
+      <small>최대 생존 기록: <b>${best}일</b> · 엔딩 ${ends}/2</small><small class="muted">${esc(J.desc)}</small></div>
+    <div class="cright"><p class="muted">유물을 장착하면 새 생애를 시작할 때 효과를 받습니다. 칸은 이 직업으로 오래 살아남으면 무료로 열리고, 보석으로 바로 열 수도 있습니다.</p>
+      ${Object.keys(Relics.CATS).map(row).join("")}
+      <h3>스킬</h3><div class="chips">${J.skills.map((k) => `<span class="chip">Lv${k.lv} ${k.name}</span>`).join("")}</div></div></div>`, { wide: true, onClose: () => onClose?.() });
+  const g = m.querySelector("#cpor").getContext("2d");
+  R2draw(g, J);
+  const re = (i = jobIdx) => { m.close(); openCharacters(onClose, i); };
+  m.querySelector("#prevJ").onclick = () => re(jobIdx - 1);
+  m.querySelector("#nextJ").onclick = () => re(jobIdx + 1);
+  m.querySelectorAll("[data-rel]").forEach((b) => (b.onclick = () => { const r = Relics.equipRelic(acc, job, b.dataset.rel); if (!r.ok) toast(r.why, "bad"); saveAccount(acc); re(); }));
+  m.querySelectorAll("[data-unrel]").forEach((b) => (b.onclick = () => { Relics.unequipRelic(acc, job, b.dataset.unrel); saveAccount(acc); re(); }));
+  m.querySelectorAll("[data-buyslot]").forEach((b) => (b.onclick = () => { const r = Relics.buySlot(acc, job, b.dataset.buyslot); toast(r.ok ? "칸이 열렸다" : r.why, r.ok ? "good" : "bad"); saveAccount(acc); re(); }));
+}
+function R2draw(g, J) { drawCharacter(g, 75, 150, { skin: "#d9a982", hair: "short", hairColor: "#2b211b" }, { body: { id: "rag_shirt" }, legs: { id: "rag_pants" }, hand: { id: (J.start.find(([i]) => ITEMS[i].slot === "hand") || ["knife"])[0] } }, 1, 0, { scale: 3, gender: "M" }); }
+
+// ---------------- 구세계 금고(확률 공개 · 천장) ----------------
+export function openVaults(onClose) {
+  const acc = G.acc, R = Relics.relicState(acc), now = Date.now();
+  const rustyLeft = Math.max(0, R.rustyAt - now);
+  const card = (k) => { const V = Relics.VAULTS[k]; return `<div class="vault v-${k}"><b>${V.name}</b><div class="vicon">${{ rusty: "🧰", steel: "🗄️", bunker: "🏦" }[k]}</div>
+    <small class="muted">${V.desc}</small><small>확률: ${Relics.RARITY.map((r, i) => V.odds[i] ? `<span style="color:${r.color}">${r.name} ${V.odds[i]}%</span>` : "").filter(Boolean).join(" · ")}</small>
+    ${k === "rusty" ? `<button class="btn" data-v="rusty" ${rustyLeft ? "disabled" : ""}>${rustyLeft ? `${Math.floor(rustyLeft / 3600e3)}시간 ${Math.ceil((rustyLeft % 3600e3) / 60000)}분 뒤` : "무료로 열기"}</button>`
+    : k === "steel" ? `<button class="btn" data-v="steel">💎30 열기</button>`
+    : `<div class="acts"><button class="btn" data-v="bunker">💎300 열기</button><button class="btn" data-v="bunker" data-key="1" ${R.keys ? "" : "disabled"}>🗝️ ${R.keys}/1 열기</button></div>`}</div>`; };
+  const m = modal(`<h2>🗃️ 구세계 금고</h2><p class="muted">핵전쟁 전 문명이 남긴 금고. 유물(생존·전투·기술)이 들어 있다. 같은 유물이 또 나오면 그 유물이 강해진다(+1, 최대 +4).</p>
+    <div class="vaults">${["rusty", "steel", "bunker"].map(card).join("")}</div>
+    <div class="card">🏅 천장 <b>${Math.min(R.pts, Relics.PITY)}/${Relics.PITY}점</b> — 다 차면 다음 <b>군용 벙커 금고</b>에서 <span style="color:#e0a24a">전설</span> 확정. (녹슨 +2 · 강철 +6 · 군용 +40점)<div class="hb th" style="height:10px;margin-top:6px"><i style="width:${Math.min(100, (R.pts / Relics.PITY) * 100)}%"></i></div></div>
+    <small class="muted">보석 ${acc.gems} · 금고 열쇠는 보스 처치·출석 7일차·이벤트에서 얻습니다. 무과금도 녹슨 보급함과 생존 기록으로 모든 유물 칸을 열 수 있습니다.</small>`, { wide: true, onClose: () => onClose?.() });
+  m.querySelectorAll("[data-v]").forEach((b) => (b.onclick = async () => {
+    const r = Relics.openVault(acc, b.dataset.v, Math.random, Date.now(), !!b.dataset.key);
+    if (!r.ok) return toast(r.why, "bad");
+    saveAccount(acc); m.close();
+    const d = Relics.RELICS[r.id], rr = Relics.RARITY[r.rarity];
+    await choice(`${rr.name} 유물!`, `<div style="font-size:64px;text-align:center">${d.icon}</div><div style="text-align:center"><b style="color:${rr.color}">${esc(d.name)}</b> (${Relics.CATS[d.cat]})<br>${esc(d.desc)}${r.dup ? `<br><span class="ok">이미 있던 유물 → 강화 +${r.lv - 1}</span>` : ""}</div>`, [{ label: "확인", value: 1, cls: "primary" }]);
+    openVaults(onClose);
+  }));
+}
+
+// ---------------- 생존 기록 ----------------
+export function openRecords() {
+  const acc = G.acc;
+  modal(`<h2>📜 생존 기록</h2><div class="rlist">${Object.entries(JOBS).map(([id, j]) => { const l = S.legacyOf(acc, id); return `<div class="recipe"><span class="ic slot">${Ic.icon("job." + id, 40, j.icon)}</span><div class="rinfo"><b>${j.name}</b> <small>혈통 LV ${l.level}</small><small class="muted">최대 생존 ${acc.maxDays?.[id] || 0}일 · 엔딩 ${acc.endings.filter((e) => e.startsWith(j.ending + ":")).length}/2</small></div><span></span><span></span></div>`; }).join("")}</div>
+    <p class="muted small">총 생애 ${acc.runs}회 · 엔딩 도감 ${acc.endings.length}/16</p>`, { wide: true });
+}
+
 // ---------------- 지역 지도(노드 지도) ----------------
 // 탐험한 지역은 밝게, 갈 수 있는 곳은 색, 잠긴 곳은 회색+자물쇠, 아직 모르는 곳은 '???'
 export function openRegionMap() {
@@ -924,10 +1057,12 @@ export function renderHud() {
     <div class="hud-r">
       <div>${Ic.icon("w." + (st.weather?.id || "clear"), 18)} ${WEATHER[st.weather?.id || "clear"].name} · ${sea.name} ${S.day(st)}일차 ${S.clockStr(st)}</div>
       <div class="small muted">${Ic.icon("ui.globe", 14)} ${esc(S.geoOf(st).region)} · ${BIOMES[S.geoOf(st).biome]?.name}</div>
-      <div><span title="보석">${Ic.icon("ui.gem", 16)}${acc.gems}</span> <span title="금화">${Ic.icon("ui.coin", 16)}${Math.floor(st.gold)}</span></div>
+      <div><span title="보석">${Ic.icon("ui.gem", 16)}${acc.gems}</span> <span title="금화">${Ic.icon("ui.coin", 16)}${Math.floor(st.gold)}</span> <span title="VIP">👑${Meta.vipLevel(acc.vip?.pts || 0)}</span></div>
+      <button class="btn sm" id="dailyBtn">🎁 일일·VIP·원정${dailyBadge() ? ' <i class="dot"></i>' : ""}</button>
     </div>
     <div class="goal" id="goalBox">📖 ${S.chapter(st).hint}</div>`;
   $("#goalBox").onclick = () => openStory();
+  $("#dailyBtn").onclick = () => !G.paused && openDaily();
   // 행동 버튼에 지금 손에 든 것을 보여 준다(맨손이면 손)
   const held = p.equip?.hand?.id;
   const actKey = (held || "hand") + "|" + (G.actLabel || "");

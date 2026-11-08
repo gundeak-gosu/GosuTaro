@@ -526,6 +526,51 @@ test("혼인(삼국지식): 매력에 따라 여러 배우자, 반지·호감 �
   ok(S.spouses(st).includes(kid.parent));
   const mR = fresh("jobless").st; mR.player.stats.cha = 2; eq(S.recruitHeroine(mR, "ahyeon").ok, false); // 매력 부족
 });
+test("편의 시스템: 공사 타이머·가속·보석 즉시완료, 출석·VIP, 활동 상자, 원정", async () => {
+  const Meta = await import("../js/meta.js");
+  const { st } = fresh("engineer"); const acc = { gems: 1000, purchases: [] };
+  st.story.chapter = 12; give(st, { wood: 9999, stone: 9999, scrap: 9999, leather: 99, iron: 999, electronics: 99, fuel: 99 });
+  const t0 = 1_800_000_000_000;
+  ok(Meta.startBuild(st, S, t0).ok); eq(st.base.lv, 1); eq(Meta.startBuild(st, S, t0).ok, false);
+  ok(!Meta.finishBuildIfDone(st, S, t0 + 60e3)); ok(Meta.finishBuildIfDone(st, S, t0 + 2 * 60e3 + 1)); eq(st.base.lv, 2);
+  ok(Meta.startBuild(st, S, t0).ok); Meta.speedBuild(st, 15); ok(Meta.finishBuildIfDone(st, S, t0)); eq(st.base.lv, 3);
+  ok(Meta.startBuild(st, S, t0).ok); eq(Meta.gemsToFinish(st, t0), 20); // 1시간 = 보석 20
+  // 출석: 하루 1번, 연속이면 VIP 점수 증가
+  ok(Meta.claimAttend(acc, st, S.giveItem, t0).ok); eq(Meta.claimAttend(acc, st, S.giveItem, t0 + 1000).ok, false);
+  ok(Meta.claimAttend(acc, st, S.giveItem, t0 + 86400e3).ok); eq(acc.vip.pts, 30 + 40);
+  // 활동 상자
+  for (let i = 0; i < 20; i++) Meta.addActivity(st, "kill", t0);
+  eq(Meta.activity(st, t0).pts, 30); // 처치 상한 30
+  Meta.addActivity(st, "site", t0); ok(Meta.claimChest(acc, st, 0, S.giveItem, t0)); eq(Meta.claimChest(acc, st, 0, S.giveItem, t0), false);
+  // 원정: 기지 동료를 보내고 시간이 지나면 자원
+  const c = { uid: "e1", name: "x", role: "hunter", task: "base", stats: { str: 8, agi: 5, vit: 5, int: 6, cha: 5, cra: 5 }, affinity: 50 };
+  st.companions.push(c);
+  ok(Meta.startExpedition(st, acc, "e1", { id: 3, tier: 2, theme: "mountain" }, 4, t0).ok); eq(c.task, "expedition");
+  eq(Meta.collectExpeditions(st, S.giveItem, t0 + 3600e3).length, 0);
+  const got = Meta.collectExpeditions(st, S.giveItem, t0 + 4 * 3600e3 + 1); eq(got.length, 1); eq(c.task, "base");
+  ok(S.countAll(st, "iron_ore") > 0);
+  ok(Meta.vipLevel(0) === 0 && Meta.vipLevel(300) === 1 && Meta.vipLevel(50000) === 9);
+});
+test("구세계 유물: 금고 확률·천장·중복 강화, 칸 해금(생존일/보석), 장착 효과가 새 생애에 적용", async () => {
+  const Rl = await import("../js/relics.js");
+  const acc = S.newAccount(); acc.gems = 100000;
+  // 녹슨 보급함: 12시간 쿨타임
+  ok(Rl.openVault(acc, "rusty", () => 0.5, 1e12).ok); eq(Rl.openVault(acc, "rusty", () => 0.5, 1e12 + 1000).ok, false);
+  ok(Rl.openVault(acc, "rusty", () => 0.5, 1e12 + 12 * 3600e3).ok);
+  // 천장: 군용 금고 5번(40점×5=200) 뒤 다음은 전설 확정
+  const R = Rl.relicState(acc); R.pts = 0;
+  for (let i = 0; i < 5; i++) Rl.openVault(acc, "bunker", () => 0.01);
+  const lg = Rl.openVault(acc, "bunker", () => 0.01); eq(lg.rarity, 3); eq(R.pts, 0);
+  // 확률표 합 100
+  for (const V of Object.values(Rl.VAULTS)) eq(V.odds.reduce((a, b) => a + b, 0), 100);
+  // 칸: 전투 칸은 30일 생존 또는 보석
+  eq(Rl.slotOpen(acc, "soldier", "combat"), false); acc.maxDays = { soldier: 30 }; ok(Rl.slotOpen(acc, "soldier", "combat"));
+  ok(Rl.buySlot(acc, "soldier", "tech").ok);
+  R.own.banner = 2; R.own.toolkit = 1; R.own.geiger = 1;
+  ok(Rl.equipRelic(acc, "soldier", "banner").ok); ok(Rl.equipRelic(acc, "soldier", "toolkit").ok); ok(Rl.equipRelic(acc, "soldier", "geiger").ok);
+  const st = S.newGame({ name: "유물", gender: "M", job: "soldier", difficulty: "normal", seed: 7, account: acc });
+  ok(st.relicFx.atk > 0.12, "전설 군기 +1강 " + st.relicFx.atk); ok(S.count(st.inv, "stone_axe") >= 1); ok(st.relicFx.rad >= 0.3);
+});
 test("제작: 재료 부족 시 실패 / 충분하면 성공 + 경험치", () => {
   const { st } = fresh();
   eq(S.craft(st, "stone_axe").ok, false);

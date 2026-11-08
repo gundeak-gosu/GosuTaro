@@ -15,6 +15,9 @@ import { SPECIALS, SCOUT, RAIDER_BANDS, HEROINES, TALENTS } from "./data.js";
 import { generateWorld, TILE, WORLD_W, WORLD_H, tileAt, isBlocked, nearWater, T, NODE_TYPES, applyBridges, isSlow } from "./world.js";
 import * as Reg from "./regions.js";
 import * as Sites from "./sites.js";
+import * as Meta from "./meta.js";
+import * as Relics from "./relics.js";
+import { claimGrowthFund } from "./shop.js";
 import * as R from "./render.js";
 import { loadAccount, saveAccount, loadGame, saveGame, deleteGame, listSlots, setSlot, activeSlot, loadSlot, deleteSlot } from "./storage.js";
 import { passActive, claimPassDaily, watchAd as accWatchAd, adsLeft } from "./shop.js";
@@ -79,17 +82,26 @@ async function title() {
   const slots = listSlots();
   const card = ({ n, d }) => {
     if (!d) return `<button class="slot-card empty" data-new="${n}"><b>새로 하기</b><small>슬롯 ${n + 1}</small></button>`;
-    const p = d.player, dead = !!d.ended;
+    const p = d.player, dead = !!d.ended, dif = DIFFICULTY[d.difficulty] || DIFFICULTY.normal;
     return `<div class="slot-card ${dead ? "dead" : ""}" data-n="${n}">
+      <span class="dif dif-${d.difficulty}">${dif.name}</span>
+      <span class="skull">💀${d.stats?.deaths || 0}</span>
       <button class="slot-del" data-del="${n}" aria-label="슬롯 ${n + 1} 지우기">🗑</button>
-      <span class="slot-job">${Ic.icon("job." + p.job, 44, JOBS[p.job].icon)}</span>
-      <b>${esc(p.name)} <small>Lv${p.level ?? 1}</small></b>
-      <small>${JOBS[p.job].name} · ${dead ? "생애 종료" : S.day(d) + "일 생존"}</small></div>`;
+      <b>${JOBS[p.job].name} <small>LV${p.level ?? 1}</small></b>
+      <canvas class="por" data-por="${n}" width="120" height="130"></canvas>
+      <small>${esc(p.name)} · ${dead ? "생애 종료" : S.day(d) + "일 생존"}</small></div>`;
   };
+  const RS0 = Relics.relicState(G.acc);
   el.innerHTML = `<div class="t-wrap"><h1>잿빛 왕국</h1><h3>ASHEN KINGDOM · 마지막 생존자</h3>
-    <p class="muted">핵전쟁 이후, 당신은 살아남았다. 사람들을 모아 새로운 나라를 세워라.</p>
+    <div class="tbar"><span>💎 ${G.acc.gems}</span><span>☥ 부활권 ${G.acc.reviveTokens ?? 0}</span><span>🗝️ 금고 열쇠 ${RS0.keys}</span><span>👑 VIP ${Meta.vipLevel(G.acc.vip?.pts || 0)}</span></div>
     <div class="slots">${slots.map(card).join("")}</div>
-    <p class="muted small">💎${G.acc.gems} · 생애 ${G.acc.runs}회 · 엔딩 ${G.acc.endings.length}/16 · 캐릭터마다 따로 이어서 할 수 있습니다</p></div>`;
+    <div class="hub"><button class="btn" id="hChar">🧬<span>캐릭터·유물</span></button><button class="btn" id="hVault">🗃️<span>구세계 금고</span></button><button class="btn" id="hRec">📜<span>생존 기록</span></button></div>
+    <p class="muted small">생애 ${G.acc.runs}회 · 엔딩 ${G.acc.endings.length}/16 · 캐릭터마다 따로 이어서 할 수 있습니다</p></div>`;
+  // 슬롯 초상화: 귀여운 2등신 + 장착한 장비
+  el.querySelectorAll("[data-por]").forEach((c) => { const d = slots[+c.dataset.por].d; const g = c.getContext("2d"); R.drawCharacter(g, 60, 118, d.player.look, d.player.equip, 1, 0, { scale: 2.6, gender: d.player.gender }); });
+  el.querySelector("#hChar").onclick = () => UI.openCharacters(title);
+  el.querySelector("#hVault").onclick = () => UI.openVaults(title);
+  el.querySelector("#hRec").onclick = () => UI.openRecords();
   el.querySelectorAll("[data-n]").forEach((c) => (c.onclick = (e) => {
     if (e.target.closest("[data-del]")) return;
     const n = +c.dataset.n, d = loadSlot(n);
@@ -161,7 +173,7 @@ async function startGame(st, isNew = false) {
   document.getElementById("hud").hidden = false;
   document.getElementById("controls").hidden = false;
   if (!isNew && st.lastSaved) {
-    const off = S.applyOffline(st, Date.now() - st.lastSaved);
+    const off = S.applyOffline(st, Date.now() - st.lastSaved, Meta.vipPerk(G.acc).offH || 0);
     if (off && off.gameDays > 0) UI.toast(`쉬는 동안 ${off.gameDays}일이 지났습니다. 기지는 계속 돌아갔습니다.`, "good");
   }
   const g = claimPassDaily(G.acc);
@@ -256,6 +268,7 @@ G.newLife = () => {
 
 G.save = () => {
   if (!G.st) return;
+  (G.acc.maxDays ||= {})[G.st.player.job] = Math.max(G.acc.maxDays[G.st.player.job] || 0, S.day(G.st)); // 직업별 최대 생존 기록(유물 칸 해금)
   const outer = G.siteOuter;
   if (G.world) Reg.rs(G.st, G.world.rid).fog = Reg.fogSave(outer ? outer.fog : G.fog);
   if (outer) { const p = G.st.player, sx = p.x, sy = p.y; p.x = outer.x; p.y = outer.y + TILE; S.flushLegacy(G.st, G.acc); if (!G.st.ended) saveGame(G.st); saveAccount(G.acc); p.x = sx; p.y = sy; G.lastSave = performance.now(); return; }
@@ -498,12 +511,14 @@ function hitMob(m, dmg, color = "#fff") {
   Sfx.play("hit");
   if (m.hp <= 0) {
     if (m.kind === "enemy" && Reg.addProgress(G.st, G.regions, "kill", 1)) regionCleared();
+    if (m.kind === "enemy") Meta.addActivity(G.st, m.boss ? "boss" : "kill");
     if (m.boss && G.world.site) {
       const W = G.world.site, D = Sites.SITES[W.kind], ss = siteState(W.sid);
       ss.cleared = true;
       for (const [i, n] of D.reward) S.giveItem(G.st, i, n);
+      Relics.relicState(G.acc).keys++; // 보스 → 구세계 금고 열쇠
       S.gainXp(G.st, 150 + (G.world.region?.tier || 0) * 60); G.st.gold += 120;
-      UI.toast(`☢️ ${D.boss.name} 격파! ${D.reward.map(([i, n]) => ITEMS[i].name + " ×" + n).join(", ")}`, "good");
+      UI.toast(`☢️ ${D.boss.name} 격파! ${D.reward.map(([i, n]) => ITEMS[i].name + " ×" + n).join(", ")} + 🗝️ 금고 열쇠`, "good");
       // 보스를 이기면 그 지역 미션도 완료 → 다음 지역이 열린다
       const rsx = Reg.rs(G.st, G.world.rid);
       if (G.world.rid && !rsx.done) { rsx.done = true; regionCleared(); }
@@ -610,6 +625,7 @@ function enterSite(sid, floor) {
     G.mobs.push(b);
   }
   ss.best = Math.max(ss.best, floor + 1);
+  Meta.addActivity(st, "site");
   UI.toast(`${D.icon} ${D.name} ${D.under ? "지하 " + (floor + 1) + "층" : floor + 1 + "층"}${f.isTop && !D.safe ? (ss.cleared ? "" : " — 보스가 있다!") : ""}`, f.isTop && !ss.cleared && !D.safe ? "warn" : "good");
 }
 function leaveSite() {
@@ -879,6 +895,7 @@ function gatherNode(n) {
     n.hits = (n.hits || 0) + 1;
     const out = S.gather(st, n.type, makeRng(Date.now() + n.id + n.hits));
     if (Reg.addProgress(st, G.regions, "gather", 1)) regionCleared();
+    Meta.addActivity(st, "gather");
     for (const [id, q] of out) fxText(nx, ny, `${ITEMS[id].icon}+${q}`, "#ffe9a8");
     if (n.hits >= NODE_TYPES[n.type].hp) {
       n.hits = 0; n.prog = 0;
@@ -1117,6 +1134,13 @@ function update(dt) {
   UI.renderTutorial(st.tut < TUTORIAL.length ? TUTORIAL[st.tut] : null, st.tut);
   G.hudT = (G.hudT || 0) - dt;
   if (G.hudT <= 0) { G.hudT = 0.5; UI.renderHud(); handleStory(); }
+  G.metaT = (G.metaT || 0) - dt;
+  if (G.metaT <= 0) {
+    G.metaT = 2;
+    if (Meta.finishBuildIfDone(st, S)) { UI.toast(`🏰 확장 공사 완료! 「${BUILDINGS && S.baseName ? S.baseName(st) : "기지 Lv." + st.base.lv}」`, "good"); Sfx.play("levelup"); G.afterAction(); }
+    const g = claimGrowthFund(G.acc, st); if (g) UI.toast(`💰 성장 펀드 보석 +${g}`, "good");
+    for (const r of Meta.collectExpeditions(st, S.giveItem)) UI.toast(`🧭 ${r.c?.name ?? "동료"} 원정 귀환: ${r.loot.map(([i, n]) => ITEMS[i].name + " " + n).join(", ")}`, "good");
+  }
   if (performance.now() - G.lastSave > 15000) G.save();
 }
 

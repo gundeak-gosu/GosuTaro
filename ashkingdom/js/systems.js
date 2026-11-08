@@ -8,6 +8,7 @@ import {
   BIOMES, SEASON_NAMES, WEATHER, NUCLEAR_WINTER,
 } from "./data.js";
 import { makeRng } from "./rng.js";
+import { loadoutFx } from "./relics.js";
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 let uidCounter = 0;
@@ -97,6 +98,8 @@ export function newGame({ name, gender, job, difficulty, seed, account, look, ge
   // 기본 속옷 상태(맨몸) → 시작 옷: 누더기 셔츠·바지
   for (const [id, q] of jd.start) addItem(st, st.inv, id, q);
   addItem(st, st.inv, "bottle", 1); // 누구나 빈 물병 하나로 시작
+  // 구세계 유물(직업별 장착): 효과는 이번 생애 동안 유지
+  if (account) { const L = loadoutFx(account, job); st.relicFx = L.fx; for (const [id, q] of L.start) addItem(st, st.inv, id, q); if (L.fx.cra) st.player.stats.cra += Math.round(L.fx.cra); }
   for (const [id, q] of BIOMES[st.geo.biome]?.start || []) addItem(st, st.inv, id, q); // 지역 생존 최소 준비물
   addItem(st, st.inv, "rag_shirt", 1); equipFromInv(st, "rag_shirt");
   addItem(st, st.inv, "rag_pants", 1); equipFromInv(st, "rag_pants");
@@ -616,8 +619,9 @@ export function tick(st, minutes, ctx = {}) {
   // 배고픔/갈증 (지역 특성 × 정규화 × 날씨)
   const coldFactor = p.warmth < 0 ? 1.3 : 1;
   const sea = season(st);
-  p.hunger = clamp(p.hunger - 3 * h * needMul * bio.needs.hunger * coldFactor * (p.sick > 0 ? 1.3 : 1), 0, 100);
-  p.thirst = clamp(p.thirst - 4.2 * h * needMul * bio.needs.thirst * (sea.temp > 28 ? 1.3 : 1) * (outdoors ? w.thirst || 1 : 1), 0, 100);
+  const rf = st.relicFx || {};
+  p.hunger = clamp(p.hunger - 3 * h * (1 + (rf.hunger || 0)) * needMul * bio.needs.hunger * coldFactor * (p.sick > 0 ? 1.3 : 1), 0, 100);
+  p.thirst = clamp(p.thirst - 4.2 * h * (1 + (rf.thirst || 0)) * needMul * bio.needs.thirst * (sea.temp > 28 ? 1.3 : 1) * (outdoors ? w.thirst || 1 : 1), 0, 100);
 
   // 체온
   const base = ambientTemp(st, ctx.atBase, ctx.nearFire);
@@ -632,7 +636,7 @@ export function tick(st, minutes, ctx = {}) {
   // 방사능
   const radIn = (ctx.inRad ? 8 : 0) + (outdoors ? w.rad || 0 : 0);
   if (radIn > 0) {
-    const prot = Math.min(0.95, equipStat(st, "rad") + (JOBS[p.job].perks.radRes || 0));
+    const prot = Math.min(0.95, equipStat(st, "rad") + (JOBS[p.job].perks.radRes || 0) + (rf.rad || 0));
     p.rad = clamp(p.rad + radIn * h * (1 - prot) * d.enemy, 0, 150);
   } else p.rad = clamp(p.rad - 0.5 * h, 0, 150);
   if (p.rad >= 100) dmg += 4 * h;
@@ -860,7 +864,7 @@ export function residentCap(st) {
 // =========================== 경험치/레벨 ===========================
 export function gainXp(st, amount) {
   const p = st.player;
-  const mult = 1 + (JOBS[p.job].perks.xp || 0) + (st.buffs.xp ? 0.5 : 0) + (st.passActive ? 0.2 : 0) + (talentOn(st, "strategist") ? 0.1 : 0);
+  const mult = 1 + (JOBS[p.job].perks.xp || 0) + (st.buffs.xp ? 0.5 : 0) + (st.passActive ? 0.2 : 0) + (talentOn(st, "strategist") ? 0.1 : 0) + (st.relicFx?.xp || 0);
   const x = Math.round(amount * mult);
   p.xp += x;
   st.stats.xpEarned += x;
@@ -1135,13 +1139,14 @@ export function playerAttack(st, slot = "hand") {
   atk *= 1 + (JOBS[st.player.job].perks.dmg || 0);
   if (hasSkill(st, "warlord")) atk *= 1.15;
   if (ranged && talentOn(st, "archer")) atk *= 1.15;
+  atk *= 1 + (st.relicFx?.atk || 0) + (ranged ? st.relicFx?.ranged || 0 : 0);
   if (!ranged && talentOn(st, "blade")) atk *= 1.15;
   if (hand) wear(st, slot, 1);
   return { dmg: Math.round(atk), ranged, arrow, burn: arrow ? ITEMS[arrow].arrow?.burn || 0 : 0, range: ranged ? 220 : 46 };
 }
 
 export function damagePlayer(st, raw) {
-  const def = equipStat(st, "def") + eff(st, "vit") * 0.3;
+  const def = equipStat(st, "def") + eff(st, "vit") * 0.3 + (st.relicFx?.def || 0);
   const dmg = raw * diff(st).enemy * (100 / (100 + def * 6));
   st.player.hp = clamp(st.player.hp - dmg, 0, st.player.maxHp);
   for (const slot of ["body", "head"]) wear(st, slot, 1);
@@ -1482,6 +1487,7 @@ export function revive(st, account, method, now = Date.now()) {
     case "accept": return { ok: true, reset: acceptDeath(st, account) };
     default: return { ok: false };
   }
+  st.stats.deaths = (st.stats.deaths || 0) + 1; // 슬롯 카드의 💀 횟수
   // 부활 패널티: 가방의 재료 절반을 잃음(장비는 유지) — 죽음은 무겁지만 끝은 아니다
   for (const s of st.inv) if (ITEMS[s.id].type === "res") s.qty = Math.floor(s.qty / 2);
   st.inv = st.inv.filter((s) => s.qty > 0);
@@ -1626,8 +1632,8 @@ export function expedition(st, rng = makeRng(Date.now())) {
 
 // =========================== 오프라인 진행 ===========================
 // 꺼져 있는 동안 캐릭터는 '기지에서 휴식' — 굶어 죽지 않는다. 기지 생산·부패는 진행.
-export function applyOffline(st, realMs) {
-  const hours = Math.min(realMs / 3600000, TIME.offlineCapHours);
+export function applyOffline(st, realMs, extraCapHours = 0) {
+  const hours = Math.min(realMs / 3600000, TIME.offlineCapHours + extraCapHours); // VIP 는 상한 +시간
   if (hours < 0.05 || st.dead) return null;
   const gameDays = Math.floor((hours * 3600 * TIME.gameMinPerRealSec) / 1440 * TIME.offlineRate);
   const before = { pts: st.base.research.points };

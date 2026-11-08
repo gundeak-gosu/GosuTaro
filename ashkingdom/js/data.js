@@ -200,6 +200,9 @@ export const ITEMS = {
   rotten_food: { name: "썩은 음식", type: "res", icon: "🤢" },
 
   // 물
+  speed_5m: { name: "가속 5분", type: "misc", icon: "⏩", desc: "기지 확장 공사 5분 단축" },
+  speed_1h: { name: "가속 1시간", type: "misc", icon: "⏩", desc: "기지 확장 공사 1시간 단축" },
+  speed_8h: { name: "가속 8시간", type: "misc", icon: "⏭️", desc: "기지 확장 공사 8시간 단축" },
   ring: { name: "결혼 반지", type: "misc", icon: "💍", value: 30, desc: "청혼할 때 필요하다. 거절당하면 돌려받는다." },
   bottle: { name: "빈 물병", type: "misc", icon: "🍶", desc: "물을 뜨려면 필요하다. 물을 마시면 다시 빈 병이 된다." },
   water_dirty: { name: "더러운 물", type: "food", icon: "🫗", spoil: 0, food: { thirst: 25, rad: 6, sick: 0.4 }, raw: true },
@@ -591,6 +594,9 @@ export const SHOP = {
     { id: "pass_month", name: "생존자 월정액", price: 4900, monthly: true, desc: "30일간 매일 보석 120, 주 1회 부활권, 경험치 +20%, 광고 없이 광고 보상" },
     { id: "season_pass", name: "재건 시즌 패스", price: 9900, desc: "시즌 미션 보상 2배, 전용 외형(장식만)" },
     { id: "starter", name: "생존 스타터 팩", price: 2900, once: true, desc: "보석 500 + 배낭 + 가죽 재킷 + 통조림 10" },
+    { id: "growth_fund", name: "재건 성장 펀드", price: 9900, once: true, desc: "구매 후 기지 Lv3~8 달성 때마다 보석 지급 — 총 6,000 보석(가격 대비 약 6배). 이미 지난 단계도 바로 받음" },
+    { id: "speed_pack", name: "공사 가속 꾸러미", price: 3900, desc: "가속 8시간 ×8 + 가속 1시간 ×10 (=74시간, 보석으로 1,480개분)" },
+    { id: "vip_pack", name: "VIP 점수 상자", price: 6900, once: true, desc: "VIP 점수 1,500 + 보석 600 (접속만으로도 VIP 는 오른다)" },
   ],
   gemUses: [
     { id: "revive", name: "즉시 부활", desc: "난이도·챕터 내 횟수에 따라 비용 증가" },
@@ -600,9 +606,11 @@ export const SHOP = {
     { id: "xp_boost", name: "훈련 교본", gems: 150, desc: "실제 플레이 1시간 동안 경험치 +50% (일일 미션 보석으로도 구매 가능)" },
   ],
   ads: { dailyLimit: 6, rewards: ["무료 부활 1회(일 1회)", "채집 2배 10분", "보급 상자", "건설 30분 단축"] },
+  growthFund: { 3: 400, 4: 600, 5: 900, 6: 1100, 7: 1300, 8: 1700 },
   f2pGemSources: ["일일 미션 30~60", "업적", "올림픽 순위", "챕터 클리어 100", "주간 전쟁 보상"],
   rules: [
-    "확률형 뽑기(가챠) 없음 — 모든 유료 상품은 내용물이 확정.",
+    "확률형 상품은 '구세계 금고' 하나뿐 — 확률 전부 공개, 200점 천장(전설 확정), 12시간마다 무료 금고, 모든 유물 칸은 생존 기록으로 무료 해금.",
+    "그 외 유료 상품은 내용물이 확정(보석·월정액·성장 펀드·가속 꾸러미).",
     "유료로만 얻는 전투력 없음 — 과금은 시간 단축·편의·외형만.",
     "어려움 난이도 엔딩은 무과금으로도 장기 육성 시 도달 가능 (balance-sim 으로 검증).",
     "미성년자 월 결제 한도 7만원, 결제 전 연령 확인, 청약철회 7일 안내.",

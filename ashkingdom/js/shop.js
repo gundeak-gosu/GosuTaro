@@ -1,3 +1,4 @@
+import { addVipFromPurchase } from "./meta.js";
 // 상점/광고/일일미션 — 프로토타입은 '테스트 결제'. 실서비스는 결제 성공 후 서버(Netlify Function)에서
 // 지급해야 한다(클라이언트 지급 금지: 변조 가능). docs/GAME_DESIGN_KO.md §9 참고.
 import { SHOP, RESEARCH, ITEMS } from "./data.js";
@@ -14,11 +15,23 @@ export function purchase(account, st, productId, now = Date.now()) {
   if (p.gems) account.gems += p.gems;
   if (p.id === "pass_month") account.passUntil = Math.max(now, account.passUntil) + 30 * DAY;
   if (p.id === "season_pass") account.seasonPass = true;
+  addVipFromPurchase(account, p.price); // 결제 1원 = VIP 0.1점
+  if (p.id === "speed_pack" && st) { giveItem(st, "speed_1h", 10); giveItem(st, "speed_8h", 8); }
+  if (p.id === "vip_pack") { account.vip.pts += 1500; account.gems += 600; }
   if (p.id === "starter") {
     account.gems += 500;
     if (st) { giveItem(st, "backpack", 1); giveItem(st, "leather_jacket", 1); giveItem(st, "canned_food", 10); }
   }
   return { ok: true, product: p };
+}
+
+// 성장 펀드: 산 뒤 기지 레벨 단계마다 보석(이미 지난 단계는 바로)
+export function claimGrowthFund(account, st) {
+  if (!account.purchases.includes("growth_fund") || !st) return 0;
+  account.fundGot ||= [];
+  let g = 0;
+  for (const [lv, gems] of Object.entries(SHOP.growthFund)) if (st.base.lv >= +lv && !account.fundGot.includes(lv)) { account.fundGot.push(lv); account.gems += gems; g += gems; }
+  return g;
 }
 
 export function passActive(account, now = Date.now()) { return account.passUntil > now; }

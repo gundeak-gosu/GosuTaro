@@ -476,6 +476,11 @@ function updateMobs(dt) {
   const st = G.st, p = st.player;
   const baseX = (G.world.cx + 0.5) * TILE, baseY = (G.world.cy + 0.5) * TILE;
   const followers = st.companions.filter((c) => c.task === "follow" && S.isAdult(c)).length + st.animals.filter((a) => a.task === "follow").length;
+  // 서로 밀어내기(겹쳐 서지 않음)
+  for (let i = 0; i < G.mobs.length; i++) for (let j = i + 1; j < G.mobs.length; j++) {
+    const a = G.mobs[i], b = G.mobs[j], ddx = b.x - a.x, ddy = b.y - a.y, dd = Math.hypot(ddx, ddy);
+    if (dd > 0 && dd < 26) { const k = (26 - dd) / 2 / dd; if (!isBlocked(G.world, a.x - ddx * k, a.y - ddy * k)) { a.x -= ddx * k; a.y -= ddy * k; } if (!isBlocked(G.world, b.x + ddx * k, b.y + ddy * k)) { b.x += ddx * k; b.y += ddy * k; } }
+  }
   // 무리(herd) 정보: 중심·공황·공격 여부
   const herds = {};
   for (const m of G.mobs) if (m.herd) { const h = (herds[m.herd] ||= { x: 0, y: 0, n: 0, panic: false, aggro: false }); h.x += m.x; h.y += m.y; h.n++; if (m.state === "flee" && m.hp > 0) h.panic = true; if (m.state === "attack" || m.state === "charge") h.aggro = true; }
@@ -521,10 +526,12 @@ function updateMobs(dt) {
         } else if (m.windup > 0) { m.windup -= dt; sp *= 0.3; if (m.windup <= 0) { m.burst = 2 + (Math.random() < 0.5 ? 1 : 0); m.burstT = 0; } }
         else if (d < 260 && m.cd <= 0) { m.cd = 1.4 + Math.random() * 1.8; m.windup = 0.3; } // 다음 연사까지 1.4~3.2초(불규칙)
       } else {
-        const reach = 26;
-        // 공격 예고: 0.45초 동안 붉은 원이 차오르고, 그 안에 있으면 맞는다 → 구르기로 피할 수 있다
-        if (m.windup > 0) { m.windup -= dt; sp = 0; if (m.windup <= 0 && d < reach * 1.6) hurtPlayer(atk); }
-        else if (d < reach && m.cd <= 0) { m.cd = 1.1; m.windup = 0.45; }
+        // 옆 칸(STAND)까지만 다가와 멈추고(겹치지 않음), 너무 붙으면 반 걸음 물러난다
+        if (d <= STAND) { sp = d < STAND - 8 ? sp * 0.5 : 0; if (d < STAND - 8) { tx = -tx; ty = -ty; } }
+        const reach = STAND + 14;
+        // 공격 예고 0.45초(붉은 원) → 그때 아직 옆에 있으면 맞는다. 구르기·물러나기로 피할 수 있다. 공격은 1턴(1초)에 한 번
+        if (m.windup > 0) { m.windup -= dt; sp = 0; if (m.windup <= 0 && d < reach + 6) hurtPlayer(atk); }
+        else if (d < reach && m.cd <= 0) { m.cd = TURN; m.windup = 0.45; }
       }
     } else if (ai) { sp = ai.sp; tx = ai.tx; ty = ai.ty; }
     else {
@@ -859,6 +866,20 @@ function drawPlacing(cam) {
   ctx.beginPath(); ctx.ellipse(t.pos.x - cam.x, t.pos.y - cam.y + 10, 22, 10, 0, 0, Math.PI * 2); ctx.fill();
   R.emoji(ctx, BUILDINGS[pl.id].icon, t.pos.x - cam.x, t.pos.y - cam.y - 6, 34); ctx.globalAlpha = 1;
 }
+// 적을 클릭/탭하면 그 적을 공격(사거리 밖이면 알림). 쿨타임 중이면 턴이 오자마자 친다
+addEventListener("pointerdown", (e) => {
+  if (G.placing || !G.st || G.paused || e.target.closest("button,.modal-bg,#menu,#joy,#hud,#placeBar,#ammoBox,#zoomBox")) return;
+  const w = screenToWorld(e.clientX, e.clientY), p = G.st.player;
+  let m = null, bd = 30;
+  for (const o of G.mobs) { if (o.hp <= 0) continue; const d = Math.hypot(o.x - w.x, o.y - 14 - w.y); if (d < bd) { bd = d; m = o; } }
+  if (!m) return;
+  const hand = p.equip.hand && ITEMS[p.equip.hand.id];
+  const range = hand?.ranged && (hand.ranged === "arrow" ? S.quiverCount(G.st) + S.ARROW_IDS().reduce((a, k) => a + S.count(G.st.inv, k), 0) : S.count(G.st.inv, hand.ranged)) > 0 ? 230 : STAND + 18;
+  if (Math.hypot(m.x - p.x, m.y - p.y) > range) return UI.toast(hand?.ranged ? "사거리 밖입니다" : "옆 칸까지 다가가세요");
+  if (m.kind === "animal" && !m.aggro && !m.hurtT) return animalChoice(m);
+  G.queued = m;
+});
+
 // 탭/클릭: 배치 모드면 위치 지정(PC 는 바로 확정)
 addEventListener("pointerdown", (e) => {
   if (!G.placing || e.target.closest("button,.modal-bg,#placeBar,#menu,#joy")) return;
@@ -1016,6 +1037,8 @@ async function raiderBand() {
   G.afterAction();
 }
 
+// 근접전 턴: 나와 적 모두 1초에 한 번 공격(공정한 주고받기)
+const TURN = 1.0, STAND = 36; // STAND: 적이 멈춰 서는 거리(옆 칸)
 function dropItem(x, y, id, qty) {
   // 같은 자리 근처의 같은 물건은 한 무더기로
   const near = G.drops.find((d) => d.id === id && Math.hypot(d.x - x, d.y - y) < 20);
@@ -1027,18 +1050,19 @@ function attack(m) {
   const st = G.st, p = st.player;
   // 왼손에 무기가 있으면 콤보 2타째는 왼손으로(양손 쓰기)
   const off = p.equip.off, offWeapon = off && ITEMS[off.id].atk && !ITEMS[p.equip.hand?.id]?.ranged;
-  const now0 = performance.now() / 1000, nextCombo = now0 - (G.lastHitT || 0) < 0.9 ? (G.combo % 3) + 1 : 1;
+  const now0 = performance.now() / 1000, nextCombo = now0 - (G.lastHitT || 0) < TURN + 0.4 ? (G.combo % 3) + 1 : 1;
   const r = S.playerAttack(st, offWeapon && nextCombo === 2 ? "off" : "hand");
+  G.target = m;
   // 3연타 콤보(0.9초 안에 이어 치기, 3타는 1.6배) + 치명타(민첩 기반)
   const now = performance.now() / 1000;
-  G.combo = now - (G.lastHitT || 0) < 0.9 ? (G.combo % 3) + 1 : 1;
+  G.combo = now - (G.lastHitT || 0) < TURN + 0.4 ? (G.combo % 3) + 1 : 1;
   G.lastHitT = now;
   const crit = Math.random() < 0.05 + S.eff(st, "agi") * 0.005;
   // 기습: 나를 알아채지 못한 적을 치면 2.5배
   if (m.kind === "enemy" && !m.aware) { r.dmg = Math.round(r.dmg * 2.5); fxText(m.x, m.y - 70, "기습!", "#ff9a3c"); m.aware = true; }
   r.dmg = Math.round(r.dmg * (crit ? 1.8 : 1) * (!r.ranged && G.combo === 3 ? 1.6 : 1));
   if (crit) fxText(m.x, m.y - 56, "치명!", "#ffd36b");
-  G.attackCd = r.ranged ? 0.5 : 0.42;
+  G.attackCd = r.ranged ? TURN * 0.8 : TURN; // 적과 같은 공격 턴
   G.swing = 0.2; G.swingStart = true;
   G.moveYaw = Math.atan2(m.x - p.x, m.y - p.y);
   if (r.ranged) { Sfx.play("shoot"); const d = Math.hypot(m.x - p.x, m.y - p.y) || 1; G.shots.push({ x: p.x, y: p.y - 20, vx: ((m.x - p.x) / d) * 520, vy: ((m.y - 14 - p.y + 20) / d) * 520, dmg: r.dmg, life: 0.6, item: r.arrow, burn: r.burn }); }
@@ -1244,8 +1268,9 @@ function update(dt) {
   if (G.moving) {
     const sp = S.moveSpeed(st) * Math.min(1, L) * isSlow(G.world, p.x, p.y) * (G.sneak ? 0.5 : 1);
     const vx = (ix / Math.max(1, L)) * sp * dt, vy = (iy / Math.max(1, L)) * sp * dt;
-    if (!isBlocked(G.world, p.x + vx, p.y)) p.x += vx;
-    if (!isBlocked(G.world, p.x, p.y + vy)) p.y += vy;
+    const mobAt2 = (x, y) => G.mobs.some((m) => m.hp > 0 && (m.kind === "enemy" || m.aggro) && Math.hypot(m.x - x, m.y - y) < 24 && Math.hypot(m.x - x, m.y - y) < Math.hypot(m.x - p.x, m.y - p.y));
+    if (!isBlocked(G.world, p.x + vx, p.y) && !mobAt2(p.x + vx, p.y)) p.x += vx;
+    if (!isBlocked(G.world, p.x, p.y + vy) && !mobAt2(p.x, p.y + vy)) p.y += vy;
     p.x = Math.max(4, Math.min(WORLD_W * TILE - 4, p.x));
     p.y = Math.max(4, Math.min(WORLD_H * TILE - 4, p.y));
     edgeCheck();
@@ -1293,6 +1318,7 @@ function update(dt) {
   // 입력 버퍼: 쿨타임 중에 누른 행동은 0.35초 동안 기억했다가 바로 실행(연타·콤보가 끊기지 않게)
   if (G.input.action) { G.actBuf = 0.35; G.input.action = false; }
   if (G.actBuf > 0) { G.actBuf -= dt; if (G.attackCd <= 0) { G.actBuf = 0; interact(); } }
+  if (G.queued) { const q = G.queued; if (q.hp <= 0 || !G.mobs.includes(q)) G.queued = null; else if (G.attackCd <= 0) { G.queued = null; q.calm = false; attack(q); } }
   // 몹/탄
   spawnMobs(dt);
   updateMobs(dt);
@@ -1443,6 +1469,9 @@ function draw(dt) {
   // 안개: 아직 가 보지 않은 칸은 어둡게(미니맵과 같게)
   drawFieldFog(cam, VWz, VHz);
   drawPlacing(cam);
+  // 지금 싸우는 적 표시(붉은 고리)
+  const tg = G.queued || G.target;
+  if (tg && tg.hp > 0 && G.mobs.includes(tg)) { ctx.strokeStyle = "rgba(255,90,70,.9)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(tg.x - cam.x, tg.y - cam.y + 4, 16, 6, 0, 0, Math.PI * 2); ctx.stroke(); }
   drawTutArrow();
   ctx.restore();
   // 상호작용 힌트(화면 아래 고정 — 캐릭터를 가리지 않게)

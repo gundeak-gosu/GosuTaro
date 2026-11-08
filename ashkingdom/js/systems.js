@@ -610,7 +610,7 @@ export function tick(st, minutes, ctx = {}) {
   const dayBefore = day(st);
   st.time.min += minutes;
   const g = geoOf(st), bio = BIOMES[g.biome] || BIOMES.temperate, w = weather(st);
-  const outdoors = !ctx.atBase;
+  const outdoors = !ctx.atBase && !ctx.indoors; // 건물 안·방공호는 실내(방사능 폭풍·날씨 피함)
   const needMul = d.needs * (ctx.sleeping ? 0.5 : 1) * needsNormalizer(g);
 
   // 배고픔/갈증 (지역 특성 × 정규화 × 날씨)

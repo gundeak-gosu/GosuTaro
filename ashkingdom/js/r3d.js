@@ -653,7 +653,7 @@ export class Field3D {
     const hgt = new Float32Array((N + 1) * (N + 1));
     const BI = BIOMES[world.biome] || BIOMES.temperate;
     const cold = world.biome === "tundra" || world.biome === "taiga";
-    const colors = { 0: world.biome === "desert" ? "#a8936a" : cold ? "#7a776e" : "#77705f", 1: BI.grass, 2: "#5d5d61", 3: "#4e5a4a", 4: "#6d8a35", 5: cold ? "#78736c" : "#6a625a", 6: "#7d6a50", 7: "#3f3c39", 8: "#c8b07a", 9: "#e3e7ea", 10: "#4d7a8c", 11: "#7a5a3a" };
+    const colors = { 0: world.biome === "desert" ? "#a8936a" : cold ? "#7a776e" : "#77705f", 1: BI.grass, 2: "#5d5d61", 3: "#4e5a4a", 4: "#6d8a35", 5: cold ? "#78736c" : "#6a625a", 6: "#7d6a50", 7: "#3f3c39", 8: "#c8b07a", 9: "#e3e7ea", 10: "#4d7a8c", 11: "#7a5a3a", 12: "#2c2a28", 13: "#5e5850", 14: "#8a6a3a", 15: "#9a8a6a" };
     const H = { 0: 0.05, 1: 0.1, 2: 0.02, 3: -0.9, 4: 0.0, 5: 0.9, 6: 0, 7: 0, 8: 0.12, 9: 0.1 };
     const tileT = (x, y) => world.tiles[Math.max(0, Math.min(N - 1, y)) * N + Math.max(0, Math.min(N - 1, x))];
     const g = new THREE.PlaneGeometry(N, N, N, N);

@@ -7,7 +7,7 @@ export const TILE = 32;
 export const WORLD_W = 128;
 export const WORLD_H = 128;
 
-export const T = { ASH: 0, GRASS: 1, RUIN: 2, WATER: 3, RAD: 4, ROCK: 5, BASE: 6, ROAD: 7, SAND: 8, SNOW: 9, STREAM: 10, BRIDGE: 11 };
+export const T = { ASH: 0, GRASS: 1, RUIN: 2, WATER: 3, RAD: 4, ROCK: 5, BASE: 6, ROAD: 7, SAND: 8, SNOW: 9, STREAM: 10, BRIDGE: 11, WALL: 12, FLOOR: 13, EXIT: 14, STAIRS: 15 };
 export const TILE_INFO = {
   0: { name: "잿빛 황무지", color: "#6f6a60" },
   1: { name: "되살아난 숲", color: "#4f6b3a" },
@@ -21,6 +21,10 @@ export const TILE_INFO = {
   9: { name: "눈밭", color: "#e3e7ea" },
   10: { name: "얕은 샛강", color: "#4d7a8c", slow: 0.45 }, // 지나갈 수 있지만 느리다
   11: { name: "다리", color: "#7a5a3a" },
+  12: { name: "벽", color: "#2c2a28", block: true }, // 건물 안
+  13: { name: "바닥", color: "#5e5850" },
+  14: { name: "출입문", color: "#8a6a3a" },
+  15: { name: "계단", color: "#9a8a6a" },
 };
 
 export const NODE_TYPES = {

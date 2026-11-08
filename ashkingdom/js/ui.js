@@ -705,6 +705,7 @@ export function spawnReveal() {
 // ---------------- 지역 지도(노드 지도) ----------------
 // 탐험한 지역은 밝게, 갈 수 있는 곳은 색, 잠긴 곳은 회색+자물쇠, 아직 모르는 곳은 '???'
 export function openRegionMap() {
+  if (G.world.site) return toast("건물 안에서는 지역 지도를 볼 수 없습니다 — 먼저 밖으로 나가세요", "warn");
   const st = G.st, regs = G.regions, cur = G.world.rid;
   const W = 760, H = 520, gx0 = 70, gy0 = 70, gw = (W - 140) / 6, gh = (H - 150) / 4;
   const pos = (r) => [gx0 + r.gx * gw + ((r.id * 37) % 23) - 11, gy0 + r.gy * gh + ((r.id * 53) % 19) - 9];

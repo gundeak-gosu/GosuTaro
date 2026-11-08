@@ -237,15 +237,29 @@ G.playShooter = async (o, enemyPower) => {
   return r;
 };
 
-G.sleep = () => {
+// 잠자기: 체력은 잠을 자야만 회복된다. kind: bed(침대, 기지) · bag(침낭) · ground(맨땅)
+// 기지 밖에서 자면 짐승·약탈자에게 습격당할 수 있다(침낭이 맨땅보다 덜 위험)
+G.sleep = (kind = "bed") => {
   const st = G.st;
+  const outside = !G.atBase;
+  const mul = { bed: 1, bag: 0.7, ground: 0.4 }[kind] ?? 0.4;
+  const risk = outside ? (kind === "bag" ? 0.18 : 0.32) * (S.isNight(st) ? 1.3 : 1) : 0;
   const h = S.hourOf(st);
   const mins = ((24 + 6 - h) % 24 || 24) * 60 - (st.time.min % 60);
+  const hp0 = st.player.hp;
+  let ambushed = false;
   for (let m = 0; m < mins; m += 30) {
-    const evs = S.tick(st, 30, { atBase: true, nearFire: S.hasBuilding(st, "campfire"), sleeping: true });
+    const evs = S.tick(st, 30, { atBase: !outside, nearFire: !outside && S.hasBuilding(st, "campfire"), sleeping: true, sleepMul: mul });
     if (handleEvents(evs)) break;
+    if (risk && !ambushed && Math.random() < risk / (mins / 30)) { ambushed = true; break; }
   }
-  UI.toast("아침이 밝았습니다 ☀️", "good");
+  if (ambushed) {
+    // 자다가 습격: 피해를 입고 깨어나며, 근처에 적이 나타난다
+    S.damagePlayer(st, 8 + st.story.chapter * 2);
+    const p = st.player, a = Math.random() * Math.PI * 2;
+    G.mobs.push(mobAt(S.isNight(st) ? "mutant" : "feral_dog", "enemy", p.x + Math.cos(a) * 90, p.y + Math.sin(a) * 90));
+    UI.toast("⚠️ 자다가 습격당했다! 일어나 싸우세요", "bad");
+  } else UI.toast(`아침이 밝았습니다 ☀️ 체력 +${Math.max(0, Math.round(st.player.hp - hp0))}`, "good");
   G.afterAction();
 };
 
@@ -519,18 +533,32 @@ function visibleNodes() {
 
 function gatherNode(n) {
   const st = G.st;
-  n.hits = (n.hits || 0) + 1;
   G.swing = 0.25; G.swingStart = true;
   G.moveYaw = Math.atan2((n.tx + 0.5) * TILE - G.st.player.x, (n.ty + 0.5) * TILE - G.st.player.y);
   G.attackCd = 0.35;
-  const out = S.gather(st, n.type, makeRng(Date.now() + n.id));
+  const nx = (n.tx + 0.5) * TILE, ny = n.ty * TILE - 10;
   Sfx.play(n.type === "tree" ? "chop" : n.type === "rock" || n.type === "scrap" || n.type === "car" ? "mine" : "gather");
-  for (const [id, q] of out) fxText((n.tx + 0.5) * TILE, n.ty * TILE - 10, `${ITEMS[id].icon}+${q}`, "#ffe9a8");
-  if (n.hits >= NODE_TYPES[n.type].hp) {
-    n.hits = 0;
-    st.world.depleted[n.id] = st.time.min + NODE_TYPES[n.type].respawnH * 60;
-    // 오래된 고갈 기록 정리(저장 용량)
-    if (Object.keys(st.world.depleted).length > 400) for (const [k, v] of Object.entries(st.world.depleted)) if (v < st.time.min) delete st.world.depleted[k];
+  // 맞는 도구가 없으면 한 번 칠 때 진행이 아주 조금 → 여러 번 쳐야 1번 수확
+  const gp = S.gatherPower(st, n.type);
+  n.prog = (n.prog || 0) + gp.power;
+  n.lastHit = G.t;
+  if (n.prog < 1) {
+    if (gp.need && !G.toolHintShown?.[n.type]) { (G.toolHintShown ||= {})[n.type] = 1; UI.toast(`맨손은 아주 느립니다 — ${gp.need}가 있으면 훨씬 빨라요`, "warn"); }
+    fxText(nx, ny, gp.need ? "…" : "", "#ccc");
+    return;
+  }
+  while (n.prog >= 1) {
+    n.prog -= 1;
+    n.hits = (n.hits || 0) + 1;
+    const out = S.gather(st, n.type, makeRng(Date.now() + n.id + n.hits));
+    for (const [id, q] of out) fxText(nx, ny, `${ITEMS[id].icon}+${q}`, "#ffe9a8");
+    if (n.hits >= NODE_TYPES[n.type].hp) {
+      n.hits = 0; n.prog = 0;
+      st.world.depleted[n.id] = st.time.min + NODE_TYPES[n.type].respawnH * 60;
+      // 오래된 고갈 기록 정리(저장 용량)
+      if (Object.keys(st.world.depleted).length > 400) for (const [k, v] of Object.entries(st.world.depleted)) if (v < st.time.min) delete st.world.depleted[k];
+      break;
+    }
   }
   G.afterAction();
 }
@@ -757,7 +785,16 @@ function draw(dt) {
   R.drawBase(ctx, st, G.world, cam, G.t);
   // 정렬해서 그리기(y-정렬)
   const list = [];
-  for (const n of visibleNodes()) list.push({ y: (n.ty + 0.5) * TILE + 8, f: () => R.drawNode(ctx, n, (n.tx + 0.5) * TILE - cam.x, (n.ty + 0.5) * TILE - cam.y) });
+  for (const n of visibleNodes()) list.push({ y: (n.ty + 0.5) * TILE + 8, f: () => {
+    const sx = (n.tx + 0.5) * TILE - cam.x, sy = (n.ty + 0.5) * TILE - cam.y;
+    R.drawNode(ctx, n, sx, sy);
+    // 채집 진행 막대(최근 4초 안에 쳤을 때만)
+    if (n.lastHit && G.t - n.lastHit < 4 && ((n.hits || 0) + (n.prog || 0)) > 0) {
+      const fr = Math.min(1, ((n.hits || 0) + (n.prog || 0)) / NODE_TYPES[n.type].hp);
+      ctx.fillStyle = "rgba(0,0,0,.65)"; ctx.fillRect(sx - 18, sy - 30, 36, 6);
+      ctx.fillStyle = "#f2c06a"; ctx.fillRect(sx - 17, sy - 29, 34 * fr, 4);
+    }
+  } });
   for (const m of G.mobs) {
     const sx = m.x - cam.x, sy = m.y - cam.y;
     if (sx < -60 || sy < -60 || sx > VW + 60 || sy > VH + 60) continue;
@@ -880,7 +917,7 @@ function drawTutArrow() {
 function drawHint(cam) {
   const st = G.st, p = st.player;
   let txt = null, hx = 0, hy = 0;
-  for (const n of visibleNodes()) { const nx = (n.tx + 0.5) * TILE, ny = (n.ty + 0.5) * TILE; if (Math.hypot(nx - p.x, ny - p.y) < 50) { txt = `${NODE_TYPES[n.type].name} 채집`; hx = nx; hy = ny - 36; break; } }
+  for (const n of visibleNodes()) { const nx = (n.tx + 0.5) * TILE, ny = (n.ty + 0.5) * TILE; if (Math.hypot(nx - p.x, ny - p.y) < 50) { const gp = S.gatherPower(G.st, n.type); txt = `${NODE_TYPES[n.type].name} 채집${gp.need ? ` · ${gp.need} 없음(아주 느림)` : ""}`; hx = nx; hy = ny - 36; break; } }
   for (const m of G.mobs) if (Math.hypot(m.x - p.x, m.y - p.y) < 56) { txt = m.kind === "enemy" ? `${ENEMIES[m.type].name} 공격` : `${ANIMALS[m.type].name} (길들이기/사냥)`; hx = m.x; hy = m.y - 50; break; }
   if (!txt && Math.hypot((G.world.cx + 0.5) * TILE - p.x, (G.world.cy + 0.5) * TILE - p.y) < 2.2 * TILE) { txt = "기지 관리"; hx = p.x; hy = p.y - 60; }
   if (!txt && nearWater(G.world, p.x, p.y)) { txt = p.equip.hand?.id === "fishing_rod" ? "낚시" : "물 뜨기"; hx = p.x; hy = p.y - 60; }

@@ -102,6 +102,9 @@ export function cinematic(title, text, scene = {}) {
 function itemTip(s) {
   const it = ITEMS[s.id];
   const bits = [];
+  if (it.desc) bits.push(esc(it.desc));
+  if (it.raw) bits.push('<span class="no">⚠ 날것: 그냥 먹으면 병에 걸릴 수 있음 — 모닥불에서 익히거나 끓이세요</span>');
+  if (it.tool) bits.push("채집: " + Object.keys(it.tool).map((k) => ({ wood: "나무", stone: "돌·광석", scrap: "고철", fiber: "섬유", fish: "낚시" })[k]).join("·") + " 빠르게");
   if (it.atk) bits.push(`공격 ${S.itemStat(s, "atk")}`);
   if (it.def || AFFIXES[s.af]?.defAdd) bits.push(`방어 ${S.itemStat(s, "def")}`);
   if (it.warm) bits.push(`보온 ${S.itemStat(s, "warm")}`);
@@ -167,6 +170,7 @@ export function openBag() {
     const i = +b.dataset.idx, s = st.inv[i], it = ITEMS[s.id];
     const acts = [];
     if (it.slot) acts.push(["장착", () => S.equipFromInv(st, i)]);
+    if (s.id === "sleeping_bag") acts.push(["침낭 펴고 자기", () => { m.close(); G.sleep(G.atBase && S.hasBuilding(st, "bed") ? "bed" : "bag"); }]);
     if (it.type === "food" || it.type === "med" || s.id === "rotten_food") acts.push([it.type === "food" ? "먹기/마시기" : "사용", () => { const r = S.useItem(st, i); if (r.sick) toast("배탈이 났습니다! 🤢", "bad"); if (r.why) toast(r.why); }]);
     if (s.dur !== undefined && s.dur < s.maxDur && S.hasStation(st, "workbench") && G.atBase) acts.push([`수리 (${costStr(S.repairCost(s.id))}, 최대내구 -10%)`, () => { if (!S.repair(st, s)) toast("재료 또는 작업대가 없습니다", "bad"); }]);
     if (G.atBase && S.allStorage(st).length) acts.push(["창고에 보관", () => { if (s.dur !== undefined) { const b2 = S.allStorage(st).find((x) => x.storage.length < BUILDINGS[x.id].storage.slots); if (b2) { b2.storage.push(s); st.inv.splice(i, 1); } } else { const n = S.storeToBase(st, s.id, s.qty, s.fresh ?? 1); s.qty -= n; if (s.qty <= 0) st.inv.splice(st.inv.indexOf(s), 1); } }]);
@@ -562,6 +566,7 @@ export function openMenu() {
   const m = modal(`<h2>${Ic.icon("ui.menu", 26)} 메뉴</h2>
     <div class="card">${DIFFICULTY[st.difficulty].name} · ${JOBS[st.player.job].icon} ${JOBS[st.player.job].name} · ${esc(st.player.name)} · ${S.day(st)}일차</div>
     <div class="choices">
+      <button class="btn" id="zz">😴 잠자기 (체력은 잠을 자야만 회복)</button>
       <button class="btn" id="save">💾 지금 저장</button>
       <button class="btn" id="exp">📤 저장 코드 내보내기 (기기 변경)</button>
       <button class="btn" id="imp">📥 저장 코드 가져오기</button>
@@ -592,6 +597,12 @@ export function openMenu() {
     m.close();
     const mm = modal(`<h3>랭킹 이름</h3><input id="rn" maxlength="10" class="code" style="height:auto;padding:10px" value="${esc(st.player.name)}"><button class="btn primary" id="ok">변경</button><p class="muted small">${Net.canRename() ? "하루에 한 번 바꿀 수 있습니다." : "오늘은 이미 바꿨습니다."}</p>`);
     mm.querySelector("#ok").onclick = async () => { try { const r = await Net.rename(mm.querySelector("#rn").value); toast(r.ok ? "변경했습니다" : r.why, r.ok ? "good" : "bad"); if (r.ok) mm.close(); } catch (e) { toast("연결 실패: " + e.message, "bad"); } };
+  };
+  m.querySelector("#zz").onclick = async () => {
+    const bed = G.atBase && S.hasBuilding(st, "bed"), bag = S.count(st.inv, "sleeping_bag") > 0;
+    const v = await choice("😴 잠자기", `아침까지 잡니다. 체력 회복: 침대 100% · 침낭 70% · 맨땅 40%.<br>${G.atBase ? "기지 안이라 안전합니다." : '<span class="no">기지 밖입니다 — 자는 동안 습격당할 수 있습니다.</span>'}`,
+      [bed && { label: "🛏️ 침대에서 자기", value: "bed", cls: "primary" }, bag && { label: "🛌 침낭에서 자기", value: "bag" }, { label: "맨땅에서 자기", value: "ground" }, { label: "취소", value: 0 }].filter(Boolean), { closable: true });
+    if (v) { m.close(); G.sleep(v); }
   };
   m.querySelector("#totitle").onclick = () => { G.save(); location.reload(); };
   m.querySelector("#newg").onclick = async () => { m.close(); if (await choice("새 생애", "현재 세계를 포기하고 처음부터 시작합니다. 혈통 경험치는 보존됩니다.", [{ label: "새로 시작", value: 1, cls: "danger" }, { label: "취소", value: 0 }], { closable: true })) { S.bankLegacy(st, G.acc); saveAccount(G.acc); G.newLife(); } };

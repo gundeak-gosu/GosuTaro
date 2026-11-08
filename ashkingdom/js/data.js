@@ -174,6 +174,10 @@ export const JOBS = {
 export const ITEMS = {
   // 재료
   wood: { name: "나무", type: "res", icon: "🪵" },
+  twig: { name: "나뭇가지", type: "res", icon: "🥢", desc: "덤불·나무에서 맨손으로도 쉽게 얻는다. 불쏘시개·도구 손잡이." },
+  coal: { name: "숯", type: "res", icon: "⚫", desc: "모닥불에서 나무를 태워 만든다. 제련 연료." },
+  iron_ore: { name: "철광석", type: "res", icon: "🟤", desc: "곡괭이로 바위를 캐면 가끔 나온다. 대장간에서 철괴로." },
+  steel: { name: "강철", type: "res", icon: "🔷", desc: "철괴+숯을 대장간에서 단련. 고급 무기·장비 재료.", era: 2 },
   stone: { name: "돌", type: "res", icon: "🪨" },
   fiber: { name: "섬유", type: "res", icon: "🌿" },
   scrap: { name: "고철", type: "res", icon: "🔩" },
@@ -196,17 +200,17 @@ export const ITEMS = {
   rotten_food: { name: "썩은 음식", type: "res", icon: "🤢" },
 
   // 물
-  water_dirty: { name: "더러운 물", type: "food", icon: "🫗", spoil: 0, food: { thirst: 25, rad: 6, sick: 0.25 } },
+  water_dirty: { name: "더러운 물", type: "food", icon: "🫗", spoil: 0, food: { thirst: 25, rad: 6, sick: 0.4 }, raw: true },
   water_clean: { name: "깨끗한 물", type: "food", icon: "💧", spoil: 0, food: { thirst: 35 } },
 
   // 음식 (spoil = 상온 기준 게임시간)
   berry: { name: "산딸기", type: "food", icon: "🫐", spoil: 40, food: { hunger: 8, thirst: 3 } },
   mushroom: { name: "버섯", type: "food", icon: "🍄", spoil: 36, food: { hunger: 10, rad: 2 } },
-  raw_meat: { name: "생고기", type: "food", icon: "🥩", spoil: 24, food: { hunger: 12, sick: 0.35 } },
+  raw_meat: { name: "생고기", type: "food", icon: "🥩", spoil: 24, food: { hunger: 12, sick: 0.45 }, raw: true },
   cooked_meat: { name: "구운 고기", type: "food", icon: "🍖", spoil: 60, food: { hunger: 30, hp: 4 } },
   jerky: { name: "훈제 육포", type: "food", icon: "🥓", spoil: 600, food: { hunger: 22, thirst: -4 } },
   salted_meat: { name: "염장 고기", type: "food", icon: "🧂", spoil: 420, food: { hunger: 24, thirst: -8 } },
-  raw_fish: { name: "생선", type: "food", icon: "🐟", spoil: 16, food: { hunger: 10, sick: 0.3, rad: 3 } },
+  raw_fish: { name: "생선", type: "food", icon: "🐟", spoil: 16, food: { hunger: 10, sick: 0.4, rad: 3 }, raw: true },
   grilled_fish: { name: "생선구이", type: "food", icon: "🍢", spoil: 48, food: { hunger: 24, hp: 3 } },
   egg: { name: "달걀", type: "food", icon: "🥚", spoil: 120, food: { hunger: 8, sick: 0.1 } },
   milk: { name: "염소젖", type: "food", icon: "🥛", spoil: 30, food: { hunger: 6, thirst: 12 } },
@@ -222,6 +226,7 @@ export const ITEMS = {
   medkit: { name: "구급상자", type: "med", icon: "⛑️", med: { hp: 60, cure: true } },
   radaway: { name: "항방사능제", type: "med", icon: "💊", med: { rad: -50 } },
   herbal_tea: { name: "약초차", type: "med", icon: "🍵", med: { hp: 8, cure: true, warm: 4 } },
+  sleeping_bag: { name: "침낭", type: "misc", icon: "🛌", desc: "어디서나 잠잘 수 있다(침대보다 회복이 적고, 밖이라 습격 위험)." },
   revive_kit: { name: "소생 키트", type: "med", icon: "💉", med: { revive: true } },
 
   // 도구 (tool: 채집 효율 / dur: 내구도)
@@ -284,10 +289,11 @@ export const RESEARCH = [
 // ---------------- 레시피 ----------------
 // station: null(손) campfire workbench forge kitchen smokehouse lab
 export const RECIPES = [
-  { id: "stone_axe", out: ["stone_axe", 1], in: { wood: 3, stone: 2, fiber: 2 }, station: null },
-  { id: "stone_pick", out: ["stone_pick", 1], in: { wood: 3, stone: 3, fiber: 2 }, station: null },
-  { id: "stone_hoe", out: ["stone_hoe", 1], in: { wood: 3, stone: 1, fiber: 2 }, station: null },
-  { id: "spear", out: ["spear", 1], in: { wood: 4, stone: 1, fiber: 3 }, station: null },
+  { id: "stone_axe", out: ["stone_axe", 1], in: { twig: 3, stone: 2, fiber: 2 }, station: null },
+  { id: "stone_pick", out: ["stone_pick", 1], in: { twig: 3, stone: 3, fiber: 2 }, station: null },
+  { id: "stone_hoe", out: ["stone_hoe", 1], in: { twig: 3, stone: 1, fiber: 2 }, station: null },
+  { id: "spear", out: ["spear", 1], in: { wood: 2, twig: 2, stone: 1, fiber: 3 }, station: null },
+  { id: "sleeping_bag", out: ["sleeping_bag", 1], in: { cloth: 3, fiber: 4 }, station: null },
   { id: "rag_shirt", out: ["rag_shirt", 1], in: { cloth: 3, fiber: 2 }, station: null },
   { id: "rag_pants", out: ["rag_pants", 1], in: { cloth: 3, fiber: 2 }, station: null },
   { id: "sandals", out: ["sandals", 1], in: { scrap: 1, fiber: 3 }, station: null },
@@ -296,7 +302,8 @@ export const RECIPES = [
   { id: "cooked_meat", out: ["cooked_meat", 1], in: { raw_meat: 1 }, station: "campfire" },
   { id: "grilled_fish", out: ["grilled_fish", 1], in: { raw_fish: 1 }, station: "campfire" },
   { id: "baked_potato", out: ["baked_potato", 1], in: { potato: 1 }, station: "campfire" },
-  { id: "water_clean", out: ["water_clean", 1], in: { water_dirty: 1, wood: 1 }, station: "campfire" },
+  { id: "water_clean", out: ["water_clean", 1], in: { water_dirty: 1, twig: 1 }, station: "campfire" },
+  { id: "coal", out: ["coal", 1], in: { wood: 2 }, station: "campfire" },
   { id: "herbal_tea", out: ["herbal_tea", 1], in: { herb: 2, water_clean: 1 }, station: "campfire" },
 
   { id: "fishing_rod", out: ["fishing_rod", 1], in: { wood: 2, fiber: 4, scrap: 1 }, station: "workbench" },
@@ -313,17 +320,19 @@ export const RECIPES = [
   { id: "gunpowder", out: ["gunpowder", 2], in: { fertilizer: 2, salt: 1, wood: 1 }, station: "workbench" },
   { id: "medkit", out: ["medkit", 1], in: { bandage: 2, herb: 3, cloth: 1 }, station: "workbench" },
 
-  { id: "iron", out: ["iron", 1], in: { scrap: 4, wood: 2 }, station: "forge", research: "smelting" },
+  { id: "iron", out: ["iron", 1], in: { scrap: 4, coal: 1 }, station: "forge", research: "smelting" },
+  { id: "iron_from_ore", out: ["iron", 2], in: { iron_ore: 3, coal: 1 }, station: "forge", research: "smelting" },
+  { id: "steel", out: ["steel", 1], in: { iron: 2, coal: 2 }, station: "forge", research: "smelting" },
   { id: "iron_axe", out: ["iron_axe", 1], in: { iron: 3, wood: 2 }, station: "forge", research: "smelting" },
   { id: "iron_pick", out: ["iron_pick", 1], in: { iron: 3, wood: 2 }, station: "forge", research: "smelting" },
-  { id: "machete", out: ["machete", 1], in: { iron: 4, leather: 1 }, station: "forge", research: "smelting" },
+  { id: "machete", out: ["machete", 1], in: { iron: 2, steel: 1, leather: 1 }, station: "forge", research: "smelting" },
   { id: "helmet", out: ["helmet", 1], in: { iron: 4, leather: 1 }, station: "forge", research: "smelting" },
-  { id: "rifle", out: ["rifle", 1], in: { iron: 8, wood: 3, electronics: 1 }, station: "forge", research: "firearms" },
+  { id: "rifle", out: ["rifle", 1], in: { iron: 4, steel: 3, wood: 3, electronics: 1 }, station: "forge", research: "firearms" },
   { id: "combat_vest", out: ["combat_vest", 1], in: { iron: 6, cloth: 6, leather: 2 }, station: "forge", research: "firearms" },
   { id: "hazmat", out: ["hazmat", 1], in: { cloth: 8, electronics: 2, fuel: 2 }, station: "lab", research: "purifier" },
   { id: "radaway", out: ["radaway", 1], in: { herb: 3, electronics: 1, water_clean: 1 }, station: "lab" },
   { id: "revive_kit", out: ["revive_kit", 1], in: { medkit: 1, electronics: 2, herb: 4 }, station: "lab" },
-  { id: "royal_blade", out: ["royal_blade", 1], in: { iron: 20, gold_watch: 1, electronics: 4 }, station: "forge", research: "statecraft" },
+  { id: "royal_blade", out: ["royal_blade", 1], in: { steel: 12, gold_watch: 1, electronics: 4 }, station: "forge", research: "statecraft" },
 
   { id: "jerky", out: ["jerky", 2], in: { raw_meat: 2, wood: 2 }, station: "smokehouse" },
   { id: "salted_meat", out: ["salted_meat", 2], in: { raw_meat: 2, salt: 1 }, station: "kitchen" },
@@ -346,14 +355,14 @@ export const BASE_LEVELS = [
 
 // 건물: storage(보관 배율 — 낮을수록 덜 썩음), defense, prod(일일 생산)
 export const BUILDINGS = {
-  campfire: { name: "모닥불", icon: "🔥", cost: { wood: 5, stone: 3 }, baseLv: 1, station: "campfire", warm: 10, max: 1 },
+  campfire: { name: "모닥불", icon: "🔥", cost: { twig: 6, stone: 3 }, baseLv: 1, station: "campfire", warm: 10, max: 1 },
   workbench: { name: "작업대", icon: "🛠️", cost: { wood: 15, stone: 5 }, baseLv: 1, station: "workbench", max: 1 },
   crate: { name: "나무 상자", icon: "📦", cost: { wood: 12 }, baseLv: 1, storage: { slots: 16, spoil: 0.8 }, max: 4 },
   bed: { name: "침대", icon: "🛏️", cost: { wood: 10, cloth: 4 }, baseLv: 1, rest: true, max: 1 },
   cellar: { name: "지하 저장고", icon: "🕳️", cost: { stone: 30, wood: 20 }, baseLv: 2, storage: { slots: 24, spoil: 0.4 }, max: 2 },
   smokehouse: { name: "훈제실", icon: "🏚️", cost: { wood: 25, stone: 15 }, baseLv: 2, station: "smokehouse", max: 1 },
   farm: { name: "밭", icon: "🌾", cost: { wood: 8, fertilizer: 2 }, baseLv: 2, prod: { potato: 3 }, needWorker: "farmer", max: 4 },
-  rain_collector: { name: "빗물 집수기", icon: "🛢️", cost: { wood: 10, scrap: 6, cloth: 2 }, baseLv: 2, prod: { water_dirty: 4 }, max: 3 },
+  rain_collector: { name: "빗물 집수기", icon: "🛢️", cost: { wood: 10, scrap: 6, cloth: 2 }, baseLv: 2, prod: { water_clean: 3 }, max: 3 },
   pen: { name: "동물 우리", icon: "🐐", cost: { wood: 30, fiber: 10 }, baseLv: 2, research: "husbandry", animals: 4, max: 3 },
   watchtower: { name: "감시탑", icon: "🗼", cost: { wood: 30, stone: 10 }, baseLv: 2, defense: 25, max: 4 },
   forge: { name: "대장간", icon: "⚒️", cost: { stone: 40, scrap: 20 }, baseLv: 3, station: "forge", max: 1 },
@@ -430,7 +439,7 @@ export const SURVIVOR_NAMES = {
 // ---------------- 스토리 ----------------
 // goal: systems.checkGoal 이 해석하는 조건
 export const CHAPTERS = [
-  { id: 0, title: "프롤로그 · 섬광의 날", text: "하늘이 하얗게 타오른 날, 당신은 지하 대피소에서 살아남았다. 문을 열자 잿빛 눈이 내리고 있었다.", goal: { craft: "stone_axe" }, hint: "나무·돌·섬유를 모아 돌도끼를 만드세요." },
+  { id: 0, title: "프롤로그 · 섬광의 날", text: "하늘이 하얗게 타오른 날, 당신은 지하 대피소에서 살아남았다. 문을 열자 잿빛 눈이 내리고 있었다.", goal: { craft: "stone_axe" }, hint: "덤불에서 나뭇가지·섬유, 바위에서 돌을 모아 돌도끼를 만드세요." },
   { id: 1, title: "1장 · 잿더미 위의 아침", text: "불이 있어야 밤을 넘긴다. 첫 거처를 세우자.", goal: { building: "campfire", building2: "workbench" }, hint: "기지 메뉴에서 모닥불과 작업대를 지으세요." },
   { id: 2, title: "2장 · 첫 번째 목소리", text: "낡은 라디오에서 목소리가 들린다. \"누구 없어요? 방송탑에 부상자가…\"", goal: { visit: "radio_tower" }, hint: "지도 북쪽 방송탑(📡)에 가세요.", recruit: "seoyun" },
   { id: 3, title: "3장 · 굶주린 겨울", text: "핵겨울이 다가온다. 음식이 썩지 않게 보관할 곳이 필요하다.", goal: { building: "cellar", baseLv: 2 }, hint: "판잣집으로 업그레이드하고 지하 저장고를 지으세요.", recruit: "bongsu" },

@@ -523,7 +523,8 @@ export function tick(st, minutes, ctx = {}) {
 
   // 자연 회복
   if (p.hunger > 50 && p.thirst > 50 && p.rad < 100 && p.sick <= 0 && amb >= 0) {
-    p.hp += (ctx.sleeping ? 4 : 1.5) * h * (1 + (JOBS[p.job].perks.heal || 0) * 0.5);
+    // 체력은 잠을 자야만 회복된다(침대 1 · 침낭 0.7 · 맨땅 0.4)
+    if (ctx.sleeping) p.hp += 6 * (ctx.sleepMul ?? 1) * h * (1 + (JOBS[p.job].perks.heal || 0) * 0.5);
   }
   p.hp = clamp(p.hp - dmg, 0, p.maxHp);
 
@@ -945,6 +946,17 @@ export function useItem(st, index) {
 }
 
 // =========================== 채집 ===========================
+// 마인크래프트처럼: 맞는 도구가 있어야 빠르다. 맨손은 한 번 칠 때 진행이 아주 조금(그래도 언젠가는 얻는다).
+// 반환: { power: 한 번 칠 때 진행량(1 = 한 번 수확), need: 필요한 도구 이름 | null }
+export const GATHER_NEED = { tree: ["wood", "도끼", 0.2], rock: ["stone", "곡괭이", 0.12], scrap: ["scrap", "망치·곡괭이", 0.25], car: ["scrap", "망치·곡괭이", 0.15] };
+export function gatherPower(st, nodeType) {
+  const need = GATHER_NEED[nodeType];
+  if (!need) return { power: 1, need: null };
+  const hand = st.player.equip.hand;
+  const tv = hand ? (ITEMS[hand.id].tool || {})[need[0]] || 0 : 0;
+  if (tv > 0) return { power: Math.min(1.6, 0.6 + tv * 0.2) * (1 + (AFFIXES[hand?.af]?.speed || 0)), need: null, tool: true };
+  return { power: need[2], need: need[1], tool: false };
+}
 // node: {type}, opts: {rng}
 export function gather(st, nodeType, rng = makeRng(Date.now())) {
   const hand = st.player.equip.hand;
@@ -954,11 +966,13 @@ export function gather(st, nodeType, rng = makeRng(Date.now())) {
   const out = [];
   const add = (id, q) => { if (q > 0) out.push([id, Math.max(1, Math.round(q))]); };
   switch (nodeType) {
-    case "tree": add("wood", (1 + rng.int(0, 1)) * (tool.wood || 1) * loot); if (rng.chance(0.3)) add("fiber", 1); break;
-    case "rock": add("stone", (1 + rng.int(0, 1)) * (tool.stone || 0.6) * loot); if (rng.chance(0.15 * luck)) add("scrap", 1); if (rng.chance(0.12)) add("salt", 1); break;
+    case "tree": add("wood", (1 + rng.int(0, 1)) * (tool.wood || 1) * loot); if (rng.chance(0.5)) add("twig", rng.int(1, 2)); if (rng.chance(0.3)) add("fiber", 1); break;
+    case "rock": add("stone", (1 + rng.int(0, 1)) * (tool.stone || 0.6) * loot); if (rng.chance(0.15 * luck)) add("scrap", 1); if (rng.chance(0.12)) add("salt", 1);
+      if (tool.stone && rng.chance(0.18 * luck * (tool.stone >= 4 ? 1.6 : 1))) add("iron_ore", 1); // 철광석은 곡괭이로만
+      break;
     case "scrap": add("scrap", (1 + rng.int(0, 2)) * Math.max(1, tool.scrap || 0.7) * loot); if (rng.chance(0.35)) add("cloth", 1); if (rng.chance(0.08 * luck * (hasSkill(st, "analyze") ? 1.5 : 1))) add("electronics", 1); break;
     case "car": add("scrap", 3 * loot); if (rng.chance(0.5)) add("fuel", 1); if (rng.chance(0.3 * luck)) add("electronics", 1); if (rng.chance(0.3)) add("cloth", 2); break;
-    case "bush": add("berry", rng.int(1, 3) * loot); add("fiber", rng.int(1, 2) * (tool.fiber || 1)); if (rng.chance(0.15)) add("seed", 1); break;
+    case "bush": add("berry", rng.int(1, 3) * loot); add("fiber", rng.int(1, 2) * (tool.fiber || 1)); add("twig", rng.int(1, 2)); if (rng.chance(0.15)) add("seed", 1); break;
     case "herb": add("herb", rng.int(1, 2)); if (rng.chance(0.4)) add("mushroom", 1); break;
     case "crate": {
       const table = ["canned_food", "cloth", "ammo", "electronics", "bandage", "seed", "fuel", "salt", "gunpowder", "water_clean", "instant_noodle", "leather"];

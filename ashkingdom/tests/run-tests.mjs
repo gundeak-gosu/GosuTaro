@@ -127,7 +127,7 @@ test("제작 품질: 같은 레시피라도 결과가 다르고 능력치에 반
   st.base.buildings.push({ uid: "w", id: "workbench" }, { uid: "c", id: "cellar", storage: [] });
   const seen = new Set();
   for (let i = 0; i < 60; i++) {
-    give(st, { wood: 4, stone: 1, fiber: 3 });
+    give(st, { wood: 4, twig: 4, stone: 1, fiber: 3 });
     const r = S.craft(st, "spear", { rng: makeRng(i) });
     ok(r.ok); seen.add(r.quality.q + "|" + (r.quality.af || ""));
   }
@@ -306,12 +306,12 @@ test("튜토리얼: 8단계, 각 단계 완료 조건이 실제 플레이로 충
   const { st } = fresh("soldier");
   const G = { tutStart: { x: 0, y: 0 } };
   st.player.x = 200; st.player.y = 0; ok(Tut.TUTORIAL[0].done(st, G));
-  S.addItem(st, st.inv, "wood", 3); ok(Tut.TUTORIAL[1].done(st, G));
+  S.addItem(st, st.inv, "twig", 3); ok(Tut.TUTORIAL[1].done(st, G));
   S.addItem(st, st.inv, "stone", 2); ok(Tut.TUTORIAL[2].done(st, G));
   S.addItem(st, st.inv, "fiber", 2); ok(Tut.TUTORIAL[3].done(st, G));
   ok(S.craft(st, "stone_axe").ok); ok(Tut.TUTORIAL[4].done(st, G));
   ok(S.equipFromInv(st, "stone_axe")); ok(Tut.TUTORIAL[5].done(st, G));
-  give(st, { wood: 10, stone: 10 }); ok(S.build(st, "campfire").ok); ok(Tut.TUTORIAL[6].done(st, G));
+  give(st, { wood: 10, twig: 10, stone: 10 }); ok(S.build(st, "campfire").ok); ok(Tut.TUTORIAL[6].done(st, G));
   S.addItem(st, st.inv, "water_dirty", 1); ok(S.craft(st, "water_clean").ok); ok(Tut.TUTORIAL[7].done(st, G));
 });
 
@@ -392,7 +392,7 @@ test("수리: 최대 내구도 10% 감소 (기술자 정비 스킬은 감소 없
   st.base.buildings.push({ uid: "w", id: "workbench" });
   S.addItem(st, st.inv, "stone_axe", 1);
   const ax = st.inv.find((s) => s.id === "stone_axe"); ax.dur = 5;
-  give(st, { wood: 10, stone: 10, fiber: 10 });
+  give(st, { wood: 10, twig: 10, stone: 10, fiber: 10 });
   ok(S.repair(st, ax)); eq(ax.maxDur, 54); eq(ax.dur, 54);
 });
 test("옷도 입고 있으면 닳는다", () => {
@@ -415,14 +415,40 @@ test("방사능: 방독면/방호복이 피폭을 줄인다", () => {
 });
 
 // ---------------- 제작/건설/연구 ----------------
+test("채집: 맨손은 아주 느리고 맞는 도구는 빠름 · 나뭇가지는 맨손으로 쉽게", () => {
+  const { st } = fresh("jobless");
+  st.player.equip.hand = null;
+  const hand = S.gatherPower(st, "tree");
+  ok(hand.need === "도끼" && hand.power <= 0.25, "맨손 나무 " + hand.power);
+  ok(S.gatherPower(st, "rock").power <= 0.15);
+  eq(S.gatherPower(st, "bush").power, 1); // 덤불은 맨손 OK
+  give(st, { twig: 3, stone: 2, fiber: 2 }); ok(S.craft(st, "stone_axe").ok); ok(S.equipFromInv(st, "stone_axe"));
+  const axe = S.gatherPower(st, "tree");
+  ok(axe.tool && axe.power >= hand.power * 4, "도끼 " + axe.power);
+  const out = S.gather(st, "bush", makeRng(1));
+  ok(out.some(([id]) => id === "twig"), "덤불에서 나뭇가지");
+});
+test("체력: 깨어 있을 땐 회복 없음, 잠자면 회복(침대>침낭>맨땅)", () => {
+  const heal = (ctx) => { const { st } = fresh("soldier"); st.player.hp = 20; st.player.hunger = 90; st.player.thirst = 90; S.tick(st, 120, { atBase: true, nearFire: true, ...ctx }); return st.player.hp - 20; };
+  const awake = heal({}), bed = heal({ sleeping: true, sleepMul: 1 }), bag = heal({ sleeping: true, sleepMul: 0.7 }), ground = heal({ sleeping: true, sleepMul: 0.4 });
+  ok(awake <= 0, "awake " + awake); ok(bed > bag && bag > ground && ground > 0, `${bed} ${bag} ${ground}`);
+});
+test("가공: 철광석·숯 → 철괴 → 강철 (대장간)", () => {
+  const { st } = fresh("engineer");
+  st.base.lv = 3; st.base.research.done.push("smelting"); st.base.buildings.push({ uid: "f", id: "forge" }, { uid: "c", id: "campfire" });
+  give(st, { wood: 10, iron_ore: 3 });
+  ok(S.craft(st, "coal", { atBase: true }).ok); ok(S.craft(st, "coal", { atBase: true }).ok); ok(S.craft(st, "coal", { atBase: true }).ok);
+  ok(S.craft(st, "iron_from_ore", { atBase: true }).ok); ok(S.countAll(st, "iron") >= 2);
+  ok(S.craft(st, "steel", { atBase: true }).ok); ok(S.countAll(st, "steel") >= 1);
+});
 test("제작: 재료 부족 시 실패 / 충분하면 성공 + 경험치", () => {
   const { st } = fresh();
   eq(S.craft(st, "stone_axe").ok, false);
-  give(st, { wood: 3, stone: 2, fiber: 2 });
+  give(st, { twig: 3, stone: 2, fiber: 2 });
   const xp = st.stats.xpEarned;
   eq(S.craft(st, "stone_axe").ok, true);
   ok(st.stats.xpEarned > xp);
-  eq(S.count(st.inv, "wood"), 0);
+  eq(S.count(st.inv, "twig"), 0);
 });
 test("제작: 작업대 필요 레시피는 작업대 없이는 실패", () => {
   const { st } = fresh();
@@ -433,7 +459,7 @@ test("제작: 작업대 필요 레시피는 작업대 없이는 실패", () => {
 });
 test("건설: 부지 수 제한 + 거점 업그레이드는 스토리 진행 필요", () => {
   const { st } = fresh();
-  give(st, { wood: 500, stone: 500, cloth: 50, scrap: 50 });
+  give(st, { wood: 500, twig: 100, stone: 500, cloth: 50, scrap: 50 });
   ok(S.build(st, "campfire").ok); ok(S.build(st, "workbench").ok); ok(S.build(st, "crate").ok);
   eq(S.build(st, "bed").ok, false, "slots full at lv1");
   ok(S.canUpgradeBase(st)?.includes("스토리"));
@@ -600,7 +626,7 @@ test("오프라인 진행: 8시간 상한, 플레이어는 죽지 않음, 기지
   st.player.hunger = 5; st.player.thirst = 5;
   const r = S.applyOffline(st, 48 * 3600 * 1000);
   eq(r.hours, 8);
-  ok(!st.dead); ok(S.countAll(st, "water_dirty") > 0);
+  ok(!st.dead); ok(S.countAll(st, "water_clean") > 0); // 빗물 집수기 = 비교적 깨끗한 물
 });
 
 // ---------------- 올림픽 ----------------
@@ -699,13 +725,13 @@ const Net = await import("../js/net.js");
 // ---------------- 스토리 전체 진행(막힘 검사) ----------------
 for (const job of Object.keys(JOBS)) test(`스토리 0→12장 완주 가능 (${JOBS[job].name})`, () => {
   const { st, acc } = fresh(job, "normal");
-  const rich = { wood: 9999, stone: 9999, scrap: 9999, fiber: 9999, cloth: 9999, leather: 9999, iron: 9999, electronics: 9999, fuel: 9999, fertilizer: 99, ammo: 999, gold_watch: 2, bone: 99, herb: 99, salt: 99, gunpowder: 99 };
+  const rich = { twig: 9999, coal: 9999, steel: 9999, iron_ore: 999, wood: 9999, stone: 9999, scrap: 9999, fiber: 9999, cloth: 9999, leather: 9999, iron: 9999, electronics: 9999, fuel: 9999, fertilizer: 99, ammo: 999, gold_watch: 2, bone: 99, herb: 99, salt: 99, gunpowder: 99 };
   let guard = 0;
   st.base.buildings.push({ uid: "store", id: "cellar", storage: [] });
   while (st.story.chapter < 12 && guard++ < 50) {
     const g = CHAPTERS[st.story.chapter].goal;
     // 필요한 건물을 지을 부지가 없으면 거점 업그레이드 먼저
-    giveBase(st, rich); give(st, { wood: 50, stone: 50, fiber: 50 });
+    giveBase(st, rich); give(st, { wood: 50, twig: 50, stone: 50, fiber: 50 });
     if (g.craft) { const r = S.craft(st, g.craft); ok(r.ok, `craft ${g.craft}: ${r.why}`); }
     while (g.baseLv && st.base.lv < g.baseLv) { const r = S.upgradeBase(st); ok(r.ok, `upgrade: ${r.why}`); }
     for (const k of ["building", "building2"]) if (g[k] && !S.hasBuilding(st, g[k])) {

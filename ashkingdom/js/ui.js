@@ -5,7 +5,7 @@ import * as Shop from "./shop.js";
 import * as MG from "./minigames.js";
 import {
   ITEMS, RECIPES, BUILDINGS, BASE_LEVELS, RESEARCH, ANIMALS, VEHICLES, ROLES, JOBS, DIFFICULTY,
-  CHAPTERS, ERAS, OLYMPIC_EVENTS, OLYMPICS, SHOP, STATS, ENDINGS, QUALITY, AFFIXES, BIOMES, WEATHER, SPECIALS, WSKILLS,
+  CHAPTERS, ERAS, OLYMPIC_EVENTS, OLYMPICS, SHOP, STATS, ENDINGS, QUALITY, AFFIXES, BIOMES, WEATHER, SPECIALS, WSKILLS, SCOUT, RAIDER_BANDS,
 } from "./data.js";
 import { drawCharacter, drawCinematic } from "./render.js";
 import { makeRng } from "./rng.js";
@@ -403,6 +403,10 @@ export function openAnimals() {
     ${st.animals.map((a) => { const d = ANIMALS[a.type]; return `<div class="person"><div class="pp">${Ic.icon("a." + a.type, 40, d.icon)}</div><div class="pi"><b>${esc(a.name)}</b> <small>${a.task === "follow" ? "🚶 동행" : "🏠 우리"}${a.fed === false ? ' · <span class="no">굶주림</span>' : ""}</small>
       <small class="muted">${d.prod ? "생산 " + Object.entries(d.prod).map(([k, v]) => icon(k) + v).join(" ") + " · " : ""}${d.combat ? "전투 " + d.combat + " · " : ""}${d.mount ? "탈것 ×" + d.mount + " · " : ""}먹이 ${icon(d.food)}</small>
       <div class="acts"><button class="btn sm" data-at="${a.uid}">${a.task === "follow" ? "우리로" : "데리고 다니기"}</button>${d.mount ? `<button class="btn sm" data-ride="${a.uid}">${st.player.mount?.uid === a.uid ? "내리기" : "타기"}</button>` : ""}<button class="btn sm danger" data-sl="${a.uid}">도축</button></div></div></div>`; }).join("") || '<p class="muted">아직 길들인 동물이 없습니다.</p>'}
+    <h3>🔍 동물 탐색</h3>${scoutCard(st)}
+    <h3>길들일 수 있는 동물 (내 레벨 Lv.${st.player.level})</h3>
+    <div class="rlist">${Object.entries(ANIMALS).sort((x, y) => (x[1].lv || 1) - (y[1].lv || 1)).map(([id, d]) => { const c = S.tameCheck(st, id); const where = Object.entries(BIOMES).filter(([, bb]) => bb.animals.includes(id)).map(([, bb]) => bb.name).slice(0, 4).join("·");
+      return `<div class="recipe ${c.ok ? "" : "dim"}"><span class="ic slot">${Ic.icon("a." + id, 40, d.icon)}</span><div class="rinfo"><b>${d.name} <small class="${c.ok ? "ok" : "no"}">${c.ok ? "✅ 길들이기 가능" : "🔒 " + c.why}</small></b><small class="muted">먹이 ${icon(d.food, 16)}${ITEMS[d.food].name} · ${d.prod ? "생산 " + Object.entries(d.prod).map(([k, v]) => ITEMS[k].name + v).join(" ") : d.mount ? "탈것 ×" + d.mount : d.combat ? "전투 " + d.combat : "고기 " + d.meat} · 사는 곳: ${where || "여러 곳"}</small></div><span></span><span class="badge">Lv.${d.lv || 1}</span></div>`; }).join("")}</div>
     <h3>탈것</h3>${st.vehicles.map((v) => `<button class="btn" data-veh="${v}">${Ic.icon("v." + v, 22)} ${VEHICLES[v].name} ${st.player.mount?.id === v ? "(내리기)" : "타기"}</button>`).join(" ") || '<p class="muted">제작 메뉴에서 자전거·오토바이를 만들 수 있습니다.</p>'}`, { wide: true });
   const re = () => { m.close(); openAnimals(); };
   m.querySelectorAll("[data-at]").forEach((b) => (b.onclick = () => { const a = st.animals.find((x) => x.uid === b.dataset.at); if (a.task === "follow") a.task = "pen"; else if (st.animals.filter((x) => x.task === "follow").length < 1) a.task = "follow"; else toast("동물 동행은 1마리까지", "bad"); re(); }));
@@ -410,6 +414,24 @@ export function openAnimals() {
   m.querySelectorAll("[data-veh]").forEach((b) => (b.onclick = () => { if (st.player.mount?.id === b.dataset.veh) S.mount(st, null); else S.mount(st, { type: "vehicle", id: b.dataset.veh }); re(); }));
   m.querySelectorAll("[data-sl]").forEach((b) => (b.onclick = async () => { const a = st.animals.find((x) => x.uid === b.dataset.sl); if (await choice("도축", `${a.name}을(를) 도축해 고기 ${ANIMALS[a.type].meat}개를 얻을까요? 주민 사기가 조금 떨어집니다.`, [{ label: "도축", value: 1, cls: "danger" }, { label: "취소", value: 0 }], { closable: true })) S.slaughter(st, a.uid); re(); }));
 }
+
+// 동물 탐색 카드: 충전 수·다음 충전까지·보석/미끼로 바로 쓰기
+function scoutCard(st) {
+  const c = S.scoutCharges(st);
+  const mins = Math.ceil(c.nextMs / 60000);
+  return `<div class="card">지금 있는 지역의 야생동물 위치를 ${Math.round(SCOUT.revealSec / 60)}분 동안 미니맵에 표시합니다. 충전 <b>${c.charges}/${SCOUT.maxCharges}</b>${c.nextMs ? ` · 다음 충전까지 ${Math.floor(mins / 60)}시간 ${mins % 60}분` : ""} <small class="muted">(실제 3시간마다 1회)</small><br>
+    <button class="btn sm primary" data-scout="charge" ${c.charges ? "" : "disabled"}>탐색하기</button>
+    <button class="btn sm" data-scout="gem">💎${SCOUT.gemCost}로 바로</button>
+    <button class="btn sm" data-scout="lure" ${S.count(st.inv, "scent_lure") ? "" : "disabled"}>🍖 냄새 미끼 (${S.count(st.inv, "scent_lure")})</button></div>`;
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest?.("[data-scout]");
+  if (!b || !G.st) return;
+  const r = S.useScout(G.st, G.acc, b.dataset.scout);
+  if (!r.ok) return toast(r.why, "bad");
+  b.closest(".modal-bg")?.close?.();
+  G.scoutNow();
+});
 
 // ---------------- 이야기/혈통 ----------------
 export function openStory() {
@@ -930,7 +952,7 @@ export function renderHud() {
 }
 // 메뉴별 잠금 조건(빈 문자열 = 열림)
 export function menuLocks(st) {
-  const ch = st.chapter ?? 0;
+  const ch = st.story?.chapter ?? 0;
   return {
     base: "",
     people: st.companions.length || ch >= 2 ? "" : "2장(첫 동료)에서 열립니다",

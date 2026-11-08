@@ -4,7 +4,7 @@
 // =====================================================================
 import {
   VERSION, TIME, DIFFICULTY, JOBS, ITEMS, RECIPES, BUILDINGS, BASE_LEVELS, RESEARCH, ANIMALS,
-  VEHICLES, ROLES, STORY_COMPANIONS, SURVIVOR_NAMES, CHAPTERS, ENDINGS, XP_CURVE, ENEMIES, QUALITY, AFFIXES, WSKILLS,
+  VEHICLES, ROLES, STORY_COMPANIONS, SURVIVOR_NAMES, CHAPTERS, ENDINGS, XP_CURVE, ENEMIES, QUALITY, AFFIXES, WSKILLS, SCOUT,
   BIOMES, SEASON_NAMES, WEATHER, NUCLEAR_WINTER,
 } from "./data.js";
 import { makeRng } from "./rng.js";
@@ -1208,6 +1208,29 @@ export function resolveRaid(st, strength, playerBonus = 0, rng = makeRng(Date.no
 }
 
 // =========================== 길들이기/탈것 ===========================
+// 길들이기: 내 레벨이 동물의 요구 레벨 이상이어야 한다(+승마 연구 등)
+export function tameCheck(st, type) {
+  const a = ANIMALS[type];
+  if ((a.lv || 1) > st.player.level) return { ok: false, why: `Lv.${a.lv}부터 길들일 수 있습니다` };
+  if (a.research && !researched(st, a.research)) return { ok: false, why: "먼저 연구가 필요합니다" };
+  return { ok: true };
+}
+// ---------- 동물 탐색(충전식) ----------
+export function scoutCharges(st, now = Date.now()) {
+  const sc = (st.scout ||= { charges: SCOUT.maxCharges, t: now });
+  const gained = Math.floor((now - sc.t) / SCOUT.rechargeMs);
+  if (gained > 0) { sc.charges = Math.min(SCOUT.maxCharges, sc.charges + gained); sc.t = sc.charges >= SCOUT.maxCharges ? now : sc.t + gained * SCOUT.rechargeMs; }
+  return { charges: sc.charges, nextMs: sc.charges >= SCOUT.maxCharges ? 0 : SCOUT.rechargeMs - (now - sc.t) };
+}
+// how: "charge" | "gem" | "lure". 성공하면 true
+export function useScout(st, acc, how, now = Date.now()) {
+  const c = scoutCharges(st, now);
+  if (how === "charge") { if (c.charges < 1) return { ok: false, why: "충전 대기 중" }; if (st.scout.charges >= SCOUT.maxCharges) st.scout.t = now; st.scout.charges--; return { ok: true }; }
+  if (how === "gem") { if ((acc?.gems ?? 0) < SCOUT.gemCost) return { ok: false, why: `보석 ${SCOUT.gemCost} 필요` }; acc.gems -= SCOUT.gemCost; return { ok: true }; }
+  if (how === "lure") { if (count(st.inv, "scent_lure") < 1) return { ok: false, why: "냄새 미끼가 없습니다" }; removeFrom(st.inv, "scent_lure", 1); return { ok: true }; }
+  return { ok: false, why: "?" };
+}
+
 export function tameDifficulty(st, type) {
   const base = ANIMALS[type].tame;
   return clamp(base - (JOBS[st.player.job].perks.tame || 0) * 0.5 - eff(st, "cha") * 0.01, 0.05, 0.95);

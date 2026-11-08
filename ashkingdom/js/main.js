@@ -11,7 +11,7 @@ import * as Sfx from "./sfx.js";
 import * as Bgm from "./bgm.js";
 import { TUTORIAL, tutorialStep } from "./tutorial.js";
 import { BIOMES } from "./data.js";
-import { SPECIALS } from "./data.js";
+import { SPECIALS, SCOUT, RAIDER_BANDS } from "./data.js";
 import { generateWorld, TILE, WORLD_W, WORLD_H, tileAt, isBlocked, nearWater, T, NODE_TYPES, applyBridges, isSlow } from "./world.js";
 import * as Reg from "./regions.js";
 import * as R from "./render.js";
@@ -636,6 +636,54 @@ G.special = () => {
   fxText(p.x, p.y - 64, sp.name, "#9fd3ff");
   UI.renderHud();
 };
+// 동물 탐색: 이 지역 동물 몇 마리를 주변에 두고, 일정 시간 미니맵·화면 가장자리에 위치를 보여 준다
+G.scoutNow = () => {
+  const st = G.st, p = st.player;
+  const list = (BIOMES[G.world.biome] || BIOMES.temperate).animals;
+  let n = 0;
+  for (let i = 0; i < 40 && n < 5; i++) {
+    const a = Math.random() * Math.PI * 2, d = (12 + Math.random() * 22) * TILE;
+    const x = p.x + Math.cos(a) * d, y = p.y + Math.sin(a) * d;
+    if (x < TILE || y < TILE || x > (WORLD_W - 1) * TILE || y > (WORLD_H - 1) * TILE || isBlocked(G.world, x, y)) continue;
+    const mob = mobAt(list[Math.floor(Math.random() * list.length)], "animal", x, y);
+    mob.scouted = true; G.mobs.push(mob); n++;
+  }
+  G.scoutUntil = G.t + SCOUT.revealSec;
+  UI.toast(`🔍 동물 ${n}마리를 찾았다! 미니맵의 노란 점을 따라가세요`, "good");
+  G.save();
+};
+// 약탈자 무리(NPC): 우두머리와 부하들이 길을 막는다 — 싸우거나, 통행료를 내거나, 말로 설득
+async function raiderBand() {
+  const st = G.st, p = st.player;
+  const band = RAIDER_BANDS[Math.floor(Math.random() * RAIDER_BANDS.length)];
+  const k = 1 + (G.world.region?.tier || 0) * 0.3 + st.story.chapter * 0.05;
+  const a0 = Math.random() * Math.PI * 2, gang = [];
+  for (let i = 0; i < 3 + Math.min(3, Math.floor(st.story.chapter / 3)); i++) {
+    const a = a0 + (i - 1) * 0.35, d = 220 + i * 18;
+    const x = p.x + Math.cos(a) * d, y = p.y + Math.sin(a) * d;
+    if (isBlocked(G.world, x, y)) continue;
+    const m = mobAt("raider", "enemy", x, y);
+    m.hp = m.maxHp = Math.round(m.hp * k * (i === 0 ? 2.2 : 1)); m.atkMul = k * (i === 0 ? 1.4 : 1); m.band = band.id;
+    if (i === 0) { m.elite = true; m.leader = band.leader; }
+    gang.push(m);
+  }
+  if (!gang.length) return;
+  G.mobs.push(...gang);
+  const toll = Math.round(40 + st.story.chapter * 25 + (G.world.region?.tier || 0) * 30);
+  const cha = S.eff(st, "cha"), persuade = Math.min(0.85, 0.15 + cha * 0.05 + (JOBS[p.job].perks.recruit || 0) * 0.3);
+  st.stats.bands = (st.stats.bands || 0) + 1;
+  const v = await UI.choice(`🏴 약탈자 무리 「${band.name}」`, `우두머리 <b>${band.leader}</b>와 부하 ${gang.length - 1}명이 길을 막았다.<br>"여기 지나가려면 값을 치러야지."`, [
+    { label: "⚔️ 싸운다", value: "fight", cls: "danger" },
+    { label: `💰 통행료를 낸다 (금화 ${toll})`, value: "pay", disabled: st.gold < toll },
+    { label: `🗣️ 설득한다 (성공 ${Math.round(persuade * 100)}%)`, value: "talk" },
+  ]);
+  const leave = () => { G.mobs = G.mobs.filter((m) => !gang.includes(m)); };
+  if (v === "pay") { st.gold -= toll; leave(); UI.toast(`「${band.name}」이(가) 금화를 챙겨 사라졌다`, "warn"); }
+  else if (v === "talk" && Math.random() < persuade) { leave(); S.gainXp(st, 30); S.giveItem(st, "ammo", 4); UI.toast(`"…말이 통하는 놈이군." 「${band.name}」이(가) 탄약 몇 발을 던져 주고 물러났다`, "good"); }
+  else { for (const m of gang) m.aggro = true; UI.toast(v === "talk" ? "설득 실패! 덤벼든다" : `「${band.name}」과(와) 전투!`, "bad"); }
+  G.afterAction();
+}
+
 function dropItem(x, y, id, qty) { G.drops.push({ x, y, id, qty, t: G.t }); }
 function attack(m) {
   const st = G.st, p = st.player;
@@ -667,9 +715,10 @@ async function animalChoice(m) {
   const a = ANIMALS[m.type];
   const food = a.food;
   const diff = S.tameDifficulty(st, m.type);
-  const needRes = a.research && !S.researched(st, a.research);
+  const tc = S.tameCheck(st, m.type);
+  const needRes = !tc.ok;
   const full = st.animals.length >= S.penCapacity(st);
-  const v = await UI.choice(`${a.icon} ${a.name}`, `길들이기 난이도: ${diff < 0.3 ? "쉬움" : diff < 0.6 ? "보통" : "어려움"} · 먹이 ${ITEMS[food].icon}${ITEMS[food].name} (보유 ${S.count(st.inv, food)})${needRes ? "<br><span class='no'>먼저 '승마'를 연구해야 길들일 수 있습니다.</span>" : ""}${full ? "<br><span class='no'>동물 우리가 가득 찼습니다(기지에 우리를 지으세요).</span>" : ""}`, [
+  const v = await UI.choice(`${a.icon} ${a.name}`, `길들이기 난이도: ${diff < 0.3 ? "쉬움" : diff < 0.6 ? "보통" : "어려움"} · 먹이 ${ITEMS[food].icon}${ITEMS[food].name} (보유 ${S.count(st.inv, food)})${needRes ? `<br><span class='no'>${tc.why}</span>` : ""}${full ? "<br><span class='no'>동물 우리가 가득 찼습니다(기지에 우리를 지으세요).</span>" : ""}`, [
     { label: "길들이기", value: "tame", cls: "primary", disabled: needRes || full || S.count(st.inv, food) < 1 },
     { label: "사냥한다", value: "hunt", cls: "danger" },
     { label: "그냥 둔다", value: null },
@@ -929,6 +978,7 @@ function update(dt) {
   if (G.specCd > 0) { G.specCd -= dt; G.cdHudT = (G.cdHudT || 0) - dt; if (G.cdHudT <= 0 || G.specCd <= 0) { G.cdHudT = 0.5; UI.renderHud(); } }
   // 무작위 조우
   if (!G.atBase) { G.encounterT -= dt; if (G.encounterT <= 0) { G.encounterT = 150 + Math.random() * 120; UI.encounterModal(); } }
+  if (!G.atBase && S.day(st) >= 2 && !G.paused) { G.bandT = (G.bandT ?? 200 + Math.random() * 200) - dt; if (G.bandT <= 0) { G.bandT = Math.max(160, 420 - st.story.chapter * 20) + Math.random() * 240; raiderBand(); } }
   // HUD/저장
   // 배경음악 분위기: 전투(가까운 적이 공격 중) > 기지 > 겨울 > 밤 > 낮
   G.bgmT = (G.bgmT || 0) - dt;
@@ -986,7 +1036,7 @@ function draw(dt) {
   for (const m of G.mobs) {
     const sx = m.x - cam.x, sy = m.y - cam.y;
     if (sx < -60 || sy < -60 || sx > VW + 60 || sy > VH + 60) continue;
-    list.push({ y: m.y, f: () => { if (m.kind === "enemy") R.drawEnemy(ctx, { ...m, x: sx, y: sy }, ENEMIES[m.type], m.phase); else { R.drawAnimal(ctx, m.type, sx, sy, m.phase, m.moving, m.facing); R.hpBar(ctx, sx, sy - 34, m.hp / m.maxHp); } } });
+    list.push({ y: m.y, f: () => { if (m.kind === "enemy") { R.drawEnemy(ctx, { ...m, x: sx, y: sy }, ENEMIES[m.type], m.phase); if (m.leader) { ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#ff8a80"; ctx.fillText("👑 " + m.leader, sx, sy - 48); ctx.textAlign = "start"; } } else { R.drawAnimal(ctx, m.type, sx, sy, m.phase, m.moving, m.facing); R.hpBar(ctx, sx, sy - 34, m.hp / m.maxHp); } } });
   }
   // 기지 주민
   const bx = (G.world.cx + 0.5) * TILE, by = (G.world.cy + 0.5) * TILE;
@@ -1148,6 +1198,8 @@ function drawMinimap() {
     const img = poiImg(q.id);
     if (img.complete && img.naturalWidth) ctx.drawImage(img, x0 + q.tx * TILE * sc - 8, y0 + q.ty * TILE * sc - 8, 16, 16);
   }
+  // 동물 탐색 결과(노란 점, 깜빡임)
+  if (G.scoutUntil > G.t) { ctx.fillStyle = Math.sin(G.t * 6) > 0 ? "#ffe14d" : "#ff9a3c"; for (const m of G.mobs) if (m.scouted && m.hp > 0) { ctx.beginPath(); ctx.arc(x0 + m.x * sc, y0 + m.y * sc, 3, 0, Math.PI * 2); ctx.fill(); } }
   if (G.world.home) { ctx.fillStyle = "#ffd36b"; ctx.fillRect(x0 + G.world.cx * TILE * sc - 2, y0 + G.world.cy * TILE * sc - 2, 4, 4); }
   // 열린 이웃 지역으로 가는 길목 표시(가장자리 화살표)
   const reg = G.world.region;

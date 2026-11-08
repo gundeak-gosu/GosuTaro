@@ -487,6 +487,19 @@ test("던지기: 표창·돌을 던지고 개수가 줄어든다", () => {
   eq(S.throwPick(st), "shuriken"); const t = S.throwItem(st, "shuriken"); ok(t.dmg > 5); eq(S.count(st.inv, "shuriken"), 1);
   ok(S.throwItem(st, "stone").dmg > 0); eq(S.count(st.inv, "stone"), 2);
 });
+test("길들이기: 레벨 요구 · 동물 탐색 충전(3시간)·보석·미끼", () => {
+  const { st } = fresh("jobless");
+  st.player.level = 1;
+  ok(S.tameCheck(st, "chicken").ok); eq(S.tameCheck(st, "wolf").ok, false);
+  st.player.level = 8; ok(S.tameCheck(st, "wolf").ok);
+  const t0 = 1_000_000_000_000;
+  st.scout = { charges: 2, t: t0 };
+  ok(S.useScout(st, null, "charge", t0).ok); ok(S.useScout(st, null, "charge", t0).ok);
+  eq(S.useScout(st, null, "charge", t0 + 1000).ok, false);
+  ok(S.useScout(st, null, "charge", t0 + 3 * 3600 * 1000 + 5).ok, "3시간 뒤 1회 충전");
+  const acc = { gems: 100 }; ok(S.useScout(st, acc, "gem").ok); eq(acc.gems, 70);
+  give(st, { scent_lure: 1 }); ok(S.useScout(st, null, "lure").ok); eq(S.useScout(st, null, "lure").ok, false);
+});
 test("제작: 재료 부족 시 실패 / 충분하면 성공 + 경험치", () => {
   const { st } = fresh();
   eq(S.craft(st, "stone_axe").ok, false);

@@ -254,6 +254,7 @@ export const ITEMS = {
   fire_arrow: { name: "불화살", type: "res", icon: "➶", arrow: { atk: 5, burn: 6, recover: 0.4 }, desc: "맞은 적이 불탄다(지속 피해). 대부분 타 버려 회수가 어렵다." },
   shuriken: { name: "표창", type: "weapon", icon: "⭐", throw: { atk: 9, recover: 0.85 }, era: 1, desc: "던지기(R). 대부분 다시 주울 수 있다." },
   throw_knife: { name: "투척 단검", type: "weapon", icon: "🔪", throw: { atk: 13, recover: 0.9 }, era: 1, desc: "던지기(R). 묵직한 한 방." },
+  scent_lure: { name: "냄새 미끼", type: "misc", icon: "🍖", desc: "동물 탐색을 기다리지 않고 바로 1회 쓴다." },
   whetstone: { name: "정화 숫돌", type: "misc", icon: "🪨", desc: "장비에 붙은 특성(좋든 나쁘든)을 갈아 없앤다." },
   book_firearms1: { name: "총기 교본 Ⅰ", type: "misc", icon: "📕", book: { skill: "firearms", lv: 1 }, desc: "읽으면 '총기 다루기 1' — 권총을 쓸 수 있다." },
   book_firearms2: { name: "총기 교본 Ⅱ", type: "misc", icon: "📕", book: { skill: "firearms", lv: 2 }, era: 2, desc: "'총기 다루기 2' — 소총을 쓸 수 있다(1단계 필요)." },
@@ -294,6 +295,16 @@ export const SPECIALS = {
   stone_axe: { name: "내려찍기", cd: 9, kind: "pierce", mult: 2.2, desc: "한 적에게 강한 일격" },
   iron_axe: { name: "내려찍기", cd: 9, kind: "pierce", mult: 2.5, desc: "한 적에게 강한 일격" },
 };
+
+// 동물 탐색: 3시간(실제)에 1번 충전, 최대 2번 저장. 기다리기 싫으면 보석이나 냄새 미끼
+export const SCOUT = { rechargeMs: 3 * 3600 * 1000, maxCharges: 2, gemCost: 30, revealSec: 180 };
+// 약탈자 무리(NPC): 실제 다른 플레이어와 전쟁하기 전에 먼저 만나는 적 집단. 우두머리와 대화로 풀 수도 있다
+export const RAIDER_BANDS = [
+  { id: "redhand", name: "붉은 손", leader: "외눈 갈고리" },
+  { id: "rust", name: "녹슨 이빨단", leader: "쇳소리 박" },
+  { id: "ash", name: "잿빛 까마귀", leader: "까마귀 할멈" },
+  { id: "dogs", name: "들개 무리단", leader: "개장수 최" },
+];
 
 export function itemName(id) { return ITEMS[id]?.name ?? id; }
 
@@ -337,6 +348,7 @@ export const RECIPES = [
   { id: "coal", out: ["coal", 1], in: { wood: 2 }, station: "campfire" },
   { id: "herbal_tea", out: ["herbal_tea", 1], in: { herb: 2, water_clean: 1 }, station: "campfire" },
 
+  { id: "scent_lure", out: ["scent_lure", 1], in: { raw_meat: 1, herb: 2 }, station: null },
   { id: "wood_shield", out: ["wood_shield", 1], in: { wood: 6, leather: 1 }, station: "workbench" },
   { id: "quiver_s", out: ["quiver_s", 1], in: { leather: 2, fiber: 4 }, station: "workbench" },
   { id: "whetstone", out: ["whetstone", 1], in: { stone: 4, salt: 1, herb: 1 }, station: "workbench" },
@@ -425,14 +437,14 @@ export const BUILDINGS = {
 // ---------------- 동물 ----------------
 // tame: 길들이기 난이도(0~1), mount: 이동배율, combat: 전투력, prod: 일일 생산, meat: 도축 시 고기
 export const ANIMALS = {
-  chicken: { name: "닭", icon: "🐔", hp: 10, tame: 0.15, prod: { egg: 1 }, meat: 1, food: "seed", color: "#e8e2d0" },
-  goat: { name: "염소", icon: "🐐", hp: 25, tame: 0.3, prod: { milk: 1 }, meat: 3, food: "fiber", color: "#cfc6b0" },
-  dog: { name: "들개", icon: "🐕", hp: 30, tame: 0.45, combat: 12, meat: 2, food: "raw_meat", color: "#8a6a45", hostileWild: true },
-  boar: { name: "멧돼지", icon: "🐗", hp: 45, tame: 0.6, combat: 8, meat: 5, food: "potato", color: "#5b4636", hostileWild: true },
-  cow: { name: "돌연변이 소", icon: "🐄", hp: 60, tame: 0.4, prod: { milk: 2, fertilizer: 1 }, farmBoost: 0.25, meat: 8, food: "fiber", color: "#d9d2c3" },
-  horse: { name: "야생마", icon: "🐎", hp: 55, tame: 0.65, mount: 1.6, combat: 6, meat: 6, food: "fiber", research: "riding", color: "#7a4e2d" },
-  wolf: { name: "잿빛 늑대", icon: "🐺", hp: 50, tame: 0.8, combat: 24, meat: 3, food: "raw_meat", color: "#6e6e72", hostileWild: true },
-  deer: { name: "두 머리 사슴", icon: "🦌", hp: 30, tame: 0.9, meat: 4, food: "berry", color: "#a47a4f", flee: true },
+  chicken: { name: "닭", icon: "🐔", lv: 1, hp: 10, tame: 0.15, prod: { egg: 1 }, meat: 1, food: "seed", color: "#e8e2d0" },
+  goat: { name: "염소", icon: "🐐", lv: 2, hp: 25, tame: 0.3, prod: { milk: 1 }, meat: 3, food: "fiber", color: "#cfc6b0" },
+  dog: { name: "들개", icon: "🐕", lv: 3, hp: 30, tame: 0.45, combat: 12, meat: 2, food: "raw_meat", color: "#8a6a45", hostileWild: true },
+  boar: { name: "멧돼지", icon: "🐗", lv: 5, hp: 45, tame: 0.6, combat: 8, meat: 5, food: "potato", color: "#5b4636", hostileWild: true },
+  cow: { name: "돌연변이 소", icon: "🐄", lv: 4, hp: 60, tame: 0.4, prod: { milk: 2, fertilizer: 1 }, farmBoost: 0.25, meat: 8, food: "fiber", color: "#d9d2c3" },
+  horse: { name: "야생마", icon: "🐎", lv: 6, hp: 55, tame: 0.65, mount: 1.6, combat: 6, meat: 6, food: "fiber", research: "riding", color: "#7a4e2d" },
+  wolf: { name: "잿빛 늑대", icon: "🐺", lv: 8, hp: 50, tame: 0.8, combat: 24, meat: 3, food: "raw_meat", color: "#6e6e72", hostileWild: true },
+  deer: { name: "두 머리 사슴", icon: "🦌", lv: 10, hp: 30, tame: 0.9, meat: 4, food: "berry", color: "#a47a4f", flee: true },
 };
 
 export const VEHICLES = {

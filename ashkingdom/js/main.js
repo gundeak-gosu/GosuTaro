@@ -283,10 +283,12 @@ document.getElementById("act").addEventListener("pointerdown", (e) => { e.preven
 document.getElementById("dodge").addEventListener("pointerdown", (e) => { e.preventDefault(); dodge(); });
 // 메뉴/행동 버튼 아이콘을 통일된 SVG 세트로
 const MENU_IC = { bag: "ui.bag", craft: "ui.craft", base: "ui.base", people: "ui.people", animals: "ui.animals", story: "ui.story", olympics: "ui.olympics", shop: "ui.shop", menu: "ui.menu" };
-document.querySelectorAll("[data-open]").forEach((b) => { const lab = b.querySelector("span").outerHTML; b.innerHTML = Ic.icon(MENU_IC[b.dataset.open], 26) + lab; });
-document.getElementById("act").innerHTML = Ic.icon("ui.hand", 40);
+document.querySelectorAll("[data-open]").forEach((b) => { const lab = b.querySelector("span").outerHTML; b.innerHTML = Ic.icon(MENU_IC[b.dataset.open], 34) + lab; });
+const PC = matchMedia("(hover: hover) and (pointer: fine)").matches;
+document.getElementById("dodge").innerHTML = `🌀<span>구르기${PC ? " (Shift)" : ""}</span>`;
 document.querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => {
   if (!G.st || G.paused) return;
+  if (b.dataset.lock) { UI.toast("🔒 " + b.dataset.lock, "warn"); return; }
   ({ bag: UI.openBag, craft: UI.openCraft, base: () => UI.openBase(), people: UI.openPeople, animals: UI.openAnimals, story: UI.openStory, olympics: UI.openOlympics, shop: UI.openShop, menu: UI.openMenu })[b.dataset.open]();
 }));
 

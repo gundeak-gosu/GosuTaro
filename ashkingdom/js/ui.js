@@ -30,6 +30,8 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
 const icon = (id, sz = 20) => Ic.icon(id, sz, ITEMS[id]?.icon ?? "?");
 const bicon = (id, sz = 30) => Ic.icon("b." + id, sz, BUILDINGS[id]?.icon);
 const costStr = (c) => Object.entries(c).map(([k, v]) => `${icon(k)}${v}`).join(" ");
+// 필요 재료 칸: 아이콘 크게 + 가진 수/필요 수 (부족하면 빨강)
+const needTiles = (c) => `<div class="needs">${Object.entries(c).map(([k, v]) => { const h = S.countAll(G.st, k); return `<span class="need ${h >= v ? "ok" : "no"}" title="${esc(ITEMS[k]?.name ?? k)} ${h}/${v}">${icon(k, 32)}<b>${h}/${v}</b><small>${esc(ITEMS[k]?.name ?? k)}</small></span>`; }).join("")}</div>`;
 const costHave = (c) => Object.entries(c).map(([k, v]) => { const h = S.countAll(G.st, k); return `<span class="${h >= v ? "ok" : "no"}">${icon(k)}${h}/${v}</span>`; }).join(" ");
 
 // ---------------- 공용 ----------------
@@ -113,13 +115,16 @@ function itemTip(s) {
   return bits.join(" · ");
 }
 
+// 등급 0~4: 조악/보통/우수/명품/전설. 제작품은 품질, 그 외는 시대(era)로
+export function gradeOf(s) { const it = ITEMS[s.id] || {}; return s.q !== undefined ? s.q : Math.min(4, 1 + (it.era || 0)); }
 function slotHtml(s, idx, extra = "") {
   const it = ITEMS[s.id];
   const durPct = s.dur !== undefined ? Math.max(0, s.dur / s.maxDur) : null;
   const fr = s.fresh;
-  const qc = s.q !== undefined && s.q !== 1 ? `style="box-shadow: inset 0 0 0 2px ${QUALITY[s.q].color}"` : "";
-  return `<button class="slot ${fr !== undefined ? (fr > 0.7 ? "f-good" : fr > 0.3 ? "f-mid" : "f-bad") : ""}" data-idx="${idx}" ${extra} ${qc} title="${esc(S.itemLabel(s))}">
-    <span class="ic">${icon(s.id, 34)}</span>${s.qty > 1 ? `<span class="q">${s.qty}</span>` : ""}
+  // 테두리 색 = 등급(제작 품질, 없으면 시대), 모양 = 종류(무기·도구·옷·음식·의료·재료)
+  const g = gradeOf(s);
+  return `<button class="slot t-${it.type} g${g} ${fr !== undefined ? (fr > 0.7 ? "f-good" : fr > 0.3 ? "f-mid" : "f-bad") : ""}" data-idx="${idx}" ${extra} title="${esc(S.itemLabel(s))}">
+    <span class="ic">${icon(s.id, 44)}</span><span class="nm">${esc(it.name)}</span>${s.qty > 1 ? `<span class="q">${s.qty}</span>` : ""}
     ${durPct !== null ? `<span class="bar"><i style="width:${durPct * 100}%;background:${durPct > 0.5 ? "#7ed957" : durPct > 0.2 ? "#f2c14e" : "#e5534b"}"></i></span>` : ""}
     ${fr !== undefined ? `<span class="bar fresh"><i style="width:${Math.max(0, fr) * 100}%"></i></span>` : ""}
   </button>`;
@@ -222,10 +227,10 @@ export function openCraft() {
       const has = k === "null" || S.hasStation(st, k);
       return `<h3>${name} ${has ? "" : '<small class="no">(미건설)</small>'}</h3><div class="rlist">${rs.map((r) => {
         const can = has && S.canAfford(st, r.in) && (k === "null" || G.atBase);
-        return `<div class="recipe ${can ? "" : "dim"}"><span class="ic">${icon(r.out[0], 34)}</span><div><b>${ITEMS[r.out[0]].name}${r.out[1] > 1 ? " ×" + r.out[1] : ""}</b><small>${costHave(r.in)}</small><small class="muted">${itemTip({ id: r.out[0] })}</small></div><button class="btn sm" data-r="${r.id}" ${can ? "" : "disabled"}>제작</button></div>`;
+        return `<div class="recipe ${can ? "" : "dim"}"><span class="ic slot t-${ITEMS[r.out[0]].type} g${gradeOf({ id: r.out[0] })}">${icon(r.out[0], 44)}</span><div class="rinfo"><b>${ITEMS[r.out[0]].name}${r.out[1] > 1 ? " ×" + r.out[1] : ""}</b><small class="muted">${itemTip({ id: r.out[0] })}</small></div>${needTiles(r.in)}<button class="btn sm" data-r="${r.id}" ${can ? "" : "disabled"}>제작</button></div>`;
       }).join("")}</div>`;
     }).join("")}
-    <h3>탈것</h3><div class="rlist">${Object.entries(VEHICLES).map(([id, v]) => `<div class="recipe"><span class="ic">${Ic.icon("v." + id, 34, v.icon)}</span><div><b>${v.name}</b><small>${costHave(v.cost)}</small><small class="muted">이동 ×${v.mount} · 연구: ${RESEARCH.find((r) => r.id === v.research).name}</small></div><button class="btn sm" data-v="${id}" ${st.vehicles.includes(id) ? "disabled" : ""}>${st.vehicles.includes(id) ? "보유" : "제작"}</button></div>`).join("")}</div>`, { wide: true });
+    <h3>탈것</h3><div class="rlist">${Object.entries(VEHICLES).map(([id, v]) => `<div class="recipe"><span class="ic slot">${Ic.icon("v." + id, 44, v.icon)}</span><div class="rinfo"><b>${v.name}</b><small class="muted">이동 ×${v.mount} · 연구: ${RESEARCH.find((r) => r.id === v.research).name}</small></div>${needTiles(v.cost)}<button class="btn sm" data-v="${id}" ${st.vehicles.includes(id) ? "disabled" : ""}>${st.vehicles.includes(id) ? "보유" : "제작"}</button></div>`).join("")}</div>`, { wide: true });
   m.querySelectorAll("[data-r]").forEach((b) => (b.onclick = () => { const r = S.craft(st, b.dataset.r, { atBase: G.atBase }); Sfx.play(r.ok ? "craft" : "bad"); toast(!r.ok ? r.why : r.quality?.label ? `${r.quality.q >= 3 ? "🌟 " : ""}${r.quality.label} 제작!${r.quality.af ? (AFFIXES[r.quality.af].good ? " (좋은 특성!)" : " (나쁜 특성…)") : ""}` : r.quality?.bonus ? `대성공! ${ITEMS[r.id].name} ×${r.q}` : `${ITEMS[r.id].name} ×${r.q} 제작!`, !r.ok ? "bad" : r.quality?.q === 0 || (r.quality?.af && !AFFIXES[r.quality.af].good) ? "warn" : "good"); m.close(); G.afterAction(); openCraft(); }));
   m.querySelectorAll("[data-v]").forEach((b) => (b.onclick = () => { const r = S.buildVehicle(st, b.dataset.v); toast(r.ok ? "제작 완료!" : r.why, r.ok ? "good" : "bad"); m.close(); openCraft(); }));
 }
@@ -773,4 +778,24 @@ export function renderHud() {
     </div>
     <div class="goal" id="goalBox">📖 ${S.chapter(st).hint}</div>`;
   $("#goalBox").onclick = () => openStory();
+  // 행동 버튼에 지금 손에 든 것을 보여 준다(맨손이면 손)
+  const held = p.equip?.hand?.id;
+  const actKey = (held || "hand") + "|" + (G.actLabel || "");
+  const actEl = $("#act");
+  if (actEl && actEl.dataset.k !== actKey) { actEl.dataset.k = actKey; actEl.innerHTML = (held ? icon(held, 44) : Ic.icon("ui.hand", 40)) + `<span>${held ? esc(ITEMS[held].name) : "맨손"}${matchMedia("(hover: hover)").matches ? " (Space)" : ""}</span>`; }
+  // 아래 메뉴: 아직 열리지 않은 기능은 흐리게 + 자물쇠 (눌러도 언제 열리는지만 알려 줌)
+  for (const [key, why] of Object.entries(menuLocks(st))) {
+    const b = document.querySelector(`#menu [data-open="${key}"]`);
+    if (b) { b.classList.toggle("locked", !!why); b.dataset.lock = why || ""; }
+  }
+}
+// 메뉴별 잠금 조건(빈 문자열 = 열림)
+export function menuLocks(st) {
+  const ch = st.chapter ?? 0;
+  return {
+    base: "",
+    people: st.companions.length || ch >= 2 ? "" : "2장(첫 동료)에서 열립니다",
+    animals: st.animals?.length || ch >= 4 || st.player.level >= 3 ? "" : "Lv3 또는 4장에서 열립니다",
+    olympics: st.base.lv >= 4 ? "" : "목책 요새(기지 Lv4)가 되면 열립니다",
+  };
 }

@@ -39,7 +39,7 @@ small { font-size: 12px; }
 
 /* ---------- HUD ---------- */
 #hud { position: fixed; top: 0; left: 0; right: 0; padding: max(8px, env(safe-area-inset-top)) 10px 0; display: grid; grid-template-columns: auto 1fr auto; align-items: start; gap: 6px; pointer-events: none; text-shadow: 0 1px 2px #000; z-index: 5; }
-#hud .hud-l { background: rgba(20,16,13,.72); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 7px 10px; min-width: 210px; }
+#hud .hud-l { background: rgba(20,16,13,.72); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 7px 10px; min-width: 210px; pointer-events: auto; cursor: pointer; }
 #hud .hud-r { grid-column: 3; background: rgba(20,16,13,.72); border-radius: 12px; padding: 7px 10px; text-align: right; font-size: 13px; line-height: 1.6; }
 #hud .who { font-size: 13px; margin-bottom: 4px; }
 #hud .bars { display: grid; grid-template-columns: 18px 1fr; align-items: center; gap: 3px 4px; font-size: 12px; }
@@ -273,3 +273,10 @@ body.joy-right #throwBtn { right: auto; left: 20px; } body.joy-right #specBtn { 
 .pot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: #1c1814; border: 1px solid var(--line); border-radius: 12px; padding: 10px; }
 .pot .slot { width: 66px; } .pot .slot.empty { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 24px; border: 2px dashed var(--line); border-radius: 10px; aspect-ratio: 1; }
 .pot .arrow { font-size: 26px; color: var(--accent); } .potres { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 200px; } .potres .slot { width: 60px; }
+#sneakBtn { position: fixed; right: 156px; bottom: calc(110px + env(safe-area-inset-bottom)); width: 48px; height: 48px; border-radius: 50%; border: 3px solid #8a8a9a; background: rgba(40,40,52,.88); color: #fff; font-size: 20px; touch-action: none; }
+#sneakBtn.on { background: rgba(90,60,140,.95); border-color: #c9a0ff; box-shadow: 0 0 10px #a070ff; }
+#sneakBtn span { position: absolute; bottom: -17px; left: 50%; transform: translateX(-50%); font-size: 10.5px; white-space: nowrap; text-shadow: 0 1px 2px #000; pointer-events: none; }
+body.joy-right #sneakBtn { right: auto; left: 156px; }
+@media (hover: hover) and (pointer: fine) { #sneakBtn { right: 196px; bottom: 96px; width: 44px; height: 44px; } #sneakBtn span::after { content: " (X)"; } body.joy-right #sneakBtn { left: 196px; } }
+#placeBar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(150px + env(safe-area-inset-bottom)); z-index: 25; display: flex; gap: 8px; align-items: center; background: rgba(20,17,14,.92); border: 1px solid var(--accent); border-radius: 12px; padding: 8px 10px; max-width: 94vw; flex-wrap: wrap; justify-content: center; }
+#placeBar span { font-size: 13px; }

@@ -353,6 +353,7 @@ export function baseLayout(st, world) {
   const L = BASE_LEVELS[st.base.lv - 1];
   const out = [];
   st.base.buildings.forEach((b, i) => {
+    if (b.pos) { out.push({ b, x: b.pos.x, y: b.pos.y }); return; } // 플레이어가 고른 자리
     const ring = i < 6 ? 1 : i < 14 ? 2 : 3;
     const idxInRing = ring === 1 ? i : ring === 2 ? i - 6 : i - 14;
     const per = ring === 1 ? 6 : ring === 2 ? 8 : 10;

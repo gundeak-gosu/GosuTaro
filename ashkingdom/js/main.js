@@ -368,6 +368,7 @@ addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || document.querySelector(".mg")) return;
   const k = e.key.toLowerCase();
   keys.add(k);
+  if (G.st && !G.paused && G.placing) { if (k === "e" || k === " " || k === "enter") { e.preventDefault(); placeConfirm(); return; } if (k === "escape") { placeCancel(); return; } }
   if (G.st && !G.paused) {
     if (k === "e" || k === " ") { G.input.action = true; e.preventDefault(); }
     if (k === "shift" || k === "q") dodge();
@@ -377,6 +378,7 @@ addEventListener("keydown", (e) => {
     if (k === "=" || k === "+") G.setZoom((G.zoom || 1.7) + 0.2);
     if (k === "-" || k === "_") G.setZoom((G.zoom || 1.7) - 0.2);
     if (k === "r") G.throwNow();
+    if (k === "x") G.toggleSneak();
     if (k === "f") G.special();
     if (k === "t") { const a = S.cycleArrow(G.st); if (a) UI.toast(`화살: ${ITEMS[a].name}`); UI.renderHud(); }
     if (k === "escape") UI.openMenu();
@@ -400,6 +402,8 @@ function moveJoy(e) {
 }
 document.getElementById("act").addEventListener("pointerdown", (e) => { e.preventDefault(); G.input.action = true; });
 document.getElementById("dodge").addEventListener("pointerdown", (e) => { e.preventDefault(); dodge(); });
+G.toggleSneak = () => { G.sneak = !G.sneak; document.getElementById("sneakBtn")?.classList.toggle("on", G.sneak); UI.toast(G.sneak ? "🥷 숨어 걷기: 느리지만 적이 잘 못 알아챈다. 알아채지 못한 적을 치면 기습(2.5배)" : "숨어 걷기 해제"); };
+document.getElementById("sneakBtn").addEventListener("pointerdown", (e) => { e.preventDefault(); G.toggleSneak(); });
 document.getElementById("throwBtn").addEventListener("pointerdown", (e) => { e.preventDefault(); G.throwNow(); });
 document.getElementById("specBtn").addEventListener("pointerdown", (e) => { e.preventDefault(); G.special(); });
 document.getElementById("ammoBox").addEventListener("pointerdown", (e) => { e.preventDefault(); const a = S.cycleArrow(G.st); if (a) UI.toast(`화살: ${ITEMS[a].name}`); UI.renderHud(); });
@@ -484,13 +488,15 @@ function updateMobs(dt) {
     if (m.kind === "animal") {
       if (m.hurtT > 0) m.hurtT -= dt;
       const h = m.herd && herds[m.herd];
-      ai = AAI.stepAnimal(m, { d, dx, dy, dt, night, hurt: m.hurtT > 0, herdPanic: h?.panic, packAggro: h?.aggro && d < 300, bait: S.count(st.inv, ANIMALS[m.type].food) > 0, herdDx: h && h.n > 1 ? h.x / h.n - m.x : undefined, herdDy: h && h.n > 1 ? h.y / h.n - m.y : undefined });
+      ai = AAI.stepAnimal(m, { d: d * (G.sneak ? 2 : 1), dx, dy, dt, night, hurt: m.hurtT > 0, herdPanic: h?.panic, packAggro: h?.aggro && d < 300, bait: S.count(st.inv, ANIMALS[m.type].food) > 0, herdDx: h && h.n > 1 ? h.x / h.n - m.x : undefined, herdDy: h && h.n > 1 ? h.y / h.n - m.y : undefined });
       hostile = ai.hostile || (m.aggro && m.state === "attack");
       m.emote = ai.emote;
     } else hostile = !(m.calm && !m.aggro && d > 70);
     // 기지 안으로는 들어오지 않음(성벽)
     const inBase = Math.hypot(m.x - baseX, m.y - baseY) < (2 + st.base.lv) * TILE;
-    if (hostile && d < (m.kind === "enemy" ? 260 : 200) && !G.atBase) {
+    const detect = (m.kind === "enemy" ? 260 : 200) * (G.sneak && !m.aware ? 0.45 : 1);
+    if (hostile && d < detect && !G.atBase) {
+      if (!m.aware) { m.aware = true; if (G.sneak) m.cd = Math.max(m.cd, 0.8); } // 들켰다
       const def = m.kind === "enemy" ? ENEMIES[m.type] : null;
       sp = def ? def.speed : ai.sp;
       tx = dx / d; ty = dy / d;
@@ -593,7 +599,7 @@ async function interact() {
   for (const m of G.mobs) { const d = Math.hypot(m.x - p.x, m.y - p.y); if (d < bd) { bd = d; best = m; } }
   if (best && best.guard && best.calm && best.carry && bd < 60 && !best.stealTried) {
     best.stealTried = true;
-    const chance = Math.min(0.85, 0.2 + S.eff(st, "agi") * 0.05);
+    const chance = Math.min(0.92, 0.2 + S.eff(st, "agi") * 0.05 + (G.sneak ? 0.2 : 0));
     UI.choice("👮 보안 담당자", `졸린 눈으로 경계를 서고 있다. 허리춤에 카드키가 보인다.`, [{ label: `🤏 몰래 빼앗기 (성공 ${Math.round(chance * 100)}%)`, value: "steal", cls: "primary" }, { label: "⚔️ 공격한다", value: "fight", cls: "danger" }], { closable: true }).then((v) => {
       if (v === "steal" && Math.random() < chance) { best.carry = null; best.leader = "👮"; S.giveItem(st, "keycard", 1); UI.toast("💳 카드키를 슬쩍했다!", "good"); }
       else if (v === "steal") { best.calm = false; best.aggro = true; best.atkMul = (best.atkMul || 1) * 1.3; UI.toast("들켰다! 담당자가 덤벼든다", "bad"); }
@@ -620,8 +626,8 @@ async function interact() {
   // 바라보는 쪽이 깊은 물이고 나무가 있으면 다리를 놓을 수 있다
   const bt = bridgeTarget();
   if (bt != null && S.countAll(st, "wood") >= 4) {
-    UI.choice("🌉 물가", "깊은 강은 건널 수 없습니다. 나무 4개로 한 칸짜리 다리를 놓을 수 있습니다.", [{ label: "🌉 다리 놓기 (나무 4)", value: "b", cls: "primary" }, { label: "🫗 물 뜨기 / 낚시", value: "w" }, { label: "취소", value: 0 }], { closable: true }).then((v) => {
-      if (v === "b") { S.pay(st, { wood: 4 }); const RS = Reg.regionState(st); (RS.bridges[G.world.rid] ||= []).push(bt); applyBridges(G.world, [bt]); R.clearTerrainCache(); miniCache = null; G.r3d?.setWorld(G.world); Sfx.play("craft"); UI.toast("다리를 놓았다!", "good"); G.save(); }
+    UI.choice("🌉 물가", "깊은 강은 건널 수 없습니다. 나무 4개로 한 칸씩 다리를 놓을 수 있습니다(땅이나 이미 놓은 다리에 이어서만).", [{ label: "🌉 다리 놓기 (위치 고르기)", value: "b", cls: "primary" }, { label: "🫗 물 뜨기 / 낚시", value: "w" }, { label: "취소", value: 0 }], { closable: true }).then((v) => {
+      if (v === "b") G.startPlacing({ kind: "bridge" });
       else if (v === "w") waterAction();
     });
     return;
@@ -777,6 +783,89 @@ function cookStationNear() {
   const p = G.st.player;
   return R.baseLayout(G.st, G.world).out.find((o) => BUILDINGS[o.b.id]?.cookTier && Math.hypot(o.x - p.x, o.y - p.y) < 40) || null;
 }
+// ================= 배치 모드(건물 위치·다리) =================
+// 목표 지점: PC 는 마우스, 폰은 캐릭터 앞(화면을 탭하면 그 자리)
+G.mouse = null;
+addEventListener("mousemove", (e) => { G.mouse = { x: e.clientX, y: e.clientY }; });
+function screenToWorld(sx, sy) { const Z = G.zoom || 1.7; return { x: G.cam.x + sx / Z, y: G.cam.y + sy / Z }; }
+G.startPlacing = (o) => {
+  G.placing = { ...o, tap: null };
+  const bar = document.getElementById("placeBar") || document.body.appendChild(Object.assign(document.createElement("div"), { id: "placeBar" }));
+  bar.innerHTML = `<span>${o.kind === "bridge" ? "🌉 초록 칸에만 다리를 놓을 수 있습니다 (나무 4)" : `🏗️ ${BUILDINGS[o.id].name} 지을 자리를 고르세요 (초록=가능)`}</span><button class="btn primary" id="plOk">✔ 여기에</button><button class="btn" id="plNo">✖ 끝내기</button>`;
+  bar.hidden = false;
+  bar.querySelector("#plOk").onclick = () => placeConfirm();
+  bar.querySelector("#plNo").onclick = () => placeCancel();
+};
+function placeCancel() { G.placing = null; const b = document.getElementById("placeBar"); if (b) b.hidden = true; }
+function aimPoint() {
+  const p = G.st.player;
+  if (G.placing?.tap) return G.placing.tap;
+  if (G.mouse && matchMedia("(hover: hover)").matches) return screenToWorld(G.mouse.x, G.mouse.y);
+  return { x: p.x + Math.sin(G.moveYaw ?? 0) * 56, y: p.y + Math.cos(G.moveYaw ?? 0) * 56 };
+}
+// 다리를 놓을 수 있는 칸: 깊은 물·샛강 중 땅이나 다리에 붙어 있는 칸(플레이어 7칸 안)
+function bridgeCells() {
+  const p = G.st.player, tx0 = Math.floor(p.x / TILE), ty0 = Math.floor(p.y / TILE), out = [];
+  const land = (t) => t !== T.WATER && t !== T.STREAM && t !== T.WALL && t !== undefined;
+  for (let y = ty0 - 7; y <= ty0 + 7; y++) for (let x = tx0 - 7; x <= tx0 + 7; x++) {
+    if (x < 1 || y < 1 || x >= WORLD_W - 1 || y >= WORLD_H - 1) continue;
+    const t = G.world.tiles[y * WORLD_W + x];
+    if (t !== T.WATER && t !== T.STREAM) continue;
+    if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => land(G.world.tiles[(y + dy) * WORLD_W + x + dx]))) out.push(y * WORLD_W + x);
+  }
+  return out;
+}
+function placeTarget() {
+  const a = aimPoint();
+  if (G.placing.kind === "bridge") {
+    const cells = bridgeCells(); let best = null, bd = 1e9;
+    for (const i of cells) { const d = Math.hypot((i % WORLD_W + 0.5) * TILE - a.x, (Math.floor(i / WORLD_W) + 0.5) * TILE - a.y); if (d < bd) { bd = d; best = i; } }
+    return { cells, cell: bd < TILE * 2.5 ? best : null };
+  }
+  const st = G.st, L = R.baseLayout(st, G.world);
+  const dx = a.x - L.cx, dy = (a.y - L.cy) / 0.8, inWall = Math.hypot(dx, dy) < L.wallR * 0.9;
+  const free = L.out.every((o) => Math.hypot(o.x - a.x, o.y - a.y) > 40) && Math.hypot(a.x - L.cx, a.y - L.cy) > 36 && !isBlocked(G.world, a.x, a.y);
+  return { pos: a, ok: G.world.home && inWall && free };
+}
+function placeConfirm() {
+  const st = G.st, pl = G.placing; if (!pl) return;
+  const t = placeTarget();
+  if (pl.kind === "bridge") {
+    if (t.cell == null) return UI.toast("초록 칸(땅·다리에 붙은 물)을 고르세요", "warn");
+    if (!S.pay(st, { wood: 4 })) { placeCancel(); return UI.toast("나무가 부족합니다 (4개)", "bad"); }
+    const RS = Reg.regionState(st); (RS.bridges[G.world.rid] ||= []).push(t.cell); applyBridges(G.world, [t.cell]);
+    R.clearTerrainCache(); miniCache = null; G.r3d?.setWorld(G.world); Sfx.play("craft"); G.placing.tap = null;
+    UI.toast(`다리 한 칸! (나무 ${S.countAll(st, "wood")} 남음)`, "good"); G.save();
+    if (S.countAll(st, "wood") < 4) placeCancel();
+    return;
+  }
+  if (!t.ok) return UI.toast("기지 성벽 안, 다른 시설과 겹치지 않는 곳을 고르세요", "warn");
+  const r = S.build(st, pl.id, t.pos);
+  Sfx.play(r.ok ? "build" : "bad"); UI.toast(r.ok ? `${BUILDINGS[pl.id].name} 건설 완료!` : r.why, r.ok ? "good" : "bad");
+  placeCancel(); G.afterAction(); G.save();
+}
+// 배치 모드 그리기(월드 좌표, 줌 안에서)
+function drawPlacing(cam) {
+  const pl = G.placing; if (!pl) return;
+  const t = placeTarget();
+  if (pl.kind === "bridge") {
+    for (const i of t.cells) { ctx.fillStyle = i === t.cell ? "rgba(120,255,120,.55)" : "rgba(120,255,120,.2)"; ctx.fillRect((i % WORLD_W) * TILE - cam.x + 2, Math.floor(i / WORLD_W) * TILE - cam.y + 2, TILE - 4, TILE - 4); }
+    if (t.cell != null) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.strokeRect((t.cell % WORLD_W) * TILE - cam.x + 1, Math.floor(t.cell / WORLD_W) * TILE - cam.y + 1, TILE - 2, TILE - 2); }
+    return;
+  }
+  const L = R.baseLayout(G.st, G.world);
+  ctx.strokeStyle = "rgba(120,255,120,.35)"; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.ellipse(L.cx - cam.x, L.cy - cam.y, L.wallR * 0.9, L.wallR * 0.72, 0, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  ctx.globalAlpha = 0.75; ctx.fillStyle = t.ok ? "rgba(90,220,90,.35)" : "rgba(230,70,60,.4)";
+  ctx.beginPath(); ctx.ellipse(t.pos.x - cam.x, t.pos.y - cam.y + 10, 22, 10, 0, 0, Math.PI * 2); ctx.fill();
+  R.emoji(ctx, BUILDINGS[pl.id].icon, t.pos.x - cam.x, t.pos.y - cam.y - 6, 34); ctx.globalAlpha = 1;
+}
+// 탭/클릭: 배치 모드면 위치 지정(PC 는 바로 확정)
+addEventListener("pointerdown", (e) => {
+  if (!G.placing || e.target.closest("button,.modal-bg,#placeBar,#menu,#joy")) return;
+  G.placing.tap = screenToWorld(e.clientX, e.clientY);
+  if (matchMedia("(hover: hover)").matches) placeConfirm();
+});
+
 function bridgeTarget() {
   const p = G.st.player;
   const dx = Math.round(Math.sin(G.moveYaw ?? 0)), dy = Math.round(Math.cos(G.moveYaw ?? 0));
@@ -945,6 +1034,8 @@ function attack(m) {
   G.combo = now - (G.lastHitT || 0) < 0.9 ? (G.combo % 3) + 1 : 1;
   G.lastHitT = now;
   const crit = Math.random() < 0.05 + S.eff(st, "agi") * 0.005;
+  // 기습: 나를 알아채지 못한 적을 치면 2.5배
+  if (m.kind === "enemy" && !m.aware) { r.dmg = Math.round(r.dmg * 2.5); fxText(m.x, m.y - 70, "기습!", "#ff9a3c"); m.aware = true; }
   r.dmg = Math.round(r.dmg * (crit ? 1.8 : 1) * (!r.ranged && G.combo === 3 ? 1.6 : 1));
   if (crit) fxText(m.x, m.y - 56, "치명!", "#ffd36b");
   G.attackCd = r.ranged ? 0.5 : 0.42;
@@ -1151,7 +1242,7 @@ function update(dt) {
   const L = Math.hypot(ix, iy);
   G.moving = L > 0.15;
   if (G.moving) {
-    const sp = S.moveSpeed(st) * Math.min(1, L) * isSlow(G.world, p.x, p.y);
+    const sp = S.moveSpeed(st) * Math.min(1, L) * isSlow(G.world, p.x, p.y) * (G.sneak ? 0.5 : 1);
     const vx = (ix / Math.max(1, L)) * sp * dt, vy = (iy / Math.max(1, L)) * sp * dt;
     if (!isBlocked(G.world, p.x + vx, p.y)) p.x += vx;
     if (!isBlocked(G.world, p.x, p.y + vy)) p.y += vy;
@@ -1328,7 +1419,7 @@ function draw(dt) {
   }
   // 플레이어
   const mount = p.mount ? (p.mount.type === "animal" ? { kind: p.mount.kind } : { id: p.mount.id }) : null;
-  list.push({ y: p.y, f: () => R.drawCharacter(ctx, p.x - cam.x, p.y - cam.y, p.look, p.equip, G.facing, G.phase + (G.swing > 0 ? 2 : 0), { moving: G.moving || G.swing > 0, gender: p.gender, mount, scale: 1.05 }) });
+  list.push({ y: p.y, f: () => G.sneak ? (ctx.save(), ctx.globalAlpha = 0.6, ctx.translate(p.x - cam.x, p.y - cam.y), ctx.scale(1, 0.86), R.drawCharacter(ctx, 0, 0, p.look, p.equip, G.facing, G.phase, { moving: G.moving, gender: p.gender, scale: 1.05 }), ctx.restore()) : R.drawCharacter(ctx, p.x - cam.x, p.y - cam.y, p.look, p.equip, G.facing, G.phase + (G.swing > 0 ? 2 : 0), { moving: G.moving || G.swing > 0, gender: p.gender, mount, scale: 1.05 }) });
   list.sort((a, b) => a.y - b.y).forEach((o) => o.f());
   // 탄/효과
   ctx.fillStyle = "#ffd36b";
@@ -1351,6 +1442,7 @@ function draw(dt) {
   G.fx = G.fx.filter((f) => f.t > 0);
   // 안개: 아직 가 보지 않은 칸은 어둡게(미니맵과 같게)
   drawFieldFog(cam, VWz, VHz);
+  drawPlacing(cam);
   drawTutArrow();
   ctx.restore();
   // 상호작용 힌트(화면 아래 고정 — 캐릭터를 가리지 않게)

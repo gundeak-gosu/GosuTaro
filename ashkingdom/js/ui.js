@@ -338,7 +338,7 @@ export function openBase(tab = "build") {
   m.querySelectorAll("[data-speed]").forEach((b) => (b.onclick = () => { speedUse(st, b.dataset.speed); re(); }));
   m.querySelector("#upg")?.addEventListener("click", async () => { const r0 = Meta.startBuild(st, S); if (r0.ok) { Meta.addActivity(st, "build"); toast(`🔨 확장 공사 시작 (${fmtMin(r0.minutes)}) — 오프라인에도 진행됩니다`, "good"); re(); return; } const r = { ok: false, why: r0.why }; if (r.ok) { m.close(); G.afterAction(); await cinematic(`🏰 ${BASE_LEVELS[st.base.lv - 1].name}`, `기지가 커졌다. 성벽은 높아지고, 사람들의 목소리도 커졌다. 이제 ${BASE_LEVELS[st.base.lv - 1].slots}개의 시설을 세울 수 있다.`, { palette: ["#1d2433", "#4a4a5e", "#b7884f"] }); openBase(); } else toast(r.why, "bad"); });
   m.querySelectorAll("[data-b]").forEach((b) => {
-    if (tab === "build") b.onclick = () => { const r = S.build(st, b.dataset.b); Sfx.play(r.ok ? "build" : "bad"); toast(r.ok ? "건설 완료!" : r.why, r.ok ? "good" : "bad"); re(); };
+    if (tab === "build") b.onclick = () => { const why = S.canBuild(st, b.dataset.b); if (why) { Sfx.play("bad"); return toast(why, "bad"); } m.close(); G.startPlacing({ kind: "building", id: b.dataset.b }); }; // 위치 고르기
   });
   if (tab === "storage") m.querySelectorAll(".slot[data-b]").forEach((b) => (b.onclick = () => { const bb = st.base.buildings.find((x) => x.uid === b.dataset.b); if (!S.withdraw(st, bb, +b.dataset.idx)) toast("가방이 가득 찼습니다", "bad"); re(); }));
   m.querySelectorAll("[data-demo]").forEach((b) => (b.onclick = async () => { if (await choice("철거", "이 시설을 철거하고 재료 절반을 돌려받을까요?", [{ label: "철거", value: 1, cls: "danger" }, { label: "취소", value: 0 }], { closable: true })) { if (!S.demolish(st, b.dataset.demo)) toast("창고가 비어 있어야 철거할 수 있습니다", "bad"); } re(); }));
@@ -887,6 +887,37 @@ export function openCook(tier, pot = {}) {
   };
 }
 
+// ---------------- 자세한 상태(왼쪽 상태창을 누르면) ----------------
+export function openStatus() {
+  const st = G.st, p = st.player, J = JOBS[p.job];
+  const pct = (v, mx) => `<div class="hb" style="height:10px"><i style="width:${Math.max(0, Math.min(100, (v / mx) * 100))}%;background:${v / mx > 0.5 ? "#7ed957" : v / mx > 0.25 ? "#f2c14e" : "#e5534b"}"></i></div>`;
+  const hand = p.equip.hand, off = p.equip.off;
+  const atk = Math.round(((hand && ITEMS[hand.id].atk ? S.itemStat(hand, "atk") : 2) + S.eff(st, "str") * 0.8) * (1 + (J.perks.dmg || 0)) * (1 + (st.relicFx?.atk || 0)));
+  const rows = [
+    ["❤️ 체력", `${Math.round(p.hp)} / ${p.maxHp}`, pct(p.hp, p.maxHp), "잠을 자야만 회복(침대 100%·침낭 70%·맨땅 40%)"],
+    ["🍖 배고픔", `${Math.round(p.hunger)} / 100`, pct(p.hunger, 100), p.hunger < 25 ? "굶주림: 곧 체력이 줄어든다" : "50 이상이어야 잠잘 때 회복"],
+    ["💧 목마름", `${Math.round(p.thirst)} / 100`, pct(p.thirst, 100), "더러운 물은 끓여 마시자"],
+    ["🌡️ 체감 온도", `${Math.round(p.warmth)}℃`, "", p.warmth < 0 ? '<span class="no">얼어붙는 중 — 불·옷이 필요</span>' : "보온 " + S.equipStat(st, "warm")],
+    ["☢️ 방사능", `${Math.round(p.rad)} / 150`, pct(150 - p.rad, 150), p.rad >= 100 ? '<span class="no">피폭 — 항방사능제 필요</span>' : "차단율 " + Math.round(S.equipStat(st, "rad") * 100) + "%"],
+    ["🤢 질병", p.sick > 0 ? `${Math.ceil(p.sick)}시간 남음` : "없음", "", p.sick > 0 ? "약초차·구급상자로 치료" : "날것·더러운 물 조심"],
+  ];
+  const m = modal(`<h2>📋 ${esc(p.name)}의 상태</h2>
+    <div class="card"><b>${J.icon} ${J.name}</b> Lv.${p.level} · 혈통 ${p.legacyLevel} · ${S.day(st)}일 생존 · 💀${st.stats.deaths || 0} · 업보 ${st.karma ?? 0}</div>
+    <div class="rlist">${rows.map(([a, v, bar, note]) => `<div class="recipe"><span class="rinfo"><b>${a}</b> ${v}${bar}<small class="muted">${note}</small></span></div>`).join("")}</div>
+    <h3>⚔️ 전투</h3><div class="card">공격력 약 <b>${atk}</b>${off && ITEMS[off.id].atk ? ` (+왼손 ${Math.round(S.itemStat(off, "atk") * 0.8)})` : ""} · 방어 <b>${Math.round(S.equipStat(st, "def") + (st.relicFx?.def || 0))}</b> · 이동 속도 <b>${Math.round(S.moveSpeed(st))}</b>${G.sneak ? " (숨어 걷는 중 ½)" : ""} · 전투력 <b>${S.combatPower(st)}</b><br>
+      치명타 ${Math.round((0.05 + S.eff(st, "agi") * 0.005) * 100)}% · 기습 2.5배 · 3연타 1.6배 · 구르기 기력 ${Math.round(G.stamina ?? 100)}/100</div>
+    <h3>📊 능력치</h3><div class="statrow">${STATS.map((x) => `<span>${x.name} <b>${S.eff(st, x.id)}</b><small class="muted">(기본 ${p.stats[x.id]})</small></span>`).join("")}</div>
+    <h3>✨ 효과</h3><div class="chips">
+      ${Object.entries(J.perks).map(([k, v]) => `<span class="chip">직업: ${({ dmg: "피해", heal: "치료", radRes: "방사능 저항", selfRevive: "자가 소생", buildCost: "건설비", wear: "마모", spoil: "부패", food: "영양", research: "연구", xp: "경험치", recruit: "영입", morale: "사기", prize: "상금", farm: "농사", tame: "길들이기", luck: "행운" })[k] || k} ${typeof v === "number" && Math.abs(v) < 5 ? (v > 0 ? "+" : "") + Math.round(v * 100) + "%" : v}</span>`).join("")}
+      ${Object.entries(st.relicFx || {}).map(([k, v]) => `<span class="chip">유물: ${({ atk: "피해", ranged: "원거리", def: "방어", rad: "방사능 차단", hunger: "배고픔", thirst: "목마름", xp: "경험치", cra: "손재주", research: "연구" })[k] || k} ${k === "def" || k === "cra" ? "+" + Math.round(v) : (v > 0 ? "+" : "") + Math.round(v * 100) + "%"}</span>`).join("")}
+      ${Object.keys(TALENTS).filter((t) => S.talentOn(st, t)).map((t) => `<span class="chip">특기: ${TALENTS[t].name} — ${TALENTS[t].desc}</span>`).join("")}
+      ${Object.entries(st.buffs || {}).map(([k, v]) => `<span class="chip ok">${({ warm: "따뜻함", xp: "경험치 +50%" })[k] || k} ${Math.ceil(v / 60)}시간</span>`).join("")}
+    </div>
+    <h3>🎯 기술</h3><div class="chips">${J.skills.map((k) => `<span class="chip ${p.skills.includes(k.id) ? "ok" : "muted"}">Lv${k.lv} ${k.name}: ${k.desc}</span>`).join("")}${Object.entries(WSKILLS).map(([k, w]) => `<span class="chip">${w.name} ${p.wskills?.[k] || 0}/${w.max}</span>`).join("")}</div>
+    <h3>🎒 소지</h3><div class="card">가방 ${S.usedSlots(st.inv)}/${S.bagSize(st)}칸 · 금화 ${Math.floor(st.gold)} · 처치 ${st.stats.kills} · 채집 ${st.stats.gathered}</div>`, { wide: true });
+  return m;
+}
+
 // ---------------- 떠돌이 상인(아이템 그림 + 가격 + 말풍선 설명) ----------------
 export function openTrader(sell, buy) {
   const st = G.st;
@@ -1163,6 +1194,7 @@ export function renderHud() {
     </div>
     <div class="goal" id="goalBox">📖 ${S.chapter(st).hint}</div>`;
   $("#goalBox").onclick = () => openStory();
+  const hl = document.querySelector("#hud .hud-l"); if (hl) { hl.style.cursor = "pointer"; hl.onclick = () => !G.paused && openStatus(); hl.title = "눌러서 자세한 상태 보기"; }
   $("#dailyBtn").onclick = () => !G.paused && openDaily();
   // 행동 버튼에 지금 손에 든 것을 보여 준다(맨손이면 손)
   const held = p.equip?.hand?.id;

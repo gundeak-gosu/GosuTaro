@@ -1000,11 +1000,12 @@ export function canBuild(st, id) {
   return null;
 }
 
-export function build(st, id) {
+export function build(st, id, pos = null) {
   const why = canBuild(st, id);
   if (why) return { ok: false, why };
   pay(st, buildCost(st, id));
   const b = { uid: uid("b"), id };
+  if (pos) b.pos = { x: Math.round(pos.x), y: Math.round(pos.y) };
   if (BUILDINGS[id].storage) b.storage = [];
   if (id === "generator") { b.fueled = false; }
   st.base.buildings.push(b);

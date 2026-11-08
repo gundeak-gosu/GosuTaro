@@ -11,7 +11,7 @@ import * as Sfx from "./sfx.js";
 import * as Bgm from "./bgm.js";
 import { TUTORIAL, tutorialStep } from "./tutorial.js";
 import { BIOMES } from "./data.js";
-import { SPECIALS, SCOUT, RAIDER_BANDS } from "./data.js";
+import { SPECIALS, SCOUT, RAIDER_BANDS, HEROINES, TALENTS } from "./data.js";
 import { generateWorld, TILE, WORLD_W, WORLD_H, tileAt, isBlocked, nearWater, T, NODE_TYPES, applyBridges, isSlow } from "./world.js";
 import * as Reg from "./regions.js";
 import * as Sites from "./sites.js";
@@ -601,6 +601,8 @@ function enterSite(sid, floor) {
   const tier = outer.world.region?.tier || 0, k = 1 + tier * 0.25 + floor * 0.12;
   for (const sp of f.spawns) for (let i = 0; i < sp.n; i++) { const m = mobAt(sp.type, "enemy", (sp.tx + 0.5 + i) * TILE, (sp.ty + 0.5) * TILE); m.hp = m.maxHp = Math.round(m.hp * k); m.atkMul = k; m.aggro = false; G.mobs.push(m); }
   const ss = siteState(sid);
+  const hk = !D.safe && floor === 0 ? S.heroineFor(st, q.kind) : null;
+  if (hk && Math.random() < 0.55) { const r = f.events.length ? f.events[0] : null; G.world.events.push({ kind: "heroine", key: hk, tx: (r ? r.tx : f.entry.tx + 3), ty: (r ? r.ty + 2 : f.entry.ty) }); }
   if (f.boss && !ss.cleared) {
     const b = mobAt(q.kind === "airport" ? "ash_knight" : "mutant", "enemy", (f.boss.tx + 0.5) * TILE, (f.boss.ty + 0.5) * TILE);
     const bk = 1 + tier * 0.3 + st.story.chapter * 0.06;
@@ -623,6 +625,17 @@ G.leaveSite = leaveSite;
 // 건물 안 사건: 생존자 구조·일기·숨겨진 보급품·함정
 function siteEvent(ev) {
   const st = G.st; ev.done = true;
+  if (ev.kind === "heroine") {
+    const h = HEROINES[ev.key];
+    UI.choice(`⭐ ${h.name} — ${h.title}`, `${h.bio}<br>특기 <b>${TALENTS[h.talent].name}</b>: ${TALENTS[h.talent].desc}<br><small class="muted">매력 ${h.req} 이상이면 마음을 연다 (내 매력 ${S.eff(st, "cha")})</small>`, [{ label: "함께 가자고 한다", value: 1, cls: "primary" }, { label: "그냥 지나간다", value: 0 }], { closable: true }).then((v) => {
+      if (!v) { ev.done = false; return; }
+      const r = S.recruitHeroine(st, ev.key);
+      if (r.ok) UI.toast(`⭐ ${h.name}이(가) 동료가 되었다! (동료 메뉴에서 호감을 쌓으면 청혼할 수 있다)`, "good");
+      else { UI.toast(r.why, "warn"); if (r.soft) ev.done = false; }
+      G.afterAction();
+    });
+    return;
+  }
   if (ev.kind === "survivor") {
     const sv = S.randomSurvivor(makeRng(Date.now()));
     UI.choice("🙋 갇힌 생존자", `무너진 방 안에 ${sv.name}(${sv.role ? "" : ""}${({ cook: "요리사", researcher: "연구자", doctor: "의사", soldier: "군인", jobless: "백수", politician: "정치인", engineer: "기술자", farmer: "농부", hunter: "사냥꾼" })[sv.role] || "생존자"})이(가) 갇혀 있다. 구해 줄까?`, [{ label: "구해서 기지로 데려간다", value: 1, cls: "primary" }, { label: "물과 음식만 주고 간다", value: 2 }], { closable: true }).then((v) => {
@@ -771,7 +784,7 @@ async function raiderBand() {
   }
   if (!gang.length) return;
   G.mobs.push(...gang);
-  const toll = Math.round(40 + st.story.chapter * 25 + (G.world.region?.tier || 0) * 30);
+  const toll = Math.round((40 + st.story.chapter * 25 + (G.world.region?.tier || 0) * 30) * (S.talentOn(st, "merchant") ? 0.6 : 1));
   const cha = S.eff(st, "cha"), persuade = Math.min(0.85, 0.15 + cha * 0.05 + (JOBS[p.job].perks.recruit || 0) * 0.3);
   st.stats.bands = (st.stats.bands || 0) + 1;
   const v = await UI.choice(`🏴 약탈자 무리 「${band.name}」`, `우두머리 <b>${band.leader}</b>와 부하 ${gang.length - 1}명이 길을 막았다.<br>"여기 지나가려면 값을 치러야지."`, [
@@ -1180,7 +1193,7 @@ function draw(dt) {
   // 탄/효과
   ctx.fillStyle = "#ffd36b";
   for (const s of G.shots) { ctx.fillStyle = s.foe ? "#ff6b5b" : s.thrown ? "#d9d9d9" : "#ffd36b"; ctx.fillRect(s.x - cam.x - 2, s.y - cam.y - 2, s.item && !s.thrown ? 7 : 4, 4); }
-  for (const e of G.world.events || []) if (!e.done) R.emoji(ctx, { survivor: "🙋", diary: "📓", stash: "📦", trap: "❓" }[e.kind], (e.tx + 0.5) * TILE - cam.x, (e.ty + 0.5) * TILE - cam.y - 6, 26);
+  for (const e of G.world.events || []) if (!e.done) R.emoji(ctx, { survivor: "🙋", diary: "📓", stash: "📦", trap: "❓", heroine: "👩" }[e.kind], (e.tx + 0.5) * TILE - cam.x, (e.ty + 0.5) * TILE - cam.y - 6, 26);
   for (const d of G.drops) { ctx.globalAlpha = 0.85 + Math.sin(G.t * 5) * 0.15; R.emoji(ctx, ITEMS[d.id].icon, d.x - cam.x, d.y - cam.y, 18); ctx.globalAlpha = 1; }
   for (const f of G.fx) { f.t -= dt; f.y -= 28 * dt; ctx.globalAlpha = Math.max(0, f.t); ctx.fillStyle = f.color; ctx.font = "bold 13px sans-serif"; ctx.fillText(f.txt, f.x - cam.x - 8, f.y - cam.y); }
   ctx.globalAlpha = 1;
@@ -1284,7 +1297,7 @@ function drawHint(cam) {
   if (!txt) for (const n of visibleNodes()) { const nx = (n.tx + 0.5) * TILE, ny = (n.ty + 0.5) * TILE; if (Math.hypot(nx - p.x, ny - p.y) < 50) { const gp = S.gatherPower(G.st, n.type); txt = `${NODE_TYPES[n.type].name} 채집${gp.need ? ` · ${gp.need} 없음(아주 느림)` : ""}`; hx = nx; hy = ny - 36; break; } }
   for (const m of G.mobs) if (Math.hypot(m.x - p.x, m.y - p.y) < 56) { txt = m.kind === "enemy" ? `${ENEMIES[m.type].name} 공격` : `${ANIMALS[m.type].name} (길들이기/사냥)`; hx = m.x; hy = m.y - 50; break; }
   if (!txt && G.world.home && Math.hypot((G.world.cx + 0.5) * TILE - p.x, (G.world.cy + 0.5) * TILE - p.y) < 2.2 * TILE) { txt = "기지 관리"; hx = p.x; hy = p.y - 60; }
-  if (!txt && G.world.site) { if (nearTile(T.EXIT)) txt = "밖으로 나가기"; else if (nearTile(T.STAIRS)) txt = Sites.SITES[G.world.site.kind].under ? "더 깊이 내려가기" : "위층으로 올라가기"; else { const ev = (G.world.events || []).find((e) => !e.done && Math.hypot((e.tx + 0.5) * TILE - p.x, (e.ty + 0.5) * TILE - p.y) < 1.6 * TILE); if (ev) txt = { survivor: "갇힌 생존자 돕기", diary: "일기 읽기", stash: "보급품 뒤지기", trap: "수상한 상자 열기" }[ev.kind]; } }
+  if (!txt && G.world.site) { if (nearTile(T.EXIT)) txt = "밖으로 나가기"; else if (nearTile(T.STAIRS)) txt = Sites.SITES[G.world.site.kind].under ? "더 깊이 내려가기" : "위층으로 올라가기"; else { const ev = (G.world.events || []).find((e) => !e.done && Math.hypot((e.tx + 0.5) * TILE - p.x, (e.ty + 0.5) * TILE - p.y) < 1.6 * TILE); if (ev) txt = ev.kind === "heroine" ? `⭐ ${HEROINES[ev.key].name}에게 말 걸기` : { survivor: "갇힌 생존자 돕기", diary: "일기 읽기", stash: "보급품 뒤지기", trap: "수상한 상자 열기" }[ev.kind]; } }
   if (!txt) { const q = !G.world.site && siteNear(); if (q) txt = `${Sites.SITES[q.kind].name} 들어가기`; }
   if (!txt && nearWater(G.world, p.x, p.y)) { txt = p.equip.hand?.id === "fishing_rod" ? "낚시" : S.count(st.inv, "bottle") ? `물 뜨기 (빈 병 ${S.count(st.inv, "bottle")})` : "물 뜨기 — 빈 물병 필요"; hx = p.x; hy = p.y - 60; }
   if (!txt) return;

@@ -500,6 +500,32 @@ test("길들이기: 레벨 요구 · 동물 탐색 충전(3시간)·보석·미�
   const acc = { gems: 100 }; ok(S.useScout(st, acc, "gem").ok); eq(acc.gems, 70);
   give(st, { scent_lure: 1 }); ok(S.useScout(st, null, "lure").ok); eq(S.useScout(st, null, "lure").ok, false);
 });
+test("혼인(삼국지식): 매력에 따라 여러 배우자, 반지·호감 필요, 자녀는 특기를 물려받는다", () => {
+  const { st } = fresh("politician"); // 매력 10 → 배우자 최대 3
+  st.base.buildings.push({ uid: "b", id: "bed" }, { uid: "h", id: "house" });
+  eq(S.maxSpouses(st), 3);
+  st.player.stats.cha = 4; eq(S.maxSpouses(st), 1); st.player.stats.cha = 10;
+  st.base.lv = 3;
+  const r1 = S.recruitHeroine(st, "seolhwa"); ok(r1.ok, r1.why);
+  const r2 = S.recruitHeroine(st, "harin"); ok(r2.ok, r2.why);
+  eq(S.recruitHeroine(st, "seolhwa").ok, false);
+  for (const c of [r1.c, r2.c]) c.affinity = 120;
+  ok(S.canMarry(st, r1.c.uid).includes("반지"));
+  give(st, { ring: 2 });
+  ok(S.propose(st, r1.c.uid, () => 0).ok); ok(S.propose(st, r2.c.uid, () => 0).ok);
+  eq(S.spouses(st).length, 2);
+  // 거절되면 호감 -15
+  const r3 = S.recruitHeroine(st, "dain"); r3.c.affinity = 100; give(st, { ring: 1 });
+  const ref = S.propose(st, r3.c.uid, () => 0.999); ok(ref.refused); eq(r3.c.affinity, 85);
+  // 특기: 배우자 명궁 → 원거리 피해 증가
+  ok(S.talentOn(st, "archer"));
+  // 자녀: 여러 날 지나면 태어나고 어머니가 기록된다
+  for (let d = 0; d < 120 && st.family.children.length < 2; d++) S.tick(st, 24 * 60, { atBase: true, nearFire: true });
+  ok(st.family.children.length >= 1, "아이 " + st.family.children.length);
+  const kid = st.companions.find((c) => c.uid === st.family.children[0]);
+  ok(S.spouses(st).includes(kid.parent));
+  const mR = fresh("jobless").st; mR.player.stats.cha = 2; eq(S.recruitHeroine(mR, "ahyeon").ok, false); // 매력 부족
+});
 test("제작: 재료 부족 시 실패 / 충분하면 성공 + 경험치", () => {
   const { st } = fresh();
   eq(S.craft(st, "stone_axe").ok, false);

@@ -200,6 +200,7 @@ export const ITEMS = {
   rotten_food: { name: "썩은 음식", type: "res", icon: "🤢" },
 
   // 물
+  ring: { name: "결혼 반지", type: "misc", icon: "💍", value: 30, desc: "청혼할 때 필요하다. 거절당하면 돌려받는다." },
   bottle: { name: "빈 물병", type: "misc", icon: "🍶", desc: "물을 뜨려면 필요하다. 물을 마시면 다시 빈 병이 된다." },
   water_dirty: { name: "더러운 물", type: "food", icon: "🫗", spoil: 0, food: { thirst: 25, rad: 6, sick: 0.4 }, raw: true },
   water_clean: { name: "깨끗한 물", type: "food", icon: "💧", spoil: 0, food: { thirst: 35 } },
@@ -338,6 +339,7 @@ export const RECIPES = [
   { id: "spear", out: ["spear", 1], in: { wood: 2, twig: 2, stone: 1, fiber: 3 }, station: null },
   { id: "bottle", out: ["bottle", 1], in: { leather: 1, fiber: 2 }, station: null, name: "가죽 물주머니" },
   { id: "bottle_scrap", out: ["bottle", 2], in: { scrap: 2 }, station: "workbench" },
+  { id: "ring", out: ["ring", 1], in: { scrap: 3, electronics: 1 }, station: "workbench" },
   { id: "sleeping_bag", out: ["sleeping_bag", 1], in: { cloth: 3, fiber: 4 }, station: null },
   { id: "rag_shirt", out: ["rag_shirt", 1], in: { cloth: 3, fiber: 2 }, station: null },
   { id: "rag_pants", out: ["rag_pants", 1], in: { cloth: 3, fiber: 2 }, station: null },
@@ -484,6 +486,28 @@ export const STORY_COMPANIONS = {
   bongsu: { name: "봉수", gender: "M", role: "cook", chapter: 3, bio: "핵겨울에 국밥집을 다시 연 사내.", stats: { str: 6, agi: 4, vit: 8, int: 5, cha: 8, cra: 6 } },
   ara: { name: "진아라", gender: "F", role: "researcher", chapter: 8, bio: "방사능 강의 비밀을 아는 생물학자.", stats: { str: 3, agi: 5, vit: 4, int: 10, cha: 6, cra: 7 } },
   taeho: { name: "남궁태호", gender: "M", role: "politician", chapter: 9, bio: "남쪽 정착지 연합의 대변인.", stats: { str: 4, agi: 4, vit: 5, int: 7, cha: 10, cra: 3 } },
+};
+
+// 여성 영웅(삼국지의 장수처럼 능력치·특기가 있다). 건물에서 만나고, 매력(요구치)이 있어야 동료가 된다.
+// talent: 동행하거나 배우자로 기지에 있으면 효과. 자녀에게 50% 확률로 물려준다.
+export const HEROINES = {
+  seolhwa: { name: "백설화", title: "눈의 궁수", role: "hunter", req: 6, meet: ["airport", "gym"], stats: { str: 6, agi: 10, vit: 6, int: 6, cha: 8, cra: 6 }, talent: "archer", bio: "설원에서 혼자 살아남은 명궁." },
+  harin: { name: "윤하린", title: "폐허의 상인", role: "politician", req: 5, meet: ["mall", "apartment"], stats: { str: 4, agi: 6, vit: 5, int: 8, cha: 10, cra: 6 }, talent: "merchant", bio: "쇼핑몰을 통째로 장부에 올린 여자." },
+  eunbi: { name: "강은비", title: "강철 손", role: "engineer", req: 6, meet: ["power", "subway"], stats: { str: 7, agi: 5, vit: 7, int: 8, cha: 6, cra: 10 }, talent: "smith", bio: "발전소 터빈을 맨손으로 고친 기술자." },
+  ahyeon: { name: "서아현", title: "잿빛의 가수", role: "politician", req: 8, meet: ["broadcast"], stats: { str: 3, agi: 6, vit: 5, int: 7, cha: 12, cra: 5 }, talent: "idol", bio: "방송국 지하에서 매일 밤 노래를 송출했다." },
+  soyul: { name: "차소율", title: "검의 그림자", role: "soldier", req: 7, meet: ["highrise", "gym"], stats: { str: 9, agi: 10, vit: 7, int: 5, cha: 7, cra: 5 }, talent: "blade", bio: "고층 빌딩 옥상에서 홀로 칼을 갈던 검객." },
+  chaeryeong: { name: "문채령", title: "책사", role: "researcher", req: 7, meet: ["broadcast", "hospital"], stats: { str: 3, agi: 5, vit: 5, int: 12, cha: 8, cra: 7 }, talent: "strategist", bio: "옛 정부의 마지막 전략 보좌관." },
+  dain: { name: "오다인", title: "들판의 손", role: "cook", req: 4, meet: ["apartment", "mall"], stats: { str: 6, agi: 6, vit: 8, int: 6, cha: 8, cra: 7 }, talent: "chef", bio: "통조림 하나로 열 사람을 먹이는 요리사." },
+  eunsol: { name: "남은솔", title: "늑대의 친구", role: "farmer", req: 5, meet: ["subway", "airport"], stats: { str: 7, agi: 8, vit: 8, int: 5, cha: 7, cra: 5 }, talent: "beast", bio: "늑대 무리와 함께 다니는 사냥꾼." },
+  yerin: { name: "한예린", title: "백의의 천사", role: "doctor", req: 6, meet: ["hospital"], stats: { str: 3, agi: 5, vit: 6, int: 10, cha: 9, cra: 6 }, talent: "medic", bio: "무너진 병원에 끝까지 남은 간호사." },
+  mina: { name: "류미나", title: "그림자 정찰병", role: "soldier", req: 6, meet: ["subway", "highrise"], stats: { str: 6, agi: 11, vit: 6, int: 7, cha: 7, cra: 6 }, talent: "scout", bio: "지하철 노선도를 머릿속에 다 넣은 정찰병." },
+};
+export const TALENTS = {
+  archer: { name: "명궁", desc: "원거리 피해 +15%" }, blade: { name: "검성", desc: "근접 피해 +15%" },
+  merchant: { name: "흥정", desc: "약탈자 통행료 -40%, 금화 수입 +10%" }, smith: { name: "명장", desc: "제작 시 좋은 품질 확률 ↑" },
+  idol: { name: "인기", desc: "주민 사기 +10, 생존자 영입 ↑" }, strategist: { name: "책략", desc: "경험치 +10%" },
+  chef: { name: "요리", desc: "음식 영양 +15%" }, beast: { name: "조련", desc: "길들이기 쉬움" },
+  medic: { name: "의술", desc: "잠잘 때 회복 +30%" }, scout: { name: "정찰", desc: "동물 탐색 충전 최대 +1" },
 };
 
 export const SURVIVOR_NAMES = {

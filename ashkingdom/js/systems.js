@@ -4,7 +4,7 @@
 // =====================================================================
 import {
   VERSION, TIME, DIFFICULTY, JOBS, ITEMS, RECIPES, BUILDINGS, BASE_LEVELS, RESEARCH, ANIMALS,
-  VEHICLES, ROLES, STORY_COMPANIONS, SURVIVOR_NAMES, CHAPTERS, ENDINGS, XP_CURVE, ENEMIES, QUALITY, AFFIXES, WSKILLS, SCOUT,
+  VEHICLES, ROLES, STORY_COMPANIONS, SURVIVOR_NAMES, CHAPTERS, ENDINGS, XP_CURVE, ENEMIES, QUALITY, AFFIXES, WSKILLS, SCOUT, HEROINES, TALENTS,
   BIOMES, SEASON_NAMES, WEATHER, NUCLEAR_WINTER,
 } from "./data.js";
 import { makeRng } from "./rng.js";
@@ -643,7 +643,7 @@ export function tick(st, minutes, ctx = {}) {
   // 자연 회복
   if (p.hunger > 50 && p.thirst > 50 && p.rad < 100 && p.sick <= 0 && amb >= 0) {
     // 체력은 잠을 자야만 회복된다(침대 1 · 침낭 0.7 · 맨땅 0.4)
-    if (ctx.sleeping) p.hp += 6 * (ctx.sleepMul ?? 1) * h * (1 + (JOBS[p.job].perks.heal || 0) * 0.5);
+    if (ctx.sleeping) p.hp += 6 * (ctx.sleepMul ?? 1) * h * (1 + (JOBS[p.job].perks.heal || 0) * 0.5) * (talentOn(st, "medic") ? 1.3 : 1);
   }
   p.hp = clamp(p.hp - dmg, 0, p.maxHp);
 
@@ -782,12 +782,15 @@ export function dailyUpdate(st, d) {
   }
 
   // 결혼 → 아이
-  if (st.family.spouse && hasBuilding(st, "house") && st.family.children.length < 4 && rng.chance(0.06)) {
+  const sps = spouses(st).map((u) => st.companions.find((c) => c.uid === u)).filter(Boolean);
+  const mom = sps.filter((c) => st.family.children.filter((k) => st.companions.find((x) => x.uid === k)?.parent === c.uid).length < 2)[rng.int(0, Math.max(0, sps.length - 1))];
+  if (mom && hasBuilding(st, "house") && st.family.children.length < 10 && rng.chance(0.05 + 0.01 * sps.length + (mom.affinity > 110 ? 0.02 : 0))) {
     const g = rng.chance(0.5) ? "M" : "F";
-    const sp = st.companions.find((c) => c.uid === st.family.spouse);
+    const sp = mom;
     const child = {
       uid: uid("c"), name: rng.pick(SURVIVOR_NAMES[g]), gender: g, role: rng.pick([st.player.job, sp?.role || "jobless"].filter((r) => ROLES[r])) || "jobless",
       stats: mixStats(st.player.stats, sp?.stats, rng), affinity: 100, morale: 100, task: "base", child: true, age: 0, family: true, hp: 100,
+      parent: sp?.uid, talent: sp?.talent && rng.chance(0.5) ? sp.talent : undefined, // 어머니의 특기를 반쯤 물려받는다
     };
     st.companions.push(child);
     st.family.children.push(child.uid);
@@ -857,7 +860,7 @@ export function residentCap(st) {
 // =========================== 경험치/레벨 ===========================
 export function gainXp(st, amount) {
   const p = st.player;
-  const mult = 1 + (JOBS[p.job].perks.xp || 0) + (st.buffs.xp ? 0.5 : 0) + (st.passActive ? 0.2 : 0);
+  const mult = 1 + (JOBS[p.job].perks.xp || 0) + (st.buffs.xp ? 0.5 : 0) + (st.passActive ? 0.2 : 0) + (talentOn(st, "strategist") ? 0.1 : 0);
   const x = Math.round(amount * mult);
   p.xp += x;
   st.stats.xpEarned += x;
@@ -1038,7 +1041,7 @@ export function useItem(st, index) {
     const f = it.food;
     const fresh = s.fresh ?? 1;
     const q = fresh > 0.3 ? 1 : 0.6;
-    const nut = (1 + (JOBS[p.job].perks.food || 0)) * q;
+    const nut = (1 + (JOBS[p.job].perks.food || 0) + (talentOn(st, "chef") ? 0.15 : 0)) * q;
     p.hunger = clamp(p.hunger + (f.hunger || 0) * nut, 0, 100);
     p.thirst = clamp(p.thirst + (f.thirst || 0) * (f.thirst > 0 ? nut : 1), 0, 100);
     p.hp = clamp(p.hp + (f.hp || 0) * nut, 0, p.maxHp);
@@ -1131,6 +1134,8 @@ export function playerAttack(st, slot = "hand") {
   }
   atk *= 1 + (JOBS[st.player.job].perks.dmg || 0);
   if (hasSkill(st, "warlord")) atk *= 1.15;
+  if (ranged && talentOn(st, "archer")) atk *= 1.15;
+  if (!ranged && talentOn(st, "blade")) atk *= 1.15;
   if (hand) wear(st, slot, 1);
   return { dmg: Math.round(atk), ranged, arrow, burn: arrow ? ITEMS[arrow].arrow?.burn || 0 : 0, range: ranged ? 220 : 46 };
 }
@@ -1219,15 +1224,16 @@ export function tameCheck(st, type) {
 }
 // ---------- 동물 탐색(충전식) ----------
 export function scoutCharges(st, now = Date.now()) {
-  const sc = (st.scout ||= { charges: SCOUT.maxCharges, t: now });
+  const cap = SCOUT.maxCharges + (talentOn(st, "scout") ? 1 : 0);
+  const sc = (st.scout ||= { charges: cap, t: now });
   const gained = Math.floor((now - sc.t) / SCOUT.rechargeMs);
-  if (gained > 0) { sc.charges = Math.min(SCOUT.maxCharges, sc.charges + gained); sc.t = sc.charges >= SCOUT.maxCharges ? now : sc.t + gained * SCOUT.rechargeMs; }
-  return { charges: sc.charges, nextMs: sc.charges >= SCOUT.maxCharges ? 0 : SCOUT.rechargeMs - (now - sc.t) };
+  if (gained > 0) { sc.charges = Math.min(cap, sc.charges + gained); sc.t = sc.charges >= cap ? now : sc.t + gained * SCOUT.rechargeMs; }
+  return { charges: sc.charges, cap, nextMs: sc.charges >= cap ? 0 : SCOUT.rechargeMs - (now - sc.t) };
 }
 // how: "charge" | "gem" | "lure". 성공하면 true
 export function useScout(st, acc, how, now = Date.now()) {
   const c = scoutCharges(st, now);
-  if (how === "charge") { if (c.charges < 1) return { ok: false, why: "충전 대기 중" }; if (st.scout.charges >= SCOUT.maxCharges) st.scout.t = now; st.scout.charges--; return { ok: true }; }
+  if (how === "charge") { if (c.charges < 1) return { ok: false, why: "충전 대기 중" }; if (st.scout.charges >= c.cap) st.scout.t = now; st.scout.charges--; return { ok: true }; }
   if (how === "gem") { if ((acc?.gems ?? 0) < SCOUT.gemCost) return { ok: false, why: `보석 ${SCOUT.gemCost} 필요` }; acc.gems -= SCOUT.gemCost; return { ok: true }; }
   if (how === "lure") { if (count(st.inv, "scent_lure") < 1) return { ok: false, why: "냄새 미끼가 없습니다" }; removeFrom(st.inv, "scent_lure", 1); return { ok: true }; }
   return { ok: false, why: "?" };
@@ -1235,7 +1241,7 @@ export function useScout(st, acc, how, now = Date.now()) {
 
 export function tameDifficulty(st, type) {
   const base = ANIMALS[type].tame;
-  return clamp(base - (JOBS[st.player.job].perks.tame || 0) * 0.5 - eff(st, "cha") * 0.01, 0.05, 0.95);
+  return clamp(base - (JOBS[st.player.job].perks.tame || 0) * 0.5 - eff(st, "cha") * 0.01 - (talentOn(st, "beast") ? 0.15 : 0), 0.05, 0.95);
 }
 
 export function addTamed(st, type, name) {
@@ -1340,20 +1346,57 @@ export function gift(st, cuid, invIndex) {
   return g;
 }
 
+// ---------- 삼국지식 혼인 ----------
+// 배우자는 여럿 가능: 최대 = 1 + 매력/5 (최대 5명). 청혼엔 반지가 필요하고, 성공률 = 매력·호감·기지 규모
+export function spouses(st) { const f = st.family; f.spouses ||= f.spouse ? [f.spouse] : []; return f.spouses; }
+export function maxSpouses(st) { return Math.min(5, 1 + Math.floor(eff(st, "cha") / 5)); }
+export function proposeChance(st, c) { return clamp(0.3 + eff(st, "cha") * 0.035 + ((c.affinity || 0) - 100) * 0.015 + st.base.lv * 0.03, 0.05, 0.95); }
 export function canMarry(st, cuid) {
   const c = st.companions.find((x) => x.uid === cuid);
-  if (!c || c.family || !isAdult(c)) return "불가능";
-  if (st.family.spouse) return "이미 배우자가 있습니다";
+  if (!c || c.family || c.spouse || !isAdult(c)) return "불가능";
+  if (c.gender === st.player.gender) return "불가능";
+  if (spouses(st).length >= maxSpouses(st)) return `배우자는 매력에 따라 최대 ${maxSpouses(st)}명 (매력 5마다 +1)`;
   if (c.affinity < 100) return `호감도 ${c.affinity}/100`;
   if (!hasBuilding(st, "bed")) return "침대 필요";
+  if (count(st.inv, "ring") < 1) return "결혼 반지 필요(작업대)";
   return null;
 }
-
-export function marry(st, cuid) {
+// 청혼: 성공하면 혼인, 실패하면 호감도 -15 (반지는 돌려받음)
+export function propose(st, cuid, rng = Math.random) {
   const why = canMarry(st, cuid);
   if (why) return { ok: false, why };
   const c = st.companions.find((x) => x.uid === cuid);
-  st.family.spouse = c.uid;
+  if (rng() >= proposeChance(st, c)) { c.affinity = clamp(c.affinity - 15, 0, 120); return { ok: false, refused: true, why: `${c.name}: "…아직은 아니에요." (호감 -15)` }; }
+  removeFrom(st.inv, "ring", 1);
+  return marry(st, cuid, true);
+}
+// 동행 중이거나 배우자인 동료의 특기 합(같은 특기는 겹치지 않음)
+export function talentOn(st, id) {
+  return st.companions.some((c) => c.talent === id && (c.task === "follow" || c.spouse) && isAdult(c));
+}
+// 여성 영웅 만나기: 건물 종류에 맞는, 아직 안 만난 영웅
+export function heroineFor(st, siteKind, rng = Math.random) {
+  st.heroinesMet ||= [];
+  const list = Object.entries(HEROINES).filter(([k, h]) => h.meet.includes(siteKind) && !st.heroinesMet.includes(k));
+  return list.length ? list[Math.floor(rng() * list.length)][0] : null;
+}
+export function recruitHeroine(st, key) {
+  const h = HEROINES[key];
+  st.heroinesMet ||= [];
+  if (st.heroinesMet.includes(key)) return { ok: false, why: "이미 만났다" };
+  if (eff(st, "cha") < h.req) return { ok: false, why: `매력 ${h.req} 이상이어야 마음을 연다 (지금 ${eff(st, "cha")})`, soft: true };
+  const c = { uid: uid("h"), name: h.name, gender: "F", role: h.role, stats: { ...h.stats }, affinity: 40, morale: 90, task: "base", hero: key, talent: h.talent, bio: `${h.title} — ${h.bio}` };
+  const r = recruit(st, c);
+  if (!r.ok) return r;
+  st.heroinesMet.push(key);
+  return { ok: true, c };
+}
+
+export function marry(st, cuid, proposed = false) {
+  if (!proposed) { const why = canMarry(st, cuid); if (why && why !== "결혼 반지 필요(작업대)") return { ok: false, why }; }
+  const c = st.companions.find((x) => x.uid === cuid);
+  spouses(st).push(c.uid);
+  st.family.spouse = st.family.spouse || c.uid;
   c.family = true;
   c.spouse = true;
   c.morale = 100;
@@ -1495,8 +1538,8 @@ export function inheritHeir(st, account, cuid) {
   const leg = legacyOf(account, st.player.job);
   const oldName = st.player.name;
   st.companions = st.companions.filter((x) => x.uid !== cuid);
-  if (st.family.spouse) { const sp = st.companions.find((x) => x.uid === st.family.spouse); if (sp) sp.spouse = false; }
-  st.family = { spouse: null, children: st.family.children.filter((x) => x !== cuid) };
+  for (const u of spouses(st)) { const sp = st.companions.find((x) => x.uid === u); if (sp) sp.spouse = false; }
+  st.family = { spouse: null, spouses: [], children: st.family.children.filter((x) => x !== cuid) };
   const p = st.player;
   p.name = c.name; p.gender = c.gender;
   p.look = { ...p.look, hair: c.gender === "F" ? "long" : "short" };

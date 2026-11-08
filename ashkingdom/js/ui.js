@@ -5,7 +5,7 @@ import * as Shop from "./shop.js";
 import * as MG from "./minigames.js";
 import {
   ITEMS, RECIPES, BUILDINGS, BASE_LEVELS, RESEARCH, ANIMALS, VEHICLES, ROLES, JOBS, DIFFICULTY,
-  CHAPTERS, ERAS, OLYMPIC_EVENTS, OLYMPICS, SHOP, STATS, ENDINGS, QUALITY, AFFIXES, BIOMES, WEATHER, SPECIALS, WSKILLS, SCOUT, RAIDER_BANDS,
+  CHAPTERS, ERAS, OLYMPIC_EVENTS, OLYMPICS, SHOP, STATS, ENDINGS, QUALITY, AFFIXES, BIOMES, WEATHER, SPECIALS, WSKILLS, SCOUT, RAIDER_BANDS, HEROINES, TALENTS,
 } from "./data.js";
 import { drawCharacter, drawCinematic } from "./render.js";
 import { makeRng } from "./rng.js";
@@ -360,20 +360,25 @@ function buildingDesc(d) {
 export function openPeople() {
   const st = G.st;
   const m = modal(`<h2>${Ic.icon("ui.people", 26)} 동료·주민 <small>${st.companions.length}/${S.residentCap(st)}</small></h2>
-    <p class="muted">동행(최대 2명)은 함께 싸우고, 기지에 있으면 역할을 수행합니다. 매일 말을 걸거나 선물하면 호감도가 오르고, 100이 되면 결혼할 수 있습니다. 아이는 28일(게임) 후 어른이 됩니다.</p>
+    <p class="muted">동행(최대 2명)은 함께 싸우고, 기지에 있으면 역할을 수행합니다. 매일 말을 걸거나 선물하면 호감도가 오르고, 100이 되면 청혼할 수 있습니다(결혼 반지 필요). 아이는 28일(게임) 후 어른이 되어 동료·후계자가 됩니다.</p>
+    <div class="card">💍 배우자 <b>${S.spouses(st).length}/${S.maxSpouses(st)}</b> <small class="muted">(매력 ${S.eff(st, "cha")} — 매력 5마다 한 명 더) · 자녀 ${st.family.children.length}명 · 배우자 1명당 자녀 최대 2명</small></div>
+    <h3>⭐ 여성 영웅 도감 ${(st.heroinesMet || []).length}/${Object.keys(HEROINES).length}</h3>
+    <div class="chips">${Object.entries(HEROINES).map(([k, h]) => (st.heroinesMet || []).includes(k) ? `<span class="chip">⭐ ${h.name} <small>${h.title} · ${TALENTS[h.talent].name}</small></span>` : `<span class="chip muted">❔ ??? <small>만나는 곳: ${h.meet.map((m) => ({ apartment: "아파트", highrise: "고층 빌딩", mall: "쇼핑몰", gym: "체육관", broadcast: "방송국", power: "발전소", subway: "지하철", airport: "공항", hospital: "병원" })[m]).join("·")} · 매력 ${h.req}+</small></span>`).join("")}</div>
+    <h3>동료</h3>
     ${st.companions.map((c) => {
       const r = ROLES[c.role];
       const adult = S.isAdult(c);
       return `<div class="person"><div class="pp">${c.gender === "F" ? "👩" : "👨"}${c.child && !adult ? "🍼" : ""}</div><div class="pi">
-        <b>${esc(c.name)}</b> ${c.story ? "⭐" : ""} ${c.spouse ? "💍" : ""} <small>${r?.icon} ${r?.name}${c.child ? ` · ${c.age || 0}일차${adult ? " (성인)" : ""}` : ""}</small>
+        <b>${esc(c.name)}</b> ${c.story || c.hero ? "⭐" : ""} ${c.spouse ? "💍" : ""} ${c.talent ? `<span class="badge">${TALENTS[c.talent].name}</span>` : ""} <small>${r?.icon} ${r?.name}${c.child ? ` · ${c.age || 0}일차${adult ? " (성인)" : ""}` : ""}</small>
         <small class="muted">${r?.effect}${c.bio ? " · " + esc(c.bio) : ""}</small>
+        ${c.parent ? `<small class="muted">어머니: ${esc(st.companions.find((x) => x.uid === c.parent)?.name || "?")}${c.talent ? ` · 물려받은 특기 ${TALENTS[c.talent].name}(${TALENTS[c.talent].desc})` : ""}</small>` : c.talent ? `<small class="muted">특기 ${TALENTS[c.talent].name}: ${TALENTS[c.talent].desc}</small>` : ""}
         <small>호감 ${c.affinity ?? 0} · 사기 ${Math.round(c.morale ?? 70)} · ${c.task === "follow" ? "🚶 동행 중" : "🏠 기지"} · 힘${c.stats.str} 민${c.stats.agi} 체${c.stats.vit} 지${c.stats.int}</small>
         <div class="acts">
           <button class="btn sm" data-talk="${c.uid}">대화</button>
           <button class="btn sm" data-gift="${c.uid}">선물</button>
           ${adult ? `<button class="btn sm" data-task="${c.uid}">${c.task === "follow" ? "기지로" : "동행"}</button>` : ""}
           ${(c.role === "jobless" || c.child) ? `<select data-role="${c.uid}"><option value="">역할 지정…</option>${Object.entries(ROLES).map(([k, v]) => `<option value="${k}">${v.icon} ${v.name}</option>`).join("")}</select>` : ""}
-          ${!st.family.spouse && !c.family && adult ? `<button class="btn sm pink" data-marry="${c.uid}">💍 청혼</button>` : ""}
+          ${!c.spouse && !c.family && adult && c.gender !== st.player.gender ? `<button class="btn sm pink" data-marry="${c.uid}">💍 청혼 (${Math.round(S.proposeChance(st, c) * 100)}%)</button>` : ""}
         </div></div></div>`;
     }).join("") || '<p class="muted">아직 동료가 없습니다. 이야기를 진행하거나 기지(판잣집 이상)에 찾아오는 생존자를 받아들이세요.</p>'}`, { wide: true });
   const re = () => { m.close(); openPeople(); };
@@ -381,8 +386,8 @@ export function openPeople() {
   m.querySelectorAll("[data-task]").forEach((b) => (b.onclick = () => { const c = st.companions.find((x) => x.uid === b.dataset.task); if (!S.assign(st, c.uid, c.task === "follow" ? "base" : "follow")) toast("동행은 최대 2명입니다", "bad"); re(); }));
   m.querySelectorAll("[data-role]").forEach((s) => (s.onchange = () => { if (s.value) S.setRole(st, s.dataset.role, s.value); re(); }));
   m.querySelectorAll("[data-marry]").forEach((b) => (b.onclick = async () => {
-    const r = S.marry(st, b.dataset.marry);
-    if (!r.ok) { toast(r.why, "bad"); return; }
+    const r = S.propose(st, b.dataset.marry);
+    if (!r.ok) { toast(r.why, r.refused ? "warn" : "bad"); if (r.refused) re(); return; }
     m.close();
     const c = st.companions.find((x) => x.uid === b.dataset.marry);
     await cinematic("💍 결혼식", `잿빛 하늘 아래, 살아남은 이들이 모였다. ${G.st.player.name}와(과) ${c.name}은(는) 서로에게 남은 생을 약속했다. 세상이 끝났어도, 삶은 다시 시작된다.`, { palette: ["#2b2338", "#7a4b5e", "#e8b07a"] });

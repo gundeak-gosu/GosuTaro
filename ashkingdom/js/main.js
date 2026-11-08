@@ -16,6 +16,7 @@ import { generateWorld, TILE, WORLD_W, WORLD_H, tileAt, isBlocked, nearWater, T,
 import * as Reg from "./regions.js";
 import * as Sites from "./sites.js";
 import * as Meta from "./meta.js";
+import * as AAI from "./animalai.js";
 import * as Relics from "./relics.js";
 import { claimGrowthFund } from "./shop.js";
 import * as R from "./render.js";
@@ -48,7 +49,9 @@ addEventListener("resize", () => { resize(); G.r3d?.resize(); });
 resize();
 // 3D 렌더러(WebGL 불가 기기는 기존 2D로 자동 대체)
 // 기본은 '빠른 2D' 필드(렉 없음). 3D 필드는 설정에서 고른 사람만. 이야기 장면·자세히 보기는 WebGL 이 되면 항상 3D.
-G.hasGL = webglAvailable() && !/[?&]2d\b/.test(location.search);
+// 실사 3D(캐릭터 생성·이야기 장면·자세히 보기)는 '고화질 3D'·'픽셀 3D'를 고른 경우에만 — 기본은 가벼운 2등신 2D(휴대폰 렉 방지)
+const g3pick = G.acc.settings?.gfx;
+G.hasGL = webglAvailable() && !/[?&]2d\b/.test(location.search) && (g3pick === "hd" || g3pick === "pixel" || /[?&]3d\b/.test(location.search));
 if (G.hasGL) {
   UI.setViewer(mountViewer);
   const g3 = G.acc.settings?.gfx;
@@ -441,6 +444,12 @@ function spawnMobs(dt) {
   } else pick = ["enemy", Math.random() < 0.6 ? "rad_rat" : "feral_dog"];
   if (pick[1] === "raider" && ch < 2) pick = ["enemy", "rad_rat"];
   const mob = mobAt(pick[1], pick[0], x, y);
+  // 동물은 무리로 나타난다(사슴 2~4, 닭 3~5, 늑대 2~4 …)
+  if (mob.kind === "animal") {
+    const n = AAI.herdSize(mob.type), hid = "h" + Math.random().toString(36).slice(2, 7);
+    mob.herd = hid;
+    for (let i = 1; i < n && G.mobs.length < cap + 4; i++) { const ox = x + (Math.random() - 0.5) * 90, oy = y + (Math.random() - 0.5) * 90; if (!isBlocked(G.world, ox, oy)) { const o = mobAt(pick[1], "animal", ox, oy); o.herd = hid; G.mobs.push(o); } }
+  }
   // 먼 지역(단계)일수록 적이 강하다
   if (mob.kind === "enemy" && G.world.rid) { const k = 1 + G.world.region.tier * 0.3; mob.hp = mob.maxHp = Math.round(mob.hp * k); mob.atkMul = k; }
   G.mobs.push(mob);
@@ -450,16 +459,27 @@ function updateMobs(dt) {
   const st = G.st, p = st.player;
   const baseX = (G.world.cx + 0.5) * TILE, baseY = (G.world.cy + 0.5) * TILE;
   const followers = st.companions.filter((c) => c.task === "follow" && S.isAdult(c)).length + st.animals.filter((a) => a.task === "follow").length;
+  // 무리(herd) 정보: 중심·공황·공격 여부
+  const herds = {};
+  for (const m of G.mobs) if (m.herd) { const h = (herds[m.herd] ||= { x: 0, y: 0, n: 0, panic: false, aggro: false }); h.x += m.x; h.y += m.y; h.n++; if (m.state === "flee" && m.hp > 0) h.panic = true; if (m.state === "attack" || m.state === "charge") h.aggro = true; }
+  const night = S.isNight(st);
   for (const m of G.mobs) {
     const dx = p.x - m.x, dy = p.y - m.y, d = Math.hypot(dx, dy) || 1;
     m.phase += dt * 8;
-    let sp = 0, tx = 0, ty = 0;
-    const hostile = m.kind === "enemy" || (ANIMALS[m.type]?.hostileWild && m.hp < m.maxHp) || (m.type === "wolf" && d < 140) || m.aggro;
+    let sp = 0, tx = 0, ty = 0, hostile;
+    let ai = null;
+    if (m.kind === "animal") {
+      if (m.hurtT > 0) m.hurtT -= dt;
+      const h = m.herd && herds[m.herd];
+      ai = AAI.stepAnimal(m, { d, dx, dy, dt, night, hurt: m.hurtT > 0, herdPanic: h?.panic, packAggro: h?.aggro && d < 300, bait: S.count(st.inv, ANIMALS[m.type].food) > 0, herdDx: h && h.n > 1 ? h.x / h.n - m.x : undefined, herdDy: h && h.n > 1 ? h.y / h.n - m.y : undefined });
+      hostile = ai.hostile || (m.aggro && m.state === "attack");
+      m.emote = ai.emote;
+    } else hostile = true;
     // 기지 안으로는 들어오지 않음(성벽)
     const inBase = Math.hypot(m.x - baseX, m.y - baseY) < (2 + st.base.lv) * TILE;
     if (hostile && d < (m.kind === "enemy" ? 260 : 200) && !G.atBase) {
       const def = m.kind === "enemy" ? ENEMIES[m.type] : null;
-      sp = def ? def.speed : 90;
+      sp = def ? def.speed : ai.sp;
       if (def?.ranged && d < 170) sp = 0;
       tx = dx / d; ty = dy / d;
       m.cd -= dt;
@@ -476,7 +496,7 @@ function updateMobs(dt) {
         m.cd = def?.ranged ? 1.8 : 1.1;
         m.windup = def?.ranged ? 0.35 : 0.45;
       }
-    } else if (ANIMALS[m.type]?.flee && d < 140) { sp = 110; tx = -dx / d; ty = -dy / d; }
+    } else if (ai) { sp = ai.sp; tx = ai.tx; ty = ai.ty; }
     else {
       m.wander -= dt;
       if (m.wander <= 0) { m.wander = 2 + Math.random() * 3; const a = Math.random() * Math.PI * 2; m.wx = Math.cos(a); m.wy = Math.sin(a); m.still = Math.random() < 0.4; }
@@ -505,7 +525,7 @@ function updateMobs(dt) {
 
 function hitMob(m, dmg, color = "#fff") {
   m.hp -= dmg;
-  m.aggro = true;
+  m.aggro = true; m.hurtT = 5; // 동물: 맞으면 5초간 도망(초식) 또는 반격(육식·방어형)
   m.hitFlash = true;
   fxText(m.x, m.y - 40, String(dmg), color);
   Sfx.play("hit");
@@ -1191,7 +1211,7 @@ function draw(dt) {
   for (const m of G.mobs) {
     const sx = m.x - cam.x, sy = m.y - cam.y;
     if (sx < -60 || sy < -60 || sx > VWz + 60 || sy > VHz + 60) continue;
-    list.push({ y: m.y, f: () => { if (m.kind === "enemy") { R.drawEnemy(ctx, { ...m, x: sx, y: sy }, ENEMIES[m.type], m.phase); if (m.leader) { ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#ff8a80"; ctx.fillText("👑 " + m.leader, sx, sy - 48); ctx.textAlign = "start"; } } else { R.drawAnimal(ctx, m.type, sx, sy, m.phase, m.moving, m.facing); R.hpBar(ctx, sx, sy - 34, m.hp / m.maxHp); } } });
+    list.push({ y: m.y, f: () => { if (m.kind === "enemy") { R.drawEnemy(ctx, { ...m, x: sx, y: sy }, ENEMIES[m.type], m.phase); if (m.leader) { ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#ff8a80"; ctx.fillText("👑 " + m.leader, sx, sy - 48); ctx.textAlign = "start"; } } else { R.drawAnimal(ctx, m.type, sx, sy, m.phase, m.moving, m.facing); if (m.hp < m.maxHp) R.hpBar(ctx, sx, sy - 34, m.hp / m.maxHp); if (m.emote) R.emoji(ctx, m.emote, sx + 10, sy - 38 + Math.sin(G.t * 6) * 1.5, 14); } } });
   }
   // 기지 주민
   const bx = (G.world.cx + 0.5) * TILE, by = (G.world.cy + 0.5) * TILE;

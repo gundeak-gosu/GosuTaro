@@ -1091,15 +1091,17 @@ const viewers = new Set();
 export function mountViewer(canvas, getState, opts = {}) {
   // 화면 표시 크기를 처음 크기로 고정(고밀도 폰에서 캔버스가 매 프레임 2~3배씩 커지는 문제 방지)
   if (!opts.cinematic) { const r = canvas.getBoundingClientRect(); if (r.width && !canvas.style.width) { canvas.style.width = r.width + "px"; canvas.style.height = r.height + "px"; } }
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: !opts.cinematic, preserveDrawingBuffer: false });
-  renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
-  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // 휴대폰(터치)은 해상도 1배·안티앨리어싱 끔·그림자 작게 — 셰이더/채우기 부담을 크게 줄인다
+  const MOBILE = matchMedia("(pointer: coarse)").matches;
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: !MOBILE, alpha: !opts.cinematic, preserveDrawingBuffer: false, powerPreference: "high-performance" });
+  renderer.setPixelRatio(Math.min(MOBILE ? 1 : 1.5, devicePixelRatio || 1));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = MOBILE ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.1;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   const scene = new THREE.Scene();
   const cam = new THREE.PerspectiveCamera(opts.cinematic ? 35 : 30, 1, 0.05, 200);
   // 3점 조명 + 림 라이트(스튜디오 촬영 느낌)
-  const key = new THREE.DirectionalLight(opts.cinematic ? 0xffc890 : 0xfff0dc, opts.cinematic ? 2.6 : 2.4); key.position.set(2.5, 4, 3); key.castShadow = true; key.shadow.mapSize.set(1024, 1024);
+  const key = new THREE.DirectionalLight(opts.cinematic ? 0xffc890 : 0xfff0dc, opts.cinematic ? 2.6 : 2.4); key.position.set(2.5, 4, 3); key.castShadow = true; key.shadow.mapSize.set(MOBILE ? 512 : 1024, MOBILE ? 512 : 1024);
   Object.assign(key.shadow.camera, { left: -3, right: 3, top: 3, bottom: -3 });
   const fill = new THREE.DirectionalLight(0x9fb4ff, 0.6); fill.position.set(-3, 2, 2);
   const rim = new THREE.DirectionalLight(opts.cinematic ? 0xff9a50 : 0xffd2a0, 2.4); rim.position.set(-1.5, 2.5, -3.5);

@@ -571,6 +571,33 @@ test("구세계 유물: 금고 확률·천장·중복 강화, 칸 해금(생존�
   const st = S.newGame({ name: "유물", gender: "M", job: "soldier", difficulty: "normal", seed: 7, account: acc });
   ok(st.relicFx.atk > 0.12, "전설 군기 +1강 " + st.relicFx.atk); ok(S.count(st.inv, "stone_axe") >= 1); ok(st.relicFx.rad >= 0.3);
 });
+test("동물 행동: 초식은 경계→도망(먹이를 들면 덜 경계), 방어형은 경고→돌진, 포식자는 몰래 접근→공격, 쉬기도 한다", async () => {
+  const A = await import("../js/animalai.js");
+  const step = (m, o) => A.stepAnimal(m, { dt: 0.1, night: false, rng: () => 0.5, ...o, dx: -o.d, dy: 0 });
+  // 사슴: 200px 에선 멈춰서 바라봄, 150px 에선 달아남(플레이어보다 빠름)
+  const deer = { type: "deer", hp: 30, maxHp: 30 };
+  let r = step(deer, { d: 200 }); eq(r.sp, 0); eq(r.emote, "❕");
+  r = step(deer, { d: 150 }); ok(r.sp >= 250 && r.tx > 0, "도망 " + r.sp);
+  const deer2 = { type: "deer", hp: 30, maxHp: 30 }; r = step(deer2, { d: 150, bait: true }); ok(r.sp < 250, "먹이 들면 덜 도망");
+  // 무리 공황: 한 마리가 도망치면 같이 도망
+  r = step({ type: "goat", hp: 25, maxHp: 25 }, { d: 300, herdPanic: true }); ok(r.sp > 100);
+  // 멧돼지: 가까우면 경고(멈춤), 맞으면 돌진(적대)
+  const boar = { type: "boar", hp: 45, maxHp: 45 };
+  r = step(boar, { d: 90 }); eq(r.hostile, false); eq(r.emote, "💢");
+  r = step(boar, { d: 90, hurt: true }); ok(r.hostile && r.sp > 150);
+  // 늑대: 200px 에선 몰래 접근(적대 아님), 100px 이내면 공격, 크게 다치면 도망
+  const wolf = { type: "wolf", hp: 50, maxHp: 50 };
+  r = step(wolf, { d: 200 }); eq(r.hostile, false); eq(r.emote, "👀");
+  r = step(wolf, { d: 90 }); ok(r.hostile);
+  wolf.hp = 5; r = step(wolf, { d: 90 }); eq(r.hostile, false); ok(r.tx > 0);
+  // 평상시: 계속 움직이지 않는다(풀 뜯기/쉬기 상태가 섞임), 주행성은 밤에 잠
+  const cow = { type: "cow", hp: 60, maxHp: 60 }; let still = 0;
+  for (let i = 0; i < 200; i++) { const x = A.stepAnimal(cow, { d: 999, dx: 999, dy: 0, dt: 0.5, night: false, rng: Math.random }); if (x.sp === 0) still++; }
+  ok(still > 40 && still < 200, "멈춤 비율 " + still);
+  const hen = { type: "chicken", hp: 10, maxHp: 10 }; let zz = 0;
+  for (let i = 0; i < 100; i++) { const x = A.stepAnimal(hen, { d: 999, dx: 999, dy: 0, dt: 1, night: true, rng: Math.random }); if (x.emote === "💤") zz++; }
+  ok(zz > 30, "밤엔 잠 " + zz);
+});
 test("제작: 재료 부족 시 실패 / 충분하면 성공 + 경험치", () => {
   const { st } = fresh();
   eq(S.craft(st, "stone_axe").ok, false);

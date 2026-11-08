@@ -958,7 +958,7 @@ export function openSettings() {
   const s = G.acc.settings;
   const m = modal(`<h2>⚙️ 설정</h2>
     <h3>그래픽</h3><div class="seg"><button class="btn ${!s.gfx || s.gfx === "fast" ? "on" : ""}" data-gfx="fast">빠른 2D (추천)</button><button class="btn ${s.gfx === "pixel" ? "on" : ""}" data-gfx="pixel">픽셀 3D</button><button class="btn ${s.gfx === "hd" ? "on" : ""}" data-gfx="hd">고화질 3D</button></div>
-    <small class="muted">필드 화면 스타일입니다. '자세히 보기'와 이야기 장면은 항상 고화질로 보입니다.</small>
+    <small class="muted">빠른 2D(추천)는 모든 화면이 가벼운 2등신 그림입니다. 3D를 고르면 필드와 캐릭터 생성·이야기 장면·자세히 보기가 실사 3D로 바뀌며, 휴대폰에서는 느릴 수 있습니다.</small>
     <h3>소리</h3><div class="seg"><button class="btn ${s.sound !== false ? "on" : ""}" data-snd="1">효과음 켜기</button><button class="btn ${s.sound === false ? "on" : ""}" data-snd="0">끄기</button></div>
     <h3>이야기 음성</h3><div class="seg"><button class="btn ${s.voice !== false ? "on" : ""}" data-vo="1">켜기</button><button class="btn ${s.voice === false ? "on" : ""}" data-vo="0">끄기</button></div>
     <h3>배경음악</h3><div class="seg"><button class="btn ${s.music !== false ? "on" : ""}" data-mus="1">켜기</button><button class="btn ${s.music === false ? "on" : ""}" data-mus="0">끄기</button></div>

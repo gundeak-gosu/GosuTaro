@@ -13,6 +13,19 @@ import { TUTORIAL, tutorialStep } from "./tutorial.js";
 import { BIOMES } from "./data.js";
 import { SPECIALS, SCOUT, RAIDER_BANDS, HEROINES, TALENTS } from "./data.js";
 // 영웅 그림이 있으면 SD 그림으로 그린다(포즈는 상황에 따라)
+// 주인공 그림(챗GPT 시트에서 만든 SD). 없으면 기존 2등신 그림
+const PLAYER_ART = { M: "assets/heroines/hero_m/", F: "assets/heroines/hero_f/" };
+function drawPlayer(cam, mount) {
+  const st = G.st, p = st.player, sx = p.x - cam.x, sy = p.y - cam.y;
+  const hand = p.equip.hand && ITEMS[p.equip.hand.id];
+  const pose = G.swing > 0 ? (hand?.ranged ? "shoot" : "cheer") : G.moving ? "pack" : G.cheerT > G.t ? "happy" : G.nearFire && G.atBase ? "campfire" : "idle";
+  ctx.save();
+  if (G.sneak) ctx.globalAlpha = 0.6;
+  const ok = !mount && R.drawArtChar(ctx, PLAYER_ART[p.gender] || PLAYER_ART.M, pose, sx, sy, G.sneak ? 46 : 54, G.facing, G.moving ? Math.abs(Math.sin(G.phase)) * 2 : 0);
+  if (ok && hand && pose !== "shoot") { ctx.font = "16px sans-serif"; ctx.textAlign = "center"; ctx.fillText(hand.icon, sx + G.facing * 16, sy - 18); ctx.textAlign = "start"; } // 든 무기 표시
+  if (!ok) R.drawCharacter(ctx, sx, sy, p.look, p.equip, G.facing, G.phase + (G.swing > 0 ? 2 : 0), { moving: G.moving || G.swing > 0, gender: p.gender, mount, scale: 1.05 });
+  ctx.restore();
+}
 function heroArt(c) { const h = c.hero && HEROINES[c.hero]; return h?.art || null; }
 import { generateWorld, TILE, WORLD_W, WORLD_H, tileAt, isBlocked, nearWater, T, NODE_TYPES, applyBridges, isSlow } from "./world.js";
 import * as Reg from "./regions.js";
@@ -1359,7 +1372,7 @@ function update(dt) {
   }
   // 피격·레벨업 효과음
   if (G.lastHp !== undefined && p.hp < G.lastHp - 0.5) Sfx.play("hurt");
-  if (G.lastLv !== undefined && p.level > G.lastLv) Sfx.play("levelup");
+  if (G.lastLv !== undefined && p.level > G.lastLv) { Sfx.play("levelup"); G.cheerT = G.t + 2.5; }
   G.lastHp = p.hp; G.lastLv = p.level;
   // 튜토리얼 진행
   if (st.tut < TUTORIAL.length) {
@@ -1447,7 +1460,7 @@ function draw(dt) {
   }
   // 플레이어
   const mount = p.mount ? (p.mount.type === "animal" ? { kind: p.mount.kind } : { id: p.mount.id }) : null;
-  list.push({ y: p.y, f: () => G.sneak ? (ctx.save(), ctx.globalAlpha = 0.6, ctx.translate(p.x - cam.x, p.y - cam.y), ctx.scale(1, 0.86), R.drawCharacter(ctx, 0, 0, p.look, p.equip, G.facing, G.phase, { moving: G.moving, gender: p.gender, scale: 1.05 }), ctx.restore()) : R.drawCharacter(ctx, p.x - cam.x, p.y - cam.y, p.look, p.equip, G.facing, G.phase + (G.swing > 0 ? 2 : 0), { moving: G.moving || G.swing > 0, gender: p.gender, mount, scale: 1.05 }) });
+  list.push({ y: p.y, f: () => drawPlayer(cam, mount) });
   list.sort((a, b) => a.y - b.y).forEach((o) => o.f());
   // 탄/효과
   ctx.fillStyle = "#ffd36b";

@@ -906,6 +906,7 @@ export function openStatus() {
     ["🤢 질병", p.sick > 0 ? `${Math.ceil(p.sick)}시간 남음` : "없음", "", p.sick > 0 ? "약초차·구급상자로 치료" : "날것·더러운 물 조심"],
   ];
   const m = modal(`<h2>📋 ${esc(p.name)}의 상태</h2>
+    <div class="heroface"><img src="assets/heroines/hero_${p.gender === "F" ? "f" : "m"}/face_${p.hp < p.maxHp * 0.3 || p.hunger < 20 ? "worried" : p.sick > 0 ? "sleepy" : "smile"}.png" alt="" onerror="this.remove()"></div>
     <div class="card"><b>${J.icon} ${J.name}</b> Lv.${p.level} · 혈통 ${p.legacyLevel} · ${S.day(st)}일 생존 · 💀${st.stats.deaths || 0} · 업보 ${st.karma ?? 0}</div>
     <div class="rlist">${rows.map(([a, v, bar, note]) => `<div class="recipe"><span class="rinfo"><b>${a}</b> ${v}${bar}<small class="muted">${note}</small></span></div>`).join("")}</div>
     <h3>⚔️ 전투</h3><div class="card">공격력 약 <b>${atk}</b>${off && ITEMS[off.id].atk ? ` (+왼손 ${Math.round(S.itemStat(off, "atk") * 0.8)})` : ""} · 방어 <b>${Math.round(S.equipStat(st, "def") + (st.relicFx?.def || 0))}</b> · 이동 속도 <b>${Math.round(S.moveSpeed(st))}</b>${G.sneak ? " (숨어 걷는 중 ½)" : ""} · 전투력 <b>${S.combatPower(st)}</b><br>

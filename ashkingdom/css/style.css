@@ -280,3 +280,5 @@ body.joy-right #sneakBtn { right: auto; left: 156px; }
 @media (hover: hover) and (pointer: fine) { #sneakBtn { right: 196px; bottom: 96px; width: 44px; height: 44px; } #sneakBtn span::after { content: " (X)"; } body.joy-right #sneakBtn { left: 196px; } }
 #placeBar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(150px + env(safe-area-inset-bottom)); z-index: 25; display: flex; gap: 8px; align-items: center; background: rgba(20,17,14,.92); border: 1px solid var(--accent); border-radius: 12px; padding: 8px 10px; max-width: 94vw; flex-wrap: wrap; justify-content: center; }
 #placeBar span { font-size: 13px; }
+.heroface { display: flex; gap: 8px; justify-content: center; margin-bottom: 8px; } .heroface img { height: 180px; border-radius: 10px; border: 2px solid var(--accent); object-fit: cover; } .heroface img.full { height: 180px; width: auto; border-color: var(--line); }
+.person .pp img.face { width: 52px; height: 64px; object-fit: cover; border-radius: 8px; border: 2px solid var(--accent); }

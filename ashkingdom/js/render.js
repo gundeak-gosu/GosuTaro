@@ -508,3 +508,17 @@ export function drawCinematic(ctx, w, h, st, t, scene = {}) {
   ctx.fillStyle = v; ctx.fillRect(0, 0, w, h);
   ctx.fillStyle = "rgba(0,0,0,0.85)"; ctx.fillRect(0, 0, w, h * 0.07); ctx.fillRect(0, h * 0.93, w, h * 0.07); // 시네마 레터박스
 }
+
+// ---------- 그림 캐릭터(챗GPT 시트에서 잘라낸 2등신 SD) ----------
+const artCache = {};
+export function artImg(src) { let i = artCache[src]; if (!i) { i = artCache[src] = new Image(); i.src = src; } return i.complete && i.naturalWidth ? i : null; }
+// pose: idle·happy·cheer·shoot·pack·campfire·sleep. 발밑(x,y)에 세운다. h = 화면 높이(px)
+export function drawArtChar(ctx, base, pose, x, y, h = 46, facing = 1, bob = 0) {
+  const im = artImg(base + "sd_" + pose + ".png") || artImg(base + "sd_idle.png");
+  if (!im) return false;
+  const w = (im.naturalWidth / im.naturalHeight) * h;
+  ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.beginPath(); ctx.ellipse(x, y, w * 0.32, 4, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.save(); ctx.translate(x, y - bob); if (facing < 0) ctx.scale(-1, 1);
+  ctx.drawImage(im, -w / 2, -h, w, h); ctx.restore();
+  return true;
+}

@@ -386,7 +386,9 @@ export function openPeople() {
     ${st.companions.map((c) => {
       const r = ROLES[c.role];
       const adult = S.isAdult(c);
-      return `<div class="person"><div class="pp">${c.gender === "F" ? "👩" : "👨"}${c.child && !adult ? "🍼" : ""}</div><div class="pi">
+      const art = c.hero && HEROINES[c.hero]?.art;
+      const mood = (c.affinity ?? 0) >= 100 ? "shy" : (c.affinity ?? 0) >= 60 ? "joy" : (c.morale ?? 70) < 40 ? "worried" : "smile";
+      return `<div class="person"><div class="pp">${art ? `<img class="face" src="${art}face_${mood}.png" alt="">` : `${c.gender === "F" ? "👩" : "👨"}${c.child && !adult ? "🍼" : ""}`}</div><div class="pi">
         <b>${esc(c.name)}</b> ${c.story || c.hero ? "⭐" : ""} ${c.spouse ? "💍" : ""} ${c.talent ? `<span class="badge">${TALENTS[c.talent].name}</span>` : ""} <small>${r?.icon} ${r?.name}${c.child ? ` · ${c.age || 0}일차${adult ? " (성인)" : ""}` : ""}</small>
         <small class="muted">${r?.effect}${c.bio ? " · " + esc(c.bio) : ""}</small>
         ${c.parent ? `<small class="muted">어머니: ${esc(st.companions.find((x) => x.uid === c.parent)?.name || "?")}${c.talent ? ` · 물려받은 특기 ${TALENTS[c.talent].name}(${TALENTS[c.talent].desc})` : ""}</small>` : c.talent ? `<small class="muted">특기 ${TALENTS[c.talent].name}: ${TALENTS[c.talent].desc}</small>` : ""}
@@ -405,7 +407,9 @@ export function openPeople() {
   m.querySelectorAll("[data-role]").forEach((s) => (s.onchange = () => { if (s.value) S.setRole(st, s.dataset.role, s.value); re(); }));
   m.querySelectorAll("[data-marry]").forEach((b) => (b.onclick = async () => {
     const r = S.propose(st, b.dataset.marry);
-    if (!r.ok) { toast(r.why, r.refused ? "warn" : "bad"); if (r.refused) re(); return; }
+    const cc = st.companions.find((x) => x.uid === b.dataset.marry), art = cc?.hero && HEROINES[cc.hero]?.art;
+    if (!r.ok) { if (r.refused && art) await choice(cc.name, `<div class="heroface"><img src="${art}face_worried.png" alt=""></div>${esc(r.why)}`, [{ label: "…", value: 1 }]); else toast(r.why, r.refused ? "warn" : "bad"); if (r.refused) re(); return; }
+    if (art) await choice(`💍 ${cc.name}`, `<div class="heroface"><img src="${art}face_shy.png" alt=""></div>"…네. 좋아요."`, [{ label: "💍", value: 1, cls: "primary" }]);
     m.close();
     const c = st.companions.find((x) => x.uid === b.dataset.marry);
     await cinematic("💍 결혼식", `잿빛 하늘 아래, 살아남은 이들이 모였다. ${G.st.player.name}와(과) ${c.name}은(는) 서로에게 남은 생을 약속했다. 세상이 끝났어도, 삶은 다시 시작된다.`, { palette: ["#2b2338", "#7a4b5e", "#e8b07a"] });

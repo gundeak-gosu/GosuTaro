@@ -531,7 +531,7 @@ export const STORY_COMPANIONS = {
 // talent: 동행하거나 배우자로 기지에 있으면 효과. 자녀에게 50% 확률로 물려준다.
 export const HEROINES = {
   seolhwa: { name: "백설화", title: "눈의 궁수", role: "hunter", req: 6, meet: ["airport", "gym"], stats: { str: 6, agi: 10, vit: 6, int: 6, cha: 8, cra: 6 }, talent: "archer", bio: "설원에서 혼자 살아남은 명궁." },
-  harin: { name: "윤하린", title: "폐허의 상인", role: "politician", req: 5, meet: ["mall", "apartment"], stats: { str: 4, agi: 6, vit: 5, int: 8, cha: 10, cra: 6 }, talent: "merchant", bio: "쇼핑몰을 통째로 장부에 올린 여자." },
+  harin: { name: "유하린", title: "폐허의 상인", art: "assets/heroines/harin/", age: 20, height: 167, role: "politician", req: 5, meet: ["mall", "apartment"], stats: { str: 4, agi: 6, vit: 5, int: 8, cha: 10, cra: 6 }, talent: "merchant", bio: "쇼핑몰을 통째로 장부에 올린 여자." },
   eunbi: { name: "강은비", title: "강철 손", role: "engineer", req: 6, meet: ["power", "subway"], stats: { str: 7, agi: 5, vit: 7, int: 8, cha: 6, cra: 10 }, talent: "smith", bio: "발전소 터빈을 맨손으로 고친 기술자." },
   ahyeon: { name: "서아현", title: "잿빛의 가수", role: "politician", req: 8, meet: ["broadcast"], stats: { str: 3, agi: 6, vit: 5, int: 7, cha: 12, cra: 5 }, talent: "idol", bio: "방송국 지하에서 매일 밤 노래를 송출했다." },
   soyul: { name: "차소율", title: "검의 그림자", role: "soldier", req: 7, meet: ["highrise", "gym"], stats: { str: 9, agi: 10, vit: 7, int: 5, cha: 7, cra: 5 }, talent: "blade", bio: "고층 빌딩 옥상에서 홀로 칼을 갈던 검객." },

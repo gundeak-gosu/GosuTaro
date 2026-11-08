@@ -221,6 +221,7 @@ function loadRegion(rid, entry = null) {
   G.lastRevealT = -1;
 }
 G.loadRegion = loadRegion;
+S.setOverflowHook((id, n) => { if (G.st && G.drops) { const p = G.st.player; dropItem(p.x + (Math.random() - 0.5) * 20, p.y + 10, id, n); if (G.t - (G.fullToastT || -9) > 4) { G.fullToastT = G.t; UI.toast("🎒 가방이 가득 차 발밑에 떨어뜨렸습니다", "warn"); } } else return false; });
 // 가장자리로 걸어가면: 열린 이웃이면 넘어가고, 잠겨 있으면 무슨 미션을 깨야 하는지 알려 주고 막는다
 function edgeCheck() {
   if (G.world.site) return;
@@ -544,14 +545,15 @@ function hitMob(m, dmg, color = "#fff") {
       if (G.world.rid && !rsx.done) { rsx.done = true; regionCleared(); }
     }
     if (m.kind === "enemy") {
-      if (m.elite) { S.gainXp(G.st, ENEMIES[m.type].xp * 2); for (let i = 0; i < 2; i++) S.onKill(G.st, m.type, makeRng(Date.now() + i)); G.st.gold += 30; UI.toast("정예 처치! 추가 전리품", "good"); }
-      const drops = S.onKill(G.st, m.type, makeRng(Date.now()));
-      if (drops.length) UI.toast("획득: " + drops.map((d) => ITEMS[d].name).join(", "));
+      // 전리품은 바닥에 떨어진다 → 걸어가서 줍기
+      const drops = S.onKill(G.st, m.type, makeRng(Date.now()), false);
+      if (m.elite) { S.gainXp(G.st, ENEMIES[m.type].xp * 2); for (let i = 0; i < 2; i++) drops.push(...S.onKill(G.st, m.type, makeRng(Date.now() + i + 1), false)); G.st.gold += 30; UI.toast("정예 처치! 전리품이 떨어졌다", "good"); }
+      scatterDrops(m.x, m.y, drops.map((id) => [id, 1]));
     } else {
       const a = ANIMALS[m.type];
-      S.giveItem(G.st, "raw_meat", a.meat); if (a.meat >= 3) S.giveItem(G.st, "leather", Math.ceil(a.meat / 3)); S.giveItem(G.st, "bone", 1);
+      const loot = [["raw_meat", a.meat], ["bone", 1]]; if (a.meat >= 3) loot.push(["leather", Math.ceil(a.meat / 3)]);
+      scatterDrops(m.x, m.y, loot);
       S.gainXp(G.st, 10);
-      UI.toast(`${a.name} 사냥: 생고기 ×${a.meat}`);
     }
   }
 }
@@ -835,7 +837,13 @@ async function raiderBand() {
   G.afterAction();
 }
 
-function dropItem(x, y, id, qty) { G.drops.push({ x, y, id, qty, t: G.t }); }
+function dropItem(x, y, id, qty) {
+  // 같은 자리 근처의 같은 물건은 한 무더기로
+  const near = G.drops.find((d) => d.id === id && Math.hypot(d.x - x, d.y - y) < 20);
+  if (near) { near.qty += qty; near.t = G.t; return; }
+  G.drops.push({ x, y, id, qty, t: G.t });
+}
+function scatterDrops(x, y, list) { list.forEach(([id, q], i) => { const a = (i / Math.max(1, list.length)) * Math.PI * 2 + Math.random(); dropItem(x + Math.cos(a) * 18, y + Math.sin(a) * 12 + 6, id, q); }); }
 function attack(m) {
   const st = G.st, p = st.player;
   // 왼손에 무기가 있으면 콤보 2타째는 왼손으로(양손 쓰기)
@@ -1128,8 +1136,13 @@ function update(dt) {
   // 불타는 적
   for (const m of G.mobs) if (m.burn > 0 && m.hp > 0) { m.burn -= dt; m.burnT = (m.burnT || 0) - dt; if (m.burnT <= 0) { m.burnT = 1; hitMob(m, m.burnDmg || 4, "#ff9a3c"); } }
   // 바닥에 떨어진 것 줍기
-  for (const d of G.drops) if (Math.hypot(d.x - p.x, d.y - p.y) < 30) { S.giveItem(st, d.id, d.qty); d.qty = 0; fxText(d.x, d.y - 20, `${ITEMS[d.id].icon}+1`, "#ffe9a8"); Sfx.play("gather"); }
-  G.drops = G.drops.filter((d) => d.qty > 0 && G.t - d.t < 300);
+  for (const d of G.drops) if (Math.hypot(d.x - p.x, d.y - p.y) < 30 + (Meta.vipPerk(G.acc).pick || 0)) {
+    const n = Math.min(d.qty, S.roomFor(st, d.id));
+    if (n <= 0) { if (G.t - (G.fullToastT || -9) > 4) { G.fullToastT = G.t; UI.toast("🎒 가방이 가득 찼습니다 — 버리거나 기지 창고에 넣으세요", "warn"); } continue; }
+    S.addItem(st, st.inv, d.id, n, 1, S.bagSize(st)); d.qty -= n;
+    fxText(d.x, d.y - 20, `${ITEMS[d.id].icon}+${n}`, "#ffe9a8"); Sfx.play("gather"); G.hudDirty = true;
+  }
+  G.drops = G.drops.filter((d) => d.qty > 0 && G.t - d.t < 600);
   if (G.specCd > 0) { G.specCd -= dt; G.cdHudT = (G.cdHudT || 0) - dt; if (G.cdHudT <= 0 || G.specCd <= 0) { G.cdHudT = 0.5; UI.renderHud(); } }
   // 무작위 조우
   if (!G.atBase) { G.encounterT -= dt; if (G.encounterT <= 0) { G.encounterT = 150 + Math.random() * 120; UI.encounterModal(); } }
@@ -1238,7 +1251,12 @@ function draw(dt) {
   ctx.fillStyle = "#ffd36b";
   for (const s of G.shots) { ctx.fillStyle = s.foe ? "#ff6b5b" : s.thrown ? "#d9d9d9" : "#ffd36b"; ctx.fillRect(s.x - cam.x - 2, s.y - cam.y - 2, s.item && !s.thrown ? 7 : 4, 4); }
   for (const e of G.world.events || []) if (!e.done) R.emoji(ctx, { survivor: "🙋", diary: "📓", stash: "📦", trap: "❓", heroine: "👩" }[e.kind], (e.tx + 0.5) * TILE - cam.x, (e.ty + 0.5) * TILE - cam.y - 6, 26);
-  for (const d of G.drops) { ctx.globalAlpha = 0.85 + Math.sin(G.t * 5) * 0.15; R.emoji(ctx, ITEMS[d.id].icon, d.x - cam.x, d.y - cam.y, 18); ctx.globalAlpha = 1; }
+  for (const d of G.drops) {
+    const dx = d.x - cam.x, dy = d.y - cam.y;
+    ctx.fillStyle = "rgba(255,230,140,.25)"; ctx.beginPath(); ctx.ellipse(dx, dy + 8, 12, 4, 0, 0, Math.PI * 2); ctx.fill(); // 반짝이는 받침(눈에 띄게)
+    ctx.globalAlpha = 0.85 + Math.sin(G.t * 5) * 0.15; R.emoji(ctx, ITEMS[d.id].icon, dx, dy - 2 + Math.sin(G.t * 3 + d.x) * 1.5, 18); ctx.globalAlpha = 1;
+    if (d.qty > 1) { ctx.font = "bold 10px sans-serif"; ctx.fillStyle = "#fff"; ctx.strokeStyle = "#000"; ctx.lineWidth = 3; ctx.strokeText("×" + d.qty, dx + 6, dy + 10); ctx.fillText("×" + d.qty, dx + 6, dy + 10); }
+  }
   for (const f of G.fx) { f.t -= dt; f.y -= 28 * dt; ctx.globalAlpha = Math.max(0, f.t); ctx.fillStyle = f.color; ctx.font = "bold 13px sans-serif"; ctx.fillText(f.txt, f.x - cam.x - 8, f.y - cam.y); }
   ctx.globalAlpha = 1;
   G.fx = G.fx.filter((f) => f.t > 0);

@@ -24,7 +24,7 @@ function ok(c, m = "assert") { if (!c) throw new Error(m); }
 const fresh = (job = "soldier", difficulty = "normal", acc = S.newAccount()) =>
   ({ st: S.newGame({ name: "테스트", gender: "M", job, difficulty, seed: 42, account: acc }), acc });
 const give = (st, cost) => { for (const [k, v] of Object.entries(cost)) S.addItem(st, st.inv, k, v); };
-const giveBase = (st, cost) => { for (const [k, v] of Object.entries(cost)) S.storeToBase(st, k, v); };
+const giveBase = (st, cost) => { for (const [k, v] of Object.entries(cost)) S.addItem(st, st.inv, k, v); }; // 시험용: 칸 제한 없이 넉넉히
 
 // ---------------- 데이터 무결성 ----------------
 test("모든 레시피의 재료/결과 아이템이 존재", () => {
@@ -597,6 +597,22 @@ test("동물 행동: 초식은 경계→도망(먹이를 들면 덜 경계), 방
   const hen = { type: "chicken", hp: 10, maxHp: 10 }; let zz = 0;
   for (let i = 0; i < 100; i++) { const x = A.stepAnimal(hen, { d: 999, dx: 999, dy: 0, dt: 1, night: true, rng: Math.random }); if (x.emote === "💤") zz++; }
   ok(zz > 30, "밤엔 잠 " + zz);
+});
+test("가방: 기본 20칸, 같은 재료는 묶음 한도까지 한 칸(나무 10·나뭇가지 20), 장비는 1칸, 양손 무기 2칸", () => {
+  const { st } = fresh("jobless"); st.inv = [];
+  eq(S.bagSize(st), 20);
+  eq(S.stackMax("wood"), 10); eq(S.stackMax("twig"), 20); eq(S.stackMax("knife"), 1);
+  eq(S.giveItem(st, "wood", 25), 25); eq(S.usedSlots(st.inv), 3); // 10+10+5
+  S.giveItem(st, "twig", 20); eq(S.usedSlots(st.inv), 4);
+  S.giveItem(st, "knife", 2); eq(S.usedSlots(st.inv), 6); // 무기는 같아도 따로
+  S.giveItem(st, "bow", 1); eq(S.usedSlots(st.inv), 8); // 양손 무기 2칸
+  // 꽉 차면 더 들어가지 않는다(넘치는 건 훅/창고로)
+  const r = S.roomFor(st, "stone"); eq(r, 12 * 10);
+  for (let i = 0; i < 12; i++) S.addItem(st, st.inv, "stone", 10, 1, S.bagSize(st));
+  eq(S.usedSlots(st.inv), 20); eq(S.roomFor(st, "stone"), 0); eq(S.roomFor(st, "wood"), 5); // 나무 묶음의 빈자리 5
+  eq(S.addItem(st, st.inv, "knife", 1, 1, S.bagSize(st)), 0);
+  // 적 처치 전리품은 바로 주지 않고 목록만(바닥에 떨어뜨림)
+  const n0 = S.usedSlots(st.inv); const d = S.onKill(st, "raider", makeRng(3), false); eq(S.usedSlots(st.inv), n0); ok(Array.isArray(d));
 });
 test("제작: 재료 부족 시 실패 / 충분하면 성공 + 경험치", () => {
   const { st } = fresh();

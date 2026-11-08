@@ -263,3 +263,4 @@ body.joy-right #throwBtn { right: auto; left: 20px; } body.joy-right #specBtn { 
 .vault { background: #1c1814; border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 6px; align-items: center; text-align: center; }
 .vault .vicon { font-size: 54px; } .v-bunker { border-color: #e0a24a; }
 .jrow { display: flex; align-items: center; gap: 8px; }
+.slot.w2 { grid-column: span 2; aspect-ratio: 2 / 1; } .slot .q i { font-style: normal; font-weight: 400; opacity: .6; font-size: 9px; }

@@ -135,8 +135,8 @@ function slotHtml(s, idx, extra = "") {
   const fr = s.fresh;
   // 테두리 색 = 등급(제작 품질, 없으면 시대), 모양 = 종류(무기·도구·옷·음식·의료·재료)
   const g = gradeOf(s);
-  return `<button class="slot t-${it.type} g${g} ${fr !== undefined ? (fr > 0.7 ? "f-good" : fr > 0.3 ? "f-mid" : "f-bad") : ""}" data-idx="${idx}" ${extra} title="${esc(S.itemLabel(s))}">
-    <span class="ic">${icon(s.id, 44)}</span><span class="nm">${esc(it.name)}</span>${s.qty > 1 ? `<span class="q">${s.qty}</span>` : ""}
+  return `<button class="slot t-${it.type} g${g} ${it.twoHand ? "w2" : ""} ${fr !== undefined ? (fr > 0.7 ? "f-good" : fr > 0.3 ? "f-mid" : "f-bad") : ""}" data-idx="${idx}" ${extra} title="${esc(S.itemLabel(s))}">
+    <span class="ic">${icon(s.id, 44)}</span><span class="nm">${esc(it.name)}</span>${s.qty > 1 ? `<span class="q">${s.qty}${S.stackMax(s.id) < 99 ? `<i>/${S.stackMax(s.id)}</i>` : ""}</span>` : ""}
     ${durPct !== null ? `<span class="bar"><i style="width:${durPct * 100}%;background:${durPct > 0.5 ? "#7ed957" : durPct > 0.2 ? "#f2c14e" : "#e5534b"}"></i></span>` : ""}
     ${fr !== undefined ? `<span class="bar fresh"><i style="width:${Math.max(0, fr) * 100}%"></i></span>` : ""}
   </button>`;
@@ -150,7 +150,7 @@ export function openBag() {
   const two = ITEMS[p.equip.hand?.id]?.twoHand;
   const slotName = { head: "머리", body: "몸", legs: "다리", feet: "발", back: "등", quiver: "활통(등)", hand: two ? "양손" : "오른손", off: two ? "왼손 (양손 무기 사용 중)" : "왼손" };
   const m = modal(`
-    <h2>${Ic.icon("ui.bag", 26)} 가방 <small>${st.inv.length}/${S.bagSize(st)}칸</small></h2>
+    <h2>${Ic.icon("ui.bag", 26)} 가방 <small class="${S.usedSlots(st.inv) >= S.bagSize(st) ? "no" : ""}">${S.usedSlots(st.inv)}/${S.bagSize(st)}칸</small> <small class="muted">같은 재료는 한 칸에 묶임(나무 10·나뭇가지 20…), 장비는 1칸, 양손 무기 2칸</small></h2>
     <div class="bag-top">
       <div class="doll-wrap"><canvas id="doll" width="180" height="220"></canvas><button class="btn sm" id="detailBtn">🔍 자세히 보기·꾸미기</button></div>
       <div class="equip">${slots.map((sl) => { const e = p.equip[sl]; return `<div class="eq" data-slot="${sl}"><small>${slotName[sl]}</small>${e ? `${slotHtml(e, -1, `data-eq="${sl}"`)}<span class="nm" style="color:${QUALITY[e.q ?? 1].color}">${esc(S.itemLabel(e))}</span>` : `<span class="empty">비어 있음</span>`}</div>`; }).join("")}</div>

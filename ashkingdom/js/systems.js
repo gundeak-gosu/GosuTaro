@@ -168,7 +168,7 @@ export const clockStr = (st) => {
 
 // =========================== 인벤토리 ===========================
 export function bagSize(st) {
-  let n = 16;
+  let n = 20; // 기본 가방 20칸
   const back = st.player.equip.back;
   if (back && ITEMS[back.id].bag) n += ITEMS[back.id].bag;
   return n;
@@ -183,38 +183,74 @@ export function makeStack(id, qty) {
   return s;
 }
 
-const stackable = (id) => !ITEMS[id].dur;
+const stackable = (id) => !ITEMS[id].dur && !ITEMS[id].slot;
+// 한 칸에 쌓을 수 있는 최대 개수(무거운 재료 10, 가벼운 재료 20, 화살·탄 30, 음식 10, 약 5). 장비는 1개 = 1칸
+const HEAVY = new Set(["wood", "stone", "iron", "steel", "iron_ore", "scrap", "leather", "coal", "fuel", "bone"]);
+const LIGHT = new Set(["twig", "fiber", "seed", "herb", "cloth", "salt", "fertilizer"]);
+export function stackMax(id) {
+  const it = ITEMS[id];
+  if (!it || !stackable(id)) return 1;
+  if (it.stack) return it.stack;
+  if (HEAVY.has(id)) return 10;
+  if (LIGHT.has(id)) return 20;
+  if (it.arrow || id === "ammo" || it.throw || id === "gunpowder") return 30;
+  if (it.type === "food") return 10;
+  if (it.type === "med") return 5;
+  if (it.type === "res") return 20;
+  return 5;
+}
+// 칸 차지: 양손 무기는 2칸
+export const slotsOf = (s) => (ITEMS[s.id]?.twoHand ? 2 : 1);
+export function usedSlots(inv) { let n = 0; for (const s of inv) n += slotsOf(s); return n; }
+// 넣을 수 있는 개수(꽉 차면 0)
+export function roomFor(st, id) {
+  const free = bagSize(st) - usedSlots(st.inv);
+  if (!stackable(id)) return Math.floor(free / (ITEMS[id].twoHand ? 2 : 1));
+  const mx = stackMax(id);
+  return st.inv.filter((s) => s.id === id).reduce((a, s) => a + Math.max(0, mx - s.qty), 0) + Math.max(0, free) * mx;
+}
 
 // 음식은 신선도 가중평균으로 합쳐진다(단순화). 내구도 있는 물건은 쌓이지 않는다.
-export function addItem(st, inv, id, qty = 1, fresh = 1, limit = Infinity) {
+export function addItem(st, inv, id, qty = 1, fresh = 1, limit = Infinity, stackMul = 1) {
   if (qty <= 0) return 0;
   if (stackable(id)) {
-    const ex = inv.find((s) => s.id === id);
-    if (ex) {
-      if (ex.fresh !== undefined) ex.fresh = (ex.fresh * ex.qty + fresh * qty) / (ex.qty + qty);
-      ex.qty += qty;
-      return qty;
+    // 칸 제한이 없는 보관(테스트·내부 계산)은 한 무더기로
+    const mx = limit === Infinity ? Infinity : stackMax(id) * stackMul;
+    let left = qty;
+    for (const ex of inv) {
+      if (ex.id !== id || ex.qty >= mx || left <= 0) continue;
+      const n = Math.min(left, mx - ex.qty);
+      if (ex.fresh !== undefined) ex.fresh = (ex.fresh * ex.qty + fresh * n) / (ex.qty + n);
+      ex.qty += n; left -= n;
     }
-    if (inv.length >= limit) return 0;
-    const s = makeStack(id, qty);
-    if (s.fresh !== undefined) s.fresh = fresh;
-    inv.push(s);
-    return qty;
+    while (left > 0 && usedSlots(inv) < limit) {
+      const n = Math.min(left, mx);
+      const s = makeStack(id, n);
+      if (s.fresh !== undefined) s.fresh = fresh;
+      inv.push(s); left -= n;
+    }
+    return qty - left;
   }
   let added = 0;
+  const w = ITEMS[id].twoHand ? 2 : 1;
   for (let i = 0; i < qty; i++) {
-    if (inv.length >= limit) break;
+    if (usedSlots(inv) + w > limit) break;
     inv.push(makeStack(id, 1));
     added++;
   }
   return added;
 }
 
+// 가방이 넘칠 때: 필드에서는 발밑에 떨어뜨린다(main.js 가 등록), 없으면 기지 창고 → 버림
+export let overflowHook = null;
+export function setOverflowHook(f) { overflowHook = f; }
+
 export function giveItem(st, id, qty = 1, fresh = 1) {
   const got = addItem(st, st.inv, id, qty, fresh, bagSize(st));
   if (got < qty) {
     // 가방이 가득 차면 기지 창고로(기지 안일 때만) — 아니면 버려짐
     const left = qty - got;
+    if (overflowHook) { overflowHook(id, left); return got; }
     const stored = storeToBase(st, id, left, fresh);
     if (stored < left) log(st, `가방이 가득 차 ${ITEMS[id].name} ${left - stored}개를 버렸습니다.`, "warn");
   }
@@ -279,7 +315,7 @@ export function storeToBase(st, id, qty, fresh = 1) {
   const stores = allStorage(st).sort((a, b) => storageMult(st, a) - storageMult(st, b));
   for (const b of stores) {
     if (left <= 0) break;
-    left -= addItem(st, b.storage, id, left, fresh, storageCap(b));
+    left -= addItem(st, b.storage, id, left, fresh, storageCap(b), 10); // 창고 한 칸 = 가방 묶음의 10배(더미로 쌓아 둔다)
   }
   return qty - left;
 }
@@ -305,7 +341,7 @@ export function depositAll(st, filter = () => true) {
 export function withdraw(st, building, index) {
   const s = building.storage[index];
   if (!s) return false;
-  if (st.inv.length >= bagSize(st) && !(stackable(s.id) && st.inv.some((x) => x.id === s.id))) return false;
+  if (s.dur !== undefined ? usedSlots(st.inv) + slotsOf(s) > bagSize(st) : roomFor(st, s.id) < s.qty) return false;
   building.storage.splice(index, 1);
   if (s.dur !== undefined) st.inv.push(s);
   else addItem(st, st.inv, s.id, s.qty, s.fresh ?? 1);
@@ -448,7 +484,7 @@ export function removeAffix(st, slot) {
 export function unequip(st, slot) {
   const s = st.player.equip[slot];
   if (!s) return false;
-  if (st.inv.length >= bagSize(st) && slot !== "back") return false;
+  if (usedSlots(st.inv) + slotsOf(st.player.equip[slot]) > bagSize(st) && slot !== "back") return false;
   st.player.equip[slot] = null;
   st.inv.push(s);
   return true;
@@ -921,7 +957,7 @@ export function craft(st, recipeId, ctx = {}) {
     for (let i = 0; i < q; i++) {
       const roll = rollQuality(st, r.station, rng);
       const s = applyQuality(makeStack(id, 1), roll.q, roll.af);
-      if (st.inv.length < bagSize(st)) st.inv.push(s);
+      if (usedSlots(st.inv) + slotsOf(s) <= bagSize(st)) st.inv.push(s);
       else { const b = allStorage(st).find((x) => x.storage.length < BUILDINGS[x.id].storage.slots); if (b) b.storage.push(s); else log(st, "가방과 창고가 가득 차 제작품을 버렸습니다", "warn"); }
       quality = { q: roll.q, af: roll.af, label: itemLabel(s) };
     }
@@ -1154,12 +1190,12 @@ export function damagePlayer(st, raw) {
   return dmg;
 }
 
-export function onKill(st, enemyType, rng = makeRng(Date.now())) {
+export function onKill(st, enemyType, rng = makeRng(Date.now()), give = true) {
   const e = ENEMIES[enemyType];
   st.stats.kills++;
   gainXp(st, e.xp);
   const drops = [];
-  for (const [id, p] of e.loot) if (rng.chance(p * diff(st).loot)) { giveItem(st, id, 1); drops.push(id); }
+  for (const [id, p] of e.loot) if (rng.chance(p * diff(st).loot)) { if (give) giveItem(st, id, 1); drops.push(id); }
   return drops;
 }
 

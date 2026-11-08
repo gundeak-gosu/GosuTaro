@@ -40,7 +40,9 @@ function powerAt(level, legacyLv, chapter, baseFill) {
   for (let i = 0; i < pts; i++) p.stats[ks[i % ks.length]]++;
   const weapon = chapter < 4 ? "spear" : chapter < 8 ? "pipe_pistol" : chapter < 10 ? "rifle" : "royal_blade";
   const gear = chapter < 4 ? [] : chapter < 6 ? ["leather_jacket", "boots"] : chapter < 8 ? ["leather_jacket", "boots", "helmet"] : ["combat_vest", "boots", "helmet"];
-  S.addItem(st, st.inv, weapon, 1); S.equipFromInv(st, weapon);
+  // 무기 기술: 7장(기지 Lv5)부터 훈련소가 2단계를 가르친다 → 그 무렵 총기·검술을 익혔다고 본다
+  p.wskills = { firearms: chapter >= 7 ? 2 : 1, blade: chapter >= 7 ? 2 : chapter >= 4 ? 1 : 0 };
+  S.addItem(st, st.inv, weapon, 1); if (!S.equipFromInv(st, weapon)) throw new Error("sim: cannot equip " + weapon);
   for (const g of gear) { S.addItem(st, st.inv, g, 1); S.equipFromInv(st, g); }
   st.base.lv = Math.min(8, 1 + Math.floor(chapter * 0.65));
   // 방어 시설: 장(chapter)과 자원 충실도(baseFill 0~1)에 비례

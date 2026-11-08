@@ -5,7 +5,7 @@ import * as Shop from "./shop.js";
 import * as MG from "./minigames.js";
 import {
   ITEMS, RECIPES, BUILDINGS, BASE_LEVELS, RESEARCH, ANIMALS, VEHICLES, ROLES, JOBS, DIFFICULTY,
-  CHAPTERS, ERAS, OLYMPIC_EVENTS, OLYMPICS, SHOP, STATS, ENDINGS, QUALITY, AFFIXES, BIOMES, WEATHER,
+  CHAPTERS, ERAS, OLYMPIC_EVENTS, OLYMPICS, SHOP, STATS, ENDINGS, QUALITY, AFFIXES, BIOMES, WEATHER, SPECIALS, WSKILLS,
 } from "./data.js";
 import { drawCharacter, drawCinematic } from "./render.js";
 import { makeRng } from "./rng.js";
@@ -107,6 +107,12 @@ function itemTip(s) {
   if (it.raw) bits.push('<span class="no">⚠ 날것: 그냥 먹으면 병에 걸릴 수 있음 — 모닥불에서 익히거나 끓이세요</span>');
   if (it.tool) bits.push("채집: " + Object.keys(it.tool).map((k) => ({ wood: "나무", stone: "돌·광석", scrap: "고철", fiber: "섬유", fish: "낚시" })[k]).join("·") + " 빠르게");
   if (it.atk) bits.push(`공격 ${S.itemStat(s, "atk")}`);
+  if (it.twoHand) bits.push("양손 무기(왼손 사용 불가)");
+  if (it.req) bits.push(`<span class="${S.canWield(G.st, s.id).ok ? "ok" : "no"}">필요: ${Object.entries(it.req).map(([k, v]) => `${WSKILLS[k].name} ${v}`).join(", ")}</span>`);
+  if (it.arrow) bits.push(`화살 공격 +${it.arrow.atk} · 회수율 약 ${Math.round(it.arrow.recover * 100)}%`);
+  if (it.throw) bits.push(`던지기 공격 ${it.throw.atk} · 회수율 약 ${Math.round(it.throw.recover * 100)}%`);
+  if (it.cap) bits.push(`화살 ${it.cap}발`);
+  if (SPECIALS[s.id]) bits.push(`필살기: ${SPECIALS[s.id].name} — ${SPECIALS[s.id].desc}`);
   if (it.def || AFFIXES[s.af]?.defAdd) bits.push(`방어 ${S.itemStat(s, "def")}`);
   if (it.warm) bits.push(`보온 ${S.itemStat(s, "warm")}`);
   if (s.af) bits.push(`<span class="${AFFIXES[s.af].good ? "ok" : "no"}">특성: ${AFFIXES[s.af].name} (${AFFIXES[s.af].desc})</span>`);
@@ -138,14 +144,17 @@ function slotHtml(s, idx, extra = "") {
 export function openBag() {
   const st = G.st;
   const p = st.player;
-  const slots = ["head", "body", "legs", "feet", "back", "hand"];
-  const slotName = { head: "머리", body: "몸", legs: "다리", feet: "발", back: "등", hand: "손" };
+  const slots = ["head", "body", "legs", "feet", "back", "quiver", "hand", "off"];
+  const two = ITEMS[p.equip.hand?.id]?.twoHand;
+  const slotName = { head: "머리", body: "몸", legs: "다리", feet: "발", back: "등", quiver: "활통(등)", hand: two ? "양손" : "오른손", off: two ? "왼손 (양손 무기 사용 중)" : "왼손" };
   const m = modal(`
     <h2>${Ic.icon("ui.bag", 26)} 가방 <small>${st.inv.length}/${S.bagSize(st)}칸</small></h2>
     <div class="bag-top">
       <div class="doll-wrap"><canvas id="doll" width="180" height="220"></canvas><button class="btn sm" id="detailBtn">🔍 자세히 보기·꾸미기</button></div>
       <div class="equip">${slots.map((sl) => { const e = p.equip[sl]; return `<div class="eq" data-slot="${sl}"><small>${slotName[sl]}</small>${e ? `${slotHtml(e, -1, `data-eq="${sl}"`)}<span class="nm" style="color:${QUALITY[e.q ?? 1].color}">${esc(S.itemLabel(e))}</span>` : `<span class="empty">비어 있음</span>`}</div>`; }).join("")}</div>
     </div>
+    ${p.equip.quiver ? `<div class="card qcard">${icon(p.equip.quiver.id, 22)} <b>${esc(ITEMS[p.equip.quiver.id].name)}</b> ${S.quiverCount(st)}/${ITEMS[p.equip.quiver.id].cap}발 · ${Object.entries(p.equip.quiver.ammo || {}).filter(([, n]) => n > 0).map(([k, n]) => `<button class="btn sm ${k === p.equip.quiver.sel ? "on" : ""}" data-arrow="${k}">${esc(ITEMS[k].name)} ${n}</button>`).join(" ") || '<span class="muted">비어 있음</span>'} <button class="btn sm primary" id="fillQ">가방의 화살 채우기</button></div>` : ""}
+    <div class="card small">무기 기술: ${Object.entries(WSKILLS).map(([k, w]) => `${w.name} <b>${p.wskills?.[k] || 0}</b>/${w.max}`).join(" · ")} <span class="muted">— 총·고급 무기는 기술이 있어야 쓸 수 있습니다(교본·훈련소)</span></div>
     <div class="stats">
       <div>Lv.${p.level} <small>(경험치 ${p.xp}/${xpNeed()})</small> · 혈통 Lv.${p.legacyLevel} · 전투력 <b>${S.combatPower(st)}</b> ${p.statPoints ? `<span class="badge">포인트 ${p.statPoints}</span>` : ""}</div>
       <div class="statrow">${STATS.map((s) => `<span>${s.name} <b>${p.stats[s.id]}</b>${p.statPoints ? `<button class="plus" data-stat="${s.id}">＋</button>` : ""}</span>`).join("")}</div>
@@ -170,7 +179,16 @@ export function openBag() {
   m.querySelectorAll(".grid .slot").forEach((b) => (b.onclick = () => {
     const i = +b.dataset.idx, s = st.inv[i], it = ITEMS[s.id];
     const acts = [];
-    if (it.slot) acts.push(["장착", () => S.equipFromInv(st, i)]);
+    if (it.slot) {
+      const cw = S.canWield(st, s.id);
+      if (!cw.ok) acts.push([`🔒 ${cw.why}`, () => toast(cw.why, "warn")]);
+      else {
+        acts.push([it.slot === "hand" ? (it.twoHand ? "양손으로 들기" : "오른손에 들기") : "장착", () => S.equipFromInv(st, i)]);
+        if (it.slot === "hand" && !it.twoHand) acts.push(["왼손에 들기", () => S.equipFromInv(st, i, true)]);
+      }
+    }
+    if (it.book) acts.push(["📖 읽기 (기술 배우기)", () => { const r = S.readBook(st, s.id); toast(r.ok ? `${WSKILLS[r.skill].name} ${r.lv}단계를 익혔다!` : r.why, r.ok ? "good" : "warn"); }]);
+    if (it.throw || s.id === "stone") acts.push(["던질 무기로 고르기 (R)", () => { G.throwSel = s.id; toast(`던지기: ${it.name}`); }]);
     if (s.id === "sleeping_bag") acts.push(["침낭 펴고 자기", () => { m.close(); G.sleep(G.atBase && S.hasBuilding(st, "bed") ? "bed" : "bag"); }]);
     if (it.type === "food" || it.type === "med" || s.id === "rotten_food") acts.push([it.type === "food" ? "먹기/마시기" : "사용", () => { const r = S.useItem(st, i); if (r.sick) toast("배탈이 났습니다! 🤢", "bad"); if (r.why) toast(r.why); }]);
     if (s.dur !== undefined && s.dur < s.maxDur && S.hasStation(st, "workbench") && G.atBase) acts.push([`수리 (${costStr(S.repairCost(s.id))}, 최대내구 -10%)`, () => { if (!S.repair(st, s)) toast("재료 또는 작업대가 없습니다", "bad"); }]);
@@ -179,7 +197,18 @@ export function openBag() {
     info.innerHTML = `<b style="color:${QUALITY[s.q ?? 1].color}">${icon(s.id, 22)} ${esc(S.itemLabel(s))}</b> ${s.qty > 1 ? "×" + s.qty : ""} ${s.dur !== undefined ? `· 내구도 ${Math.ceil(s.dur)}/${s.maxDur}` : ""} ${s.fresh !== undefined ? `· ${S.freshLabel(s.fresh)} (${Math.round(s.fresh * 100)}%)` : ""}<br><small>${itemTip(s)}</small><div class="acts">${acts.map((a, k) => `<button class="btn sm" data-a="${k}">${a[0]}</button>`).join("")}</div>`;
     info.querySelectorAll("[data-a]").forEach((x) => (x.onclick = () => { acts[+x.dataset.a][1](); run = false; m.close(); openBag(); }));
   }));
-  m.querySelectorAll("[data-eq]").forEach((b) => (b.onclick = () => { if (!S.unequip(st, b.dataset.eq)) toast("가방이 가득 찼습니다", "bad"); run = false; m.close(); openBag(); }));
+  // 장착한 것을 누르면: 특성이 있으면 숫돌로 지울지, 아니면 벗기
+  m.querySelectorAll("[data-eq]").forEach((b) => (b.onclick = async () => {
+    const sl = b.dataset.eq, e = p.equip[sl];
+    if (e?.af && S.count(st.inv, "whetstone") > 0) {
+      const v = await choice("장비", `${esc(S.itemLabel(e))} — 특성: ${AFFIXES[e.af].name} (${AFFIXES[e.af].desc})`, [{ label: "🪨 정화 숫돌로 특성 지우기", value: "w", cls: "primary" }, { label: "벗기", value: "u" }, { label: "취소", value: 0 }], { closable: true });
+      if (v === "w") { const r = S.removeAffix(st, sl); toast(r.ok ? `'${r.name}' 특성을 지웠다` : r.why, r.ok ? "good" : "bad"); }
+      else if (v === "u" && !S.unequip(st, sl)) toast("가방이 가득 찼습니다", "bad");
+    } else if (!S.unequip(st, sl)) toast("가방이 가득 찼습니다", "bad");
+    run = false; m.close(); G.afterAction(); openBag();
+  }));
+  m.querySelector("#fillQ")?.addEventListener("click", () => { const n = S.loadQuiver(st); toast(n ? `화살 ${n}발을 활통에 담았다` : "담을 화살이 없거나 활통이 가득 찼습니다", n ? "good" : "warn"); run = false; m.close(); G.afterAction(); openBag(); });
+  m.querySelectorAll("[data-arrow]").forEach((b) => (b.onclick = () => { p.equip.quiver.sel = b.dataset.arrow; run = false; m.close(); G.afterAction(); openBag(); }));
   function xpNeed() { return Math.floor(100 * Math.pow(p.level, 1.5)); }
 }
 
@@ -245,7 +274,7 @@ export function openBase(tab = "build") {
   const st = G.st;
   const L = BASE_LEVELS[st.base.lv - 1], next = BASE_LEVELS[st.base.lv];
   const why = S.canUpgradeBase(st);
-  const tabs = { build: "건설", quest: "의뢰", storage: "창고", research: "연구", defense: "방어·원정", life: "생활" };
+  const tabs = { build: "건설", quest: "의뢰", storage: "창고", research: "연구", train: "훈련", defense: "방어·원정", life: "생활" };
   let body = "";
   if (tab === "build") {
     body = `<div class="card"><b>🏰 ${L.name} (Lv.${st.base.lv})</b> · 부지 ${st.base.buildings.length}/${L.slots} · 주민 ${st.companions.length}/${S.residentCap(st)}
@@ -274,6 +303,12 @@ export function openBase(tab = "build") {
     const raidIn = st.nextRaidDay - S.day(st);
     body = `<div class="card">🛡️ 기지 방어력 <b>${S.baseDefense(st)}</b> · 전투력 <b>${S.combatPower(st)}</b><br>다음 습격: <b>${raidIn <= 0 ? "오늘 밤" : raidIn + "일 후"}</b> (예상 병력 ${S.raidStrength(st, st.nextRaidDay)})</div>
       ${st.story.chapter >= 12 ? `<div class="card"><b>🌍 세계 재건 원정</b> — 복구율 ${st.story.restore}%<br>필요 전투력 ${S.expeditionReq(st)} (현재 ${S.combatPower(st)})<br><button class="btn primary" id="exped">원정대 파견</button></div>` : '<p class="muted">에필로그(왕국 선포 이후)부터 세계 재건 원정이 열립니다.</p>'}`;
+  } else if (tab === "train") {
+    const mx = S.trainMaxLv(st);
+    body = `<div class="card">🎯 <b>훈련소</b> — 총·고급 무기는 기술이 있어야 다룰 수 있습니다. 교본(약탈자·재의 기사가 떨어뜨림)을 읽거나 여기서 금화로 배웁니다.<br>
+      ${mx ? `이 훈련소는 <b>${mx}단계</b>까지 가르칩니다${mx < 2 ? " (기지 Lv5 석조 성채가 되면 2단계)" : ""}.` : '<span class="no">훈련소가 없습니다 — [건설]에서 훈련소(기지 Lv3)를 지으세요.</span>'}</div>
+      <div class="rlist">${Object.entries(WSKILLS).map(([k, w]) => { const cur = st.player.wskills?.[k] || 0; const cost = w.gold[cur]; const r = cur >= w.max ? "최고 단계" : cur + 1 > mx ? "훈련소 단계 부족" : st.gold < cost ? `금화 ${cost} 필요` : "";
+        return `<div class="recipe"><span class="ic slot">${k === "firearms" ? icon("rifle", 40) : icon("machete", 40)}</span><div class="rinfo"><b>${w.name} ${cur}/${w.max}</b><small class="muted">${k === "firearms" ? "1: 파이프 권총 · 2: 소총" : "1: 마체테 · 2: 왕검"}</small></div><span></span><button class="btn sm" data-train="${k}" ${r ? "disabled" : ""}>${r || `배우기 (금화 ${cost})`}</button></div>`; }).join("")}</div>`;
   } else if (tab === "life") {
     const bed = S.hasBuilding(st, "bed");
     body = `<div class="card">🛏️ 잠자기: 다음 날 아침까지 시간을 보내며 체력을 회복합니다. ${bed ? `<button class="btn" id="sleep">잠자기</button>` : '<span class="no">침대 필요</span>'}</div>
@@ -283,6 +318,7 @@ export function openBase(tab = "build") {
   const m = modal(`<h2>${Ic.icon("ui.base", 26)} 기지</h2><div class="tabs">${Object.entries(tabs).map(([k, v]) => `<button class="tab ${k === tab ? "on" : ""}" data-tab="${k}">${v}</button>`).join("")}</div>${body}`, { wide: true });
   const re = (t = tab) => { m.close(); G.afterAction(); openBase(t); };
   m.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => re(b.dataset.tab)));
+  m.querySelectorAll("[data-train]").forEach((b) => (b.onclick = () => { const r = S.train(st, b.dataset.train); toast(r.ok ? `${WSKILLS[b.dataset.train].name} ${r.lv}단계를 익혔다!` : r.why, r.ok ? "good" : "bad"); re("train"); }));
   m.querySelector("#upg")?.addEventListener("click", async () => { const r = S.upgradeBase(st); if (r.ok) { m.close(); G.afterAction(); await cinematic(`🏰 ${BASE_LEVELS[st.base.lv - 1].name}`, `기지가 커졌다. 성벽은 높아지고, 사람들의 목소리도 커졌다. 이제 ${BASE_LEVELS[st.base.lv - 1].slots}개의 시설을 세울 수 있다.`, { palette: ["#1d2433", "#4a4a5e", "#b7884f"] }); openBase(); } else toast(r.why, "bad"); });
   m.querySelectorAll("[data-b]").forEach((b) => {
     if (tab === "build") b.onclick = () => { const r = S.build(st, b.dataset.b); Sfx.play(r.ok ? "build" : "bad"); toast(r.ok ? "건설 완료!" : r.why, r.ok ? "good" : "bad"); re(); };
@@ -869,6 +905,23 @@ export function renderHud() {
   const actKey = (held || "hand") + "|" + (G.actLabel || "");
   const actEl = $("#act");
   if (actEl && actEl.dataset.k !== actKey) { actEl.dataset.k = actKey; actEl.innerHTML = (held ? icon(held, 44) : Ic.icon("ui.hand", 40)) + `<span>${held ? esc(ITEMS[held].name) : "맨손"}${matchMedia("(hover: hover)").matches ? " (Space)" : ""}</span>`; }
+  // 던지기·필살기 버튼과 활통 화살 수
+  const pc = matchMedia("(hover: hover)").matches;
+  const thr = S.throwPick(st, G.throwSel);
+  const tb = $("#throwBtn");
+  if (tb) { tb.hidden = !thr; if (thr) tb.innerHTML = `${icon(thr, 26)}<b>${S.count(st.inv, thr)}</b><span>던지기${pc ? " (R)" : ""}</span>`; }
+  const sp = SPECIALS[p.equip.hand?.id], sb = $("#specBtn");
+  if (sb) { sb.hidden = !sp; if (sp) { sb.innerHTML = `✨<span>${esc(sp.name)}${pc ? " (F)" : ""}</span>${G.specCd > 0 ? `<i class="cd">${Math.ceil(G.specCd)}</i>` : ""}`; sb.classList.toggle("cooling", G.specCd > 0); } }
+  const q = p.equip.quiver, ab = $("#ammoBox"), handIt = ITEMS[p.equip.hand?.id];
+  if (ab) {
+    const showQ = q || handIt?.ranged;
+    ab.hidden = !showQ;
+    if (showQ) {
+      if (handIt?.ranged === "ammo") ab.innerHTML = `${icon("ammo", 20)} 탄약 <b>${S.count(st.inv, "ammo")}</b>`;
+      else if (q) ab.innerHTML = `${icon(q.id, 20)} <b>${S.quiverCount(st)}/${ITEMS[q.id].cap}</b> ${Object.entries(q.ammo || {}).filter(([, n]) => n > 0).map(([k, n]) => `<span class="${k === q.sel ? "sel" : ""}">${esc(ITEMS[k].name)} ${n}</span>`).join(" ") || '<span class="no">비었음 — 가방에서 채우기</span>'}${pc ? " <small>(T 바꾸기)</small>" : ""}`;
+      else ab.innerHTML = `${icon("arrow", 20)} 화살 <b>${S.ARROW_IDS().reduce((a, k) => a + S.count(st.inv, k), 0)}</b> <small>활통이 있으면 등에 메고 다닌다</small>`;
+    }
+  }
   // 아래 메뉴: 아직 열리지 않은 기능은 흐리게 + 자물쇠 (눌러도 언제 열리는지만 알려 줌)
   for (const [key, why] of Object.entries(menuLocks(st))) {
     const b = document.querySelector(`#menu [data-open="${key}"]`);

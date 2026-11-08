@@ -4,7 +4,7 @@
 // =====================================================================
 import {
   VERSION, TIME, DIFFICULTY, JOBS, ITEMS, RECIPES, BUILDINGS, BASE_LEVELS, RESEARCH, ANIMALS,
-  VEHICLES, ROLES, STORY_COMPANIONS, SURVIVOR_NAMES, CHAPTERS, ENDINGS, XP_CURVE, ENEMIES, QUALITY, AFFIXES,
+  VEHICLES, ROLES, STORY_COMPANIONS, SURVIVOR_NAMES, CHAPTERS, ENDINGS, XP_CURVE, ENEMIES, QUALITY, AFFIXES, WSKILLS,
   BIOMES, SEASON_NAMES, WEATHER, NUCLEAR_WINTER,
 } from "./data.js";
 import { makeRng } from "./rng.js";
@@ -67,7 +67,7 @@ export function newGame({ name, gender, job, difficulty, seed, account, look, ge
       level: 1, xp: 0, stats, statPoints: 0, legacyLevel: leg.level,
       skills: unlockedSkills(account, job).map((s) => s.id),
       hp: 0, maxHp: 0, hunger: 85, thirst: 85, warmth: 0, rad: 0, sick: 0,
-      x: 0, y: 0, equip: { head: null, body: null, legs: null, feet: null, back: null, hand: null },
+      x: 0, y: 0, equip: { head: null, body: null, legs: null, feet: null, back: null, hand: null, off: null, quiver: null }, wskills: job === "soldier" ? { firearms: 1 } : {},
       mount: null, selfRevives: 0,
     },
     inv: [],
@@ -309,18 +309,136 @@ export function withdraw(st, building, index) {
 }
 
 // =========================== 장비/내구도 ===========================
-export function equipFromInv(st, idOrIndex) {
+// 장착: 오른손(hand)·왼손(off)·활통(quiver). 양손 무기는 두 손을 다 쓴다.
+// toOff=true 면 한손 무기·도구를 왼손에. 기술이 필요한 무기는 기술이 없으면 들 수 없다.
+export function canWield(st, id) {
+  const req = ITEMS[id]?.req;
+  if (!req) return { ok: true };
+  for (const [k, lv] of Object.entries(req)) if ((st.player.wskills?.[k] || 0) < lv) return { ok: false, why: `${WSKILLS[k].name} ${lv}단계가 필요합니다(교본을 읽거나 훈련소에서 배우세요)` };
+  return { ok: true };
+}
+export function equipFromInv(st, idOrIndex, toOff = false) {
   const idx = typeof idOrIndex === "number" ? idOrIndex : st.inv.findIndex((s) => s.id === idOrIndex);
   const s = st.inv[idx];
   if (!s) return false;
   const it = ITEMS[s.id];
   if (!it.slot) return false;
-  const old = st.player.equip[it.slot];
+  if (!canWield(st, s.id).ok) return false;
+  const eq = st.player.equip;
+  let slot = it.slot;
+  if (slot === "hand" && toOff && !it.twoHand) slot = "off";
   st.inv.splice(idx, 1);
-  st.player.equip[it.slot] = s;
-  if (old) st.inv.push(old);
+  const back = [];
+  if (eq[slot]) back.push(eq[slot]);
+  // 양손 무기를 들면 왼손을 비우고, 왼손에 들 때 오른손이 양손 무기면 오른손을 비운다
+  if (slot === "hand" && it.twoHand && eq.off) { back.push(eq.off); eq.off = null; }
+  if (slot === "off" && eq.hand && ITEMS[eq.hand.id].twoHand) { back.push(eq.hand); eq.hand = null; }
+  eq[slot] = s;
+  st.inv.push(...back);
   st.player.maxHp = maxHp(st);
   return true;
+}
+export function handsInfo(st) {
+  const eq = st.player.equip, h = eq.hand && ITEMS[eq.hand.id];
+  return { two: !!h?.twoHand, right: eq.hand, left: eq.off };
+}
+
+// ---------- 활통 ----------
+// 활통 칸(s.ammo = {화살id: 개수}, s.sel = 쏠 화살)에 가방의 화살을 용량까지 옮겨 담는다
+export const ARROW_IDS = () => Object.keys(ITEMS).filter((k) => ITEMS[k].arrow);
+export function quiverCount(st) { const q = st.player.equip.quiver; return q ? Object.values(q.ammo || {}).reduce((a, b) => a + b, 0) : 0; }
+export function loadQuiver(st) {
+  const q = st.player.equip.quiver;
+  if (!q) return 0;
+  q.ammo ||= {};
+  const cap = ITEMS[q.id].cap;
+  let moved = 0;
+  for (const id of ARROW_IDS()) {
+    let room = cap - quiverCount(st);
+    if (room <= 0) break;
+    const n = Math.min(room, count(st.inv, id));
+    if (n > 0) { removeFrom(st.inv, id, n); q.ammo[id] = (q.ammo[id] || 0) + n; moved += n; }
+  }
+  if (!q.sel || !q.ammo[q.sel]) q.sel = Object.keys(q.ammo).find((k) => q.ammo[k] > 0) || null;
+  return moved;
+}
+export function cycleArrow(st) {
+  const q = st.player.equip.quiver;
+  if (!q?.ammo) return null;
+  const have = Object.keys(q.ammo).filter((k) => q.ammo[k] > 0);
+  if (!have.length) return null;
+  q.sel = have[(have.indexOf(q.sel) + 1) % have.length];
+  return q.sel;
+}
+// 화살 1발 꺼내기: 활통 우선, 없으면 가방
+function takeArrow(st) {
+  const q = st.player.equip.quiver;
+  if (q?.ammo) {
+    if (!q.sel || !q.ammo[q.sel]) q.sel = Object.keys(q.ammo).find((k) => q.ammo[k] > 0) || null;
+    if (q.sel) { q.ammo[q.sel]--; return q.sel; }
+  }
+  const id = ARROW_IDS().find((k) => count(st.inv, k) > 0);
+  if (id) { removeFrom(st.inv, id, 1); return id; }
+  return null;
+}
+// 쏜 화살을 다시 주울 수 있나(종류별 회수율 × 행운). 평균 약 90%
+export function arrowRecovered(st, id, rng = Math.random) {
+  const base = ITEMS[id]?.arrow?.recover ?? ITEMS[id]?.throw?.recover ?? 0.9;
+  const luck = 1 + (JOBS[st.player.job].perks.luck || 0) * 0.15;
+  return rng() < Math.min(0.98, base * luck);
+}
+
+// ---------- 던지기 ----------
+export const THROWABLES = ["throw_knife", "shuriken", "stone"];
+export function throwPick(st, pref) {
+  if (pref && count(st.inv, pref) > 0) return pref;
+  return THROWABLES.find((k) => count(st.inv, k) > 0) || null;
+}
+export function throwItem(st, id) {
+  if (!id || count(st.inv, id) < 1) return null;
+  removeFrom(st.inv, id, 1);
+  const t = ITEMS[id].throw || { atk: 4, recover: 0.6 }; // 돌
+  const dmg = Math.round((t.atk + eff(st, "agi") * 0.7 + eff(st, "str") * 0.3) * (1 + (JOBS[st.player.job].perks.dmg || 0)));
+  return { id, dmg };
+}
+
+// ---------- 무기 기술 ----------
+export function readBook(st, id) {
+  const b = ITEMS[id]?.book;
+  if (!b || count(st.inv, id) < 1) return { ok: false, why: "읽을 수 없습니다" };
+  const cur = st.player.wskills?.[b.skill] || 0;
+  if (cur >= b.lv) return { ok: false, why: "이미 아는 내용입니다" };
+  if (cur < b.lv - 1) return { ok: false, why: `${WSKILLS[b.skill].name} ${b.lv - 1}단계를 먼저 익혀야 합니다` };
+  removeFrom(st.inv, id, 1);
+  (st.player.wskills ||= {})[b.skill] = b.lv;
+  gainXp(st, 30 * b.lv);
+  return { ok: true, skill: b.skill, lv: b.lv };
+}
+// 훈련소: 기지 레벨이 오를수록 높은 단계를 가르친다(기지 Lv3~4 → 1단계, Lv5+ → 2단계)
+export function trainMaxLv(st) { return hasBuilding(st, "training") ? (st.base.lv >= 5 ? 2 : 1) : 0; }
+export function train(st, skill) {
+  const W = WSKILLS[skill], cur = st.player.wskills?.[skill] || 0;
+  if (!W) return { ok: false, why: "없는 기술" };
+  if (cur >= W.max) return { ok: false, why: "이미 최고 단계" };
+  if (cur + 1 > trainMaxLv(st)) return { ok: false, why: trainMaxLv(st) ? "훈련소가 가르칠 수 있는 단계를 넘었습니다(기지 Lv5에서 2단계)" : "훈련소가 필요합니다" };
+  const cost = W.gold[cur];
+  if (st.gold < cost) return { ok: false, why: `금화 ${cost} 필요` };
+  st.gold -= cost;
+  (st.player.wskills ||= {})[skill] = cur + 1;
+  gainXp(st, 25);
+  return { ok: true, lv: cur + 1 };
+}
+
+// ---------- 특성 제거(정화 숫돌) ----------
+export function removeAffix(st, slot) {
+  const s = st.player.equip[slot];
+  if (!s?.af) return { ok: false, why: "특성이 없습니다" };
+  if (count(st.inv, "whetstone") < 1) return { ok: false, why: "정화 숫돌이 필요합니다" };
+  removeFrom(st.inv, "whetstone", 1);
+  const name = AFFIXES[s.af].name;
+  if (AFFIXES[s.af].dur && s.maxDur) { s.maxDur = Math.round(s.maxDur / AFFIXES[s.af].dur); s.dur = Math.min(s.dur, s.maxDur); }
+  delete s.af;
+  return { ok: true, name };
 }
 
 export function unequip(st, slot) {
@@ -913,7 +1031,8 @@ export function useItem(st, index) {
   if (!s) return { ok: false };
   const it = ITEMS[s.id];
   const p = st.player;
-  if (it.slot) return { ok: equipFromInv(st, index), equip: true };
+  if (it.slot) { const c = canWield(st, s.id); if (!c.ok) return { ok: false, why: c.why }; return { ok: equipFromInv(st, index), equip: true }; }
+  if (it.book) return readBook(st, s.id);
   if (it.type === "food") {
     const f = it.food;
     const fresh = s.fresh ?? 1;
@@ -975,10 +1094,11 @@ export function gather(st, nodeType, rng = makeRng(Date.now())) {
     case "bush": add("berry", rng.int(1, 3) * loot); add("fiber", rng.int(1, 2) * (tool.fiber || 1)); add("twig", rng.int(1, 2)); if (rng.chance(0.15)) add("seed", 1); break;
     case "herb": add("herb", rng.int(1, 2)); if (rng.chance(0.4)) add("mushroom", 1); break;
     case "crate": {
-      const table = ["canned_food", "cloth", "ammo", "electronics", "bandage", "seed", "fuel", "salt", "gunpowder", "water_clean", "instant_noodle", "leather"];
+      const table = ["canned_food", "cloth", "ammo", "electronics", "bandage", "seed", "fuel", "salt", "gunpowder", "water_clean", "instant_noodle", "leather", "arrow", "whetstone", "shuriken"];
       const n = 2 + (rng.chance(0.3 * luck) ? 1 : 0) + (hasSkill(st, "lucky") ? 1 : 0);
       for (let i = 0; i < n; i++) add(rng.pick(table), rng.int(1, 2));
       if (st.base.lv >= 4 && rng.chance(0.2)) add("iron", 2);
+      if (rng.chance(0.03 * luck)) add(rng.pick(["book_firearms1", "book_blade1"]), 1); // 드물게 교본
       break;
     }
     case "water": add("water_dirty", 1); break;
@@ -993,19 +1113,24 @@ export function gather(st, nodeType, rng = makeRng(Date.now())) {
 }
 
 // =========================== 전투 ===========================
-export function playerAttack(st) {
-  const hand = st.player.equip.hand;
+export function playerAttack(st, slot = "hand") {
+  const hand = st.player.equip[slot];
   const it = hand ? ITEMS[hand.id] : null;
-  let atk = (hand ? itemStat(hand, "atk") : 2) + eff(st, "str") * 0.8;
-  let ranged = false;
-  if (it?.ranged) {
+  let atk = (hand && it.atk ? itemStat(hand, "atk") : 2) + eff(st, "str") * 0.8;
+  if (slot === "off") atk *= 0.8; // 왼손은 조금 약하게
+  let ranged = false, arrow = null;
+  if (it?.ranged === "arrow") {
+    arrow = takeArrow(st);
+    if (arrow) { ranged = true; atk += (ITEMS[arrow].arrow?.atk || 0) + eff(st, "agi") * 0.6; if (hasSkill(st, "aim")) atk *= 1.15; }
+    else atk = 3 + eff(st, "str") * 0.5;
+  } else if (it?.ranged) {
     if (count(st.inv, it.ranged) > 0) { removeFrom(st.inv, it.ranged, 1); ranged = true; atk += eff(st, "agi") * 0.6; if (hasSkill(st, "aim")) atk *= 1.15; }
     else atk = 3 + eff(st, "str") * 0.5; // 탄 없으면 개머리판
   }
   atk *= 1 + (JOBS[st.player.job].perks.dmg || 0);
   if (hasSkill(st, "warlord")) atk *= 1.15;
-  if (hand) wear(st, "hand", 1);
-  return { dmg: Math.round(atk), ranged, range: ranged ? 220 : 46 };
+  if (hand) wear(st, slot, 1);
+  return { dmg: Math.round(atk), ranged, arrow, burn: arrow ? ITEMS[arrow].arrow?.burn || 0 : 0, range: ranged ? 220 : 46 };
 }
 
 export function damagePlayer(st, raw) {

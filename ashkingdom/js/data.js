@@ -193,7 +193,7 @@ export const ITEMS = {
   seed: { name: "씨앗", type: "res", icon: "🫘" },
   fertilizer: { name: "퇴비", type: "res", icon: "💩" },
   ammo: { name: "탄약", type: "res", icon: "🔸" },
-  arrow: { name: "화살", type: "res", icon: "➶" },
+  arrow: { name: "화살", type: "res", icon: "➶", arrow: { atk: 0, recover: 0.9 } },
   notebook: { name: "연구 노트", type: "misc", icon: "📓" },
   gold_watch: { name: "금시계", type: "misc", icon: "⌚", value: 120 },
   game_console: { name: "휴대 게임기", type: "misc", icon: "🎮", value: 40 },
@@ -240,12 +240,25 @@ export const ITEMS = {
 
   // 무기
   knife: { name: "생존 나이프", type: "weapon", icon: "🔪", slot: "hand", dur: 90, atk: 7 },
-  spear: { name: "창", type: "weapon", icon: "🗡️", slot: "hand", dur: 70, atk: 11 },
-  machete: { name: "마체테", type: "weapon", icon: "⚔️", slot: "hand", dur: 140, atk: 16, era: 1 },
-  bow: { name: "활", type: "weapon", icon: "🏹", slot: "hand", dur: 100, atk: 14, ranged: "arrow" },
-  pipe_pistol: { name: "파이프 권총", type: "weapon", icon: "🔫", slot: "hand", dur: 80, atk: 20, ranged: "ammo" },
-  rifle: { name: "소총", type: "weapon", icon: "🔫", slot: "hand", dur: 200, atk: 34, ranged: "ammo", era: 2 },
-  royal_blade: { name: "왕검", type: "weapon", icon: "🗡️", slot: "hand", dur: 600, atk: 55, era: 3 },
+  spear: { name: "창", type: "weapon", icon: "🗡️", slot: "hand", dur: 70, atk: 11, twoHand: true },
+  machete: { name: "마체테", type: "weapon", icon: "⚔️", slot: "hand", dur: 140, atk: 16, era: 1, req: { blade: 1 } },
+  bow: { name: "활", type: "weapon", icon: "🏹", slot: "hand", dur: 100, atk: 14, ranged: "arrow", twoHand: true },
+  pipe_pistol: { name: "파이프 권총", type: "weapon", icon: "🔫", slot: "hand", dur: 80, atk: 20, ranged: "ammo", req: { firearms: 1 } },
+  rifle: { name: "소총", type: "weapon", icon: "🔫", slot: "hand", dur: 200, atk: 34, ranged: "ammo", era: 2, twoHand: true, req: { firearms: 2 } },
+  royal_blade: { name: "왕검", type: "weapon", icon: "🗡️", slot: "hand", dur: 600, atk: 55, era: 3, req: { blade: 2 } },
+  // 왼손 · 활통 · 던지기 · 화살
+  wood_shield: { name: "나무 방패", type: "cloth", icon: "🛡️", slot: "off", dur: 120, def: 4, desc: "왼손에 든다. 방어 +4." },
+  quiver_s: { name: "작은 활통", type: "cloth", icon: "🎯", slot: "quiver", dur: 9999, cap: 20, desc: "등에 메는 화살통(손을 쓰지 않음). 화살 20발." },
+  quiver_l: { name: "큰 활통", type: "cloth", icon: "🎯", slot: "quiver", dur: 9999, cap: 50, era: 1, desc: "화살 50발. 여러 종류를 함께 담는다." },
+  iron_arrow: { name: "철화살", type: "res", icon: "➶", arrow: { atk: 7, recover: 0.92 }, era: 1 },
+  fire_arrow: { name: "불화살", type: "res", icon: "➶", arrow: { atk: 5, burn: 6, recover: 0.4 }, desc: "맞은 적이 불탄다(지속 피해). 대부분 타 버려 회수가 어렵다." },
+  shuriken: { name: "표창", type: "weapon", icon: "⭐", throw: { atk: 9, recover: 0.85 }, era: 1, desc: "던지기(R). 대부분 다시 주울 수 있다." },
+  throw_knife: { name: "투척 단검", type: "weapon", icon: "🔪", throw: { atk: 13, recover: 0.9 }, era: 1, desc: "던지기(R). 묵직한 한 방." },
+  whetstone: { name: "정화 숫돌", type: "misc", icon: "🪨", desc: "장비에 붙은 특성(좋든 나쁘든)을 갈아 없앤다." },
+  book_firearms1: { name: "총기 교본 Ⅰ", type: "misc", icon: "📕", book: { skill: "firearms", lv: 1 }, desc: "읽으면 '총기 다루기 1' — 권총을 쓸 수 있다." },
+  book_firearms2: { name: "총기 교본 Ⅱ", type: "misc", icon: "📕", book: { skill: "firearms", lv: 2 }, era: 2, desc: "'총기 다루기 2' — 소총을 쓸 수 있다(1단계 필요)." },
+  book_blade1: { name: "검술서 Ⅰ", type: "misc", icon: "📘", book: { skill: "blade", lv: 1 }, desc: "'검술 1' — 마체테를 쓸 수 있다." },
+  book_blade2: { name: "검술서 Ⅱ", type: "misc", icon: "📘", book: { skill: "blade", lv: 2 }, era: 2, desc: "'검술 2' — 왕검을 쓸 수 있다(1단계 필요)." },
 
   // 옷 (warm: 보온, def: 방어, rad: 방사능 차단율)
   rag_shirt: { name: "누더기 셔츠", type: "cloth", icon: "👕", slot: "body", dur: 120, warm: 3, def: 1, look: { color: "#8b7d6b", style: "rag" } },
@@ -262,6 +275,24 @@ export const ITEMS = {
   backpack: { name: "배낭", type: "cloth", icon: "🎒", slot: "back", dur: 400, bag: 8, look: { color: "#5b4a33" } },
   royal_robe: { name: "왕의 망토", type: "cloth", icon: "👘", slot: "back", dur: 9999, warm: 10, def: 6, look: { color: "#7a1f2b", style: "cape" }, era: 3 },
   crown: { name: "재건의 왕관", type: "cloth", icon: "👑", slot: "head", dur: 9999, def: 3, look: { color: "#d4af37", style: "crown" } },
+};
+
+// 무기 기술: 총·고급 무기는 기술이 있어야 쓴다. 교본(전리품)을 읽거나 훈련소에서 배운다.
+export const WSKILLS = {
+  firearms: { name: "총기 다루기", max: 2, gold: [120, 400] },
+  blade: { name: "검술", max: 2, gold: [100, 360] },
+};
+// 무기별 필살기(F 키 / 필살기 버튼). cd: 재사용 대기(초)
+export const SPECIALS = {
+  knife: { name: "급소 찌르기", cd: 8, kind: "pierce", mult: 3, desc: "한 적에게 3배 피해" },
+  spear: { name: "돌진 찌르기", cd: 10, kind: "dash", mult: 2.2, desc: "앞으로 돌진하며 앞의 적 모두 관통" },
+  machete: { name: "회전 베기", cd: 9, kind: "spin", mult: 1.6, desc: "주변 모든 적 베기" },
+  royal_blade: { name: "왕의 일격", cd: 12, kind: "spin", mult: 3, desc: "주변 모든 적에게 강한 일격" },
+  bow: { name: "연사", cd: 9, kind: "volley", n: 3, desc: "화살 3발을 부채꼴로" },
+  pipe_pistol: { name: "속사", cd: 10, kind: "volley", n: 3, desc: "3발 연속 사격" },
+  rifle: { name: "저격", cd: 12, kind: "snipe", mult: 2.6, desc: "먼 적에게 강력한 한 발" },
+  stone_axe: { name: "내려찍기", cd: 9, kind: "pierce", mult: 2.2, desc: "한 적에게 강한 일격" },
+  iron_axe: { name: "내려찍기", cd: 9, kind: "pierce", mult: 2.5, desc: "한 적에게 강한 일격" },
 };
 
 export function itemName(id) { return ITEMS[id]?.name ?? id; }
@@ -306,6 +337,10 @@ export const RECIPES = [
   { id: "coal", out: ["coal", 1], in: { wood: 2 }, station: "campfire" },
   { id: "herbal_tea", out: ["herbal_tea", 1], in: { herb: 2, water_clean: 1 }, station: "campfire" },
 
+  { id: "wood_shield", out: ["wood_shield", 1], in: { wood: 6, leather: 1 }, station: "workbench" },
+  { id: "quiver_s", out: ["quiver_s", 1], in: { leather: 2, fiber: 4 }, station: "workbench" },
+  { id: "whetstone", out: ["whetstone", 1], in: { stone: 4, salt: 1, herb: 1 }, station: "workbench" },
+  { id: "fire_arrow", out: ["fire_arrow", 4], in: { arrow: 4, fuel: 1, cloth: 1 }, station: "workbench" },
   { id: "fishing_rod", out: ["fishing_rod", 1], in: { wood: 2, fiber: 4, scrap: 1 }, station: "workbench" },
   { id: "bow", out: ["bow", 1], in: { wood: 5, fiber: 5, leather: 1 }, station: "workbench" },
   { id: "arrow", out: ["arrow", 6], in: { wood: 2, stone: 1, fiber: 1 }, station: "workbench" },
@@ -323,6 +358,10 @@ export const RECIPES = [
   { id: "iron", out: ["iron", 1], in: { scrap: 4, coal: 1 }, station: "forge", research: "smelting" },
   { id: "iron_from_ore", out: ["iron", 2], in: { iron_ore: 3, coal: 1 }, station: "forge", research: "smelting" },
   { id: "steel", out: ["steel", 1], in: { iron: 2, coal: 2 }, station: "forge", research: "smelting" },
+  { id: "quiver_l", out: ["quiver_l", 1], in: { leather: 5, iron: 1, fiber: 4 }, station: "forge", research: "smelting" },
+  { id: "iron_arrow", out: ["iron_arrow", 8], in: { iron: 1, wood: 2, fiber: 2 }, station: "forge", research: "smelting" },
+  { id: "shuriken", out: ["shuriken", 6], in: { iron: 1 }, station: "forge", research: "smelting" },
+  { id: "throw_knife", out: ["throw_knife", 3], in: { iron: 1, leather: 1 }, station: "forge", research: "smelting" },
   { id: "iron_axe", out: ["iron_axe", 1], in: { iron: 3, wood: 2 }, station: "forge", research: "smelting" },
   { id: "iron_pick", out: ["iron_pick", 1], in: { iron: 3, wood: 2 }, station: "forge", research: "smelting" },
   { id: "machete", out: ["machete", 1], in: { iron: 2, steel: 1, leather: 1 }, station: "forge", research: "smelting" },
@@ -365,6 +404,7 @@ export const BUILDINGS = {
   rain_collector: { name: "빗물 집수기", icon: "🛢️", cost: { wood: 10, scrap: 6, cloth: 2 }, baseLv: 2, prod: { water_clean: 3 }, max: 3 },
   pen: { name: "동물 우리", icon: "🐐", cost: { wood: 30, fiber: 10 }, baseLv: 2, research: "husbandry", animals: 4, max: 3 },
   watchtower: { name: "감시탑", icon: "🗼", cost: { wood: 30, stone: 10 }, baseLv: 2, defense: 25, max: 4 },
+  training: { name: "훈련소", icon: "🎯", cost: { wood: 40, stone: 20, leather: 4 }, baseLv: 3, train: true, max: 1 },
   forge: { name: "대장간", icon: "⚒️", cost: { stone: 40, scrap: 20 }, baseLv: 3, station: "forge", max: 1 },
   kitchen: { name: "주방", icon: "🍳", cost: { wood: 20, stone: 20, scrap: 6 }, baseLv: 3, station: "kitchen", max: 1 },
   clinic: { name: "진료소", icon: "🏥", cost: { wood: 40, cloth: 10, scrap: 10 }, baseLv: 3, heal: 3, max: 1 },
@@ -405,8 +445,8 @@ export const ENEMIES = {
   rad_rat: { name: "방사능 쥐", hp: 14, atk: 3, speed: 70, xp: 6, loot: [["raw_meat", 0.4], ["bone", 0.4]], color: "#8bb24a", r: 7 },
   feral_dog: { name: "광견", hp: 30, atk: 6, speed: 95, xp: 12, loot: [["raw_meat", 0.8], ["leather", 0.5], ["bone", 0.5]], color: "#7a5a3a", r: 10 },
   mutant: { name: "변이체", hp: 60, atk: 10, speed: 55, xp: 25, loot: [["electronics", 0.25], ["herb", 0.5], ["cloth", 0.6]], color: "#6b8f5e", r: 12, night: true },
-  raider: { name: "약탈자", hp: 70, atk: 12, speed: 75, xp: 35, loot: [["ammo", 0.6], ["scrap", 0.8], ["cloth", 0.6], ["canned_food", 0.3]], color: "#a0392c", r: 11, ranged: true },
-  ash_knight: { name: "재의 기사", hp: 220, atk: 26, speed: 70, xp: 120, loot: [["iron", 0.9], ["electronics", 0.7], ["gunpowder", 0.6]], color: "#444", r: 14 },
+  raider: { name: "약탈자", hp: 70, atk: 12, speed: 75, xp: 35, loot: [["ammo", 0.6], ["scrap", 0.8], ["cloth", 0.6], ["canned_food", 0.3], ["book_firearms1", 0.04], ["book_blade1", 0.04], ["arrow", 0.3]], color: "#a0392c", r: 11, ranged: true },
+  ash_knight: { name: "재의 기사", hp: 220, atk: 26, speed: 70, xp: 120, loot: [["iron", 0.9], ["electronics", 0.7], ["gunpowder", 0.6], ["book_firearms2", 0.08], ["book_blade2", 0.08], ["steel", 0.3]], color: "#444", r: 14 },
 };
 
 // ---------------- 동료(스토리 + 무작위 생존자) ----------------

@@ -11,6 +11,7 @@ import * as Sfx from "./sfx.js";
 import * as Bgm from "./bgm.js";
 import { TUTORIAL, tutorialStep } from "./tutorial.js";
 import { BIOMES } from "./data.js";
+import { SPECIALS } from "./data.js";
 import { generateWorld, TILE, WORLD_W, WORLD_H, tileAt, isBlocked, nearWater, T, NODE_TYPES, applyBridges, isSlow } from "./world.js";
 import * as Reg from "./regions.js";
 import * as R from "./render.js";
@@ -152,7 +153,7 @@ async function startGame(st, isNew = false) {
   loadRegion(R0.cur);
   if (G.hasGL && G.st?.player) preloadHeroes(G.st.player.gender || "M"); // 이야기 장면용 3D 모델(내 성별만)
   G.r3d?.setWorld(G.world);
-  G.mobs = []; G.shots = []; G.fx = []; G.trail = [];
+  G.mobs = []; G.shots = []; G.fx = []; G.trail = []; G.drops = []; G.specCd = 0;
   G.paused = 0;
   st.passActive = passActive(G.acc);
   if (st.player.x == null || !st.player.x) respawnAtBase();
@@ -191,7 +192,7 @@ function loadRegion(rid, entry = null) {
   G.fog = Reg.fogLoad(Reg.rs(st, reg.id).fog, WORLD_W * WORLD_H); G.fogPctV = Reg.fogPct(G.fog);
   R.clearTerrainCache(); miniCache = null;
   G.r3d?.setWorld(G.world);
-  G.mobs = []; G.shots = [];
+  G.mobs = []; G.shots = []; G.drops = [];
   if (entry) {
     const p = st.player, m = 4 * TILE;
     if (entry === "동") { p.x = m; p.y = (G.world.cy + 0.5) * TILE; }
@@ -227,7 +228,7 @@ function regionCleared() {
   const st = G.st, reg = G.world.region;
   const opened = Object.values(reg.links).map((o) => G.regions.find((r) => r.id === o)).filter(Boolean);
   S.gainXp(st, 60 + reg.tier * 40); st.gold += 40 + reg.tier * 30;
-  Sfx.play("level");
+  Sfx.play("levelup");
   UI.toast(`🏁 「${reg.name}」 미션 완료! 새 길이 열렸다: ${opened.map((r) => r.name).join(", ")}`, "good");
   G.save();
 }
@@ -338,6 +339,9 @@ addEventListener("keydown", (e) => {
     if (k === "i" || k === "b") UI.openBag();
     if (k === "c") UI.openCraft();
     if (k === "m") UI.openRegionMap();
+    if (k === "r") G.throwNow();
+    if (k === "f") G.special();
+    if (k === "t") { const a = S.cycleArrow(G.st); if (a) UI.toast(`화살: ${ITEMS[a].name}`); UI.renderHud(); }
     if (k === "escape") UI.openMenu();
   }
 });
@@ -359,6 +363,9 @@ function moveJoy(e) {
 }
 document.getElementById("act").addEventListener("pointerdown", (e) => { e.preventDefault(); G.input.action = true; });
 document.getElementById("dodge").addEventListener("pointerdown", (e) => { e.preventDefault(); dodge(); });
+document.getElementById("throwBtn").addEventListener("pointerdown", (e) => { e.preventDefault(); G.throwNow(); });
+document.getElementById("specBtn").addEventListener("pointerdown", (e) => { e.preventDefault(); G.special(); });
+document.getElementById("ammoBox").addEventListener("pointerdown", (e) => { e.preventDefault(); const a = S.cycleArrow(G.st); if (a) UI.toast(`화살: ${ITEMS[a].name}`); UI.renderHud(); });
 // 메뉴/행동 버튼 아이콘을 통일된 SVG 세트로
 const MENU_IC = { bag: "ui.bag", craft: "ui.craft", base: "ui.base", people: "ui.people", animals: "ui.animals", story: "ui.story", olympics: "ui.olympics", shop: "ui.shop", menu: "ui.menu" };
 document.querySelectorAll("[data-open]").forEach((b) => { const lab = b.querySelector("span").outerHTML; b.innerHTML = Ic.icon(MENU_IC[b.dataset.open], 34) + lab; });
@@ -568,9 +575,74 @@ function dodge() {
 }
 G.dodge = dodge;
 
+// 가장 가까운 적(사거리 안). 없으면 null
+function nearestFoe(range) {
+  const p = G.st.player; let best = null, bd = range;
+  for (const m of G.mobs) { if (m.hp <= 0 || !(m.kind === "enemy" || m.aggro)) continue; const d = Math.hypot(m.x - p.x, m.y - p.y); if (d < bd) { bd = d; best = m; } }
+  return best;
+}
+function aimVec(m) {
+  const p = G.st.player;
+  if (m) { const d = Math.hypot(m.x - p.x, m.y - 14 - p.y + 20) || 1; return [(m.x - p.x) / d, (m.y - 14 - p.y + 20) / d]; }
+  return [Math.sin(G.moveYaw ?? 0), Math.cos(G.moveYaw ?? 0)];
+}
+// 던지기(R): 투척 단검 > 표창 > 돌. 던진 것은 대부분 다시 주울 수 있다
+G.throwNow = () => {
+  const st = G.st;
+  if (!st || G.paused || G.attackCd > 0) return;
+  const id = S.throwPick(st, G.throwSel);
+  if (!id) return UI.toast("던질 것이 없습니다 (돌·표창·투척 단검)", "warn");
+  const t = S.throwItem(st, id);
+  const [vx, vy] = aimVec(nearestFoe(320));
+  G.shots.push({ x: st.player.x, y: st.player.y - 20, vx: vx * 460, vy: vy * 460, dmg: t.dmg, life: 0.7, item: id, thrown: true });
+  G.attackCd = 0.45; G.swing = 0.2; G.swingStart = true; Sfx.play("hit");
+  UI.renderHud();
+};
+// 필살기(F): 손에 든 무기의 고유 기술
+G.special = () => {
+  const st = G.st, p = st?.player;
+  if (!st || G.paused) return;
+  const id = p.equip.hand?.id, sp = id && SPECIALS[id];
+  if (!sp) return UI.toast("이 무기에는 필살기가 없습니다", "warn");
+  if (G.specCd > 0) return UI.toast(`필살기 준비 중… ${Math.ceil(G.specCd)}초`);
+  const target = nearestFoe(sp.kind === "snipe" ? 520 : sp.kind === "volley" ? 340 : 120);
+  const base = S.playerAttack(st);
+  if (sp.kind === "volley") {
+    // 부채꼴 연사: 화살·탄이 있어야 한다(첫 발은 위에서 이미 소모)
+    if (!base.ranged) return UI.toast("화살·탄약이 없습니다", "warn");
+    const [vx, vy] = aimVec(target), a0 = Math.atan2(vy, vx);
+    for (let i = 0; i < sp.n; i++) {
+      const extra = i === 0 ? base : S.playerAttack(st); if (!extra.ranged) break;
+      const a = a0 + (i - (sp.n - 1) / 2) * 0.18;
+      G.shots.push({ x: p.x, y: p.y - 20, vx: Math.cos(a) * 540, vy: Math.sin(a) * 540, dmg: extra.dmg, life: 0.65, item: extra.arrow, burn: extra.burn });
+    }
+    Sfx.play("shoot");
+  } else if (sp.kind === "snipe") {
+    const [vx, vy] = aimVec(target);
+    G.shots.push({ x: p.x, y: p.y - 20, vx: vx * 900, vy: vy * 900, dmg: Math.round(base.dmg * sp.mult), life: 0.7, item: base.arrow, pierce: true });
+    Sfx.play("shoot");
+  } else if (sp.kind === "dash") {
+    const [vx, vy] = aimVec(target);
+    G.rollT = 0.22; G.rollDir = [vx, vy]; G.iframe = 0.25;
+    G.shots.push({ x: p.x, y: p.y - 16, vx: vx * 700, vy: vy * 700, dmg: Math.round(base.dmg * sp.mult), life: 0.22, pierce: true });
+  } else if (sp.kind === "spin") {
+    let n = 0; for (const o of G.mobs) if (o.hp > 0 && (o.kind === "enemy" || o.aggro) && Math.hypot(o.x - p.x, o.y - p.y) < 90) { hitMob(o, Math.round(base.dmg * sp.mult), "#ffd36b"); n++; }
+    if (!n) fxText(p.x, p.y - 50, "휘익!", "#ccc");
+  } else if (sp.kind === "pierce") {
+    if (!target) return UI.toast("가까운 적이 없습니다");
+    hitMob(target, Math.round(base.dmg * sp.mult), "#ffd36b"); fxText(target.x, target.y - 56, sp.name + "!", "#ffd36b");
+  }
+  G.specCd = sp.cd; G.swing = 0.3; G.swingStart = true; G.attackCd = 0.4;
+  fxText(p.x, p.y - 64, sp.name, "#9fd3ff");
+  UI.renderHud();
+};
+function dropItem(x, y, id, qty) { G.drops.push({ x, y, id, qty, t: G.t }); }
 function attack(m) {
   const st = G.st, p = st.player;
-  const r = S.playerAttack(st);
+  // 왼손에 무기가 있으면 콤보 2타째는 왼손으로(양손 쓰기)
+  const off = p.equip.off, offWeapon = off && ITEMS[off.id].atk && !ITEMS[p.equip.hand?.id]?.ranged;
+  const now0 = performance.now() / 1000, nextCombo = now0 - (G.lastHitT || 0) < 0.9 ? (G.combo % 3) + 1 : 1;
+  const r = S.playerAttack(st, offWeapon && nextCombo === 2 ? "off" : "hand");
   // 3연타 콤보(0.9초 안에 이어 치기, 3타는 1.6배) + 치명타(민첩 기반)
   const now = performance.now() / 1000;
   G.combo = now - (G.lastHitT || 0) < 0.9 ? (G.combo % 3) + 1 : 1;
@@ -581,7 +653,7 @@ function attack(m) {
   G.attackCd = r.ranged ? 0.5 : 0.42;
   G.swing = 0.2; G.swingStart = true;
   G.moveYaw = Math.atan2(m.x - p.x, m.y - p.y);
-  if (r.ranged) { Sfx.play("shoot"); const d = Math.hypot(m.x - p.x, m.y - p.y) || 1; G.shots.push({ x: p.x, y: p.y - 20, vx: ((m.x - p.x) / d) * 520, vy: ((m.y - 14 - p.y + 20) / d) * 520, dmg: r.dmg, life: 0.6 }); }
+  if (r.ranged) { Sfx.play("shoot"); const d = Math.hypot(m.x - p.x, m.y - p.y) || 1; G.shots.push({ x: p.x, y: p.y - 20, vx: ((m.x - p.x) / d) * 520, vy: ((m.y - 14 - p.y + 20) / d) * 520, dmg: r.dmg, life: 0.6, item: r.arrow, burn: r.burn }); }
   else {
     hitMob(m, r.dmg, crit ? "#ffd36b" : "#fff");
     // 3타째: 주변 적까지 휩쓸고 밀쳐낸다
@@ -841,9 +913,20 @@ function update(dt) {
   for (const s of G.shots) {
     s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
     if (s.foe) { if (Math.hypot(s.x - p.x, s.y - (p.y - 16)) < 14) { if (hurtPlayer(s.dmg)) s.life = 0; } }
-    else for (const m of G.mobs) if (Math.hypot(s.x - m.x, s.y - (m.y - 14)) < 16) { hitMob(m, s.dmg); s.life = 0; break; }
+    else for (const m of G.mobs) if (m.hp > 0 && Math.hypot(s.x - m.x, s.y - (m.y - 14)) < (s.pierce ? 22 : 16) && !(s.hitSet?.has(m))) {
+      hitMob(m, s.dmg); if (s.burn) m.burn = Math.max(m.burn || 0, 3), m.burnDmg = s.burn;
+      if (s.pierce) (s.hitSet ||= new Set()).add(m); else { s.life = 0; break; }
+    }
+    // 쏜 화살·던진 무기는 떨어진 자리에서 다시 주울 수 있다(종류·운에 따라 약 90%)
+    if (s.life <= 0 && s.item && S.arrowRecovered(st, s.item)) dropItem(s.x, s.y + 14, s.item, 1);
   }
   G.shots = G.shots.filter((s) => s.life > 0);
+  // 불타는 적
+  for (const m of G.mobs) if (m.burn > 0 && m.hp > 0) { m.burn -= dt; m.burnT = (m.burnT || 0) - dt; if (m.burnT <= 0) { m.burnT = 1; hitMob(m, m.burnDmg || 4, "#ff9a3c"); } }
+  // 바닥에 떨어진 것 줍기
+  for (const d of G.drops) if (Math.hypot(d.x - p.x, d.y - p.y) < 30) { S.giveItem(st, d.id, d.qty); d.qty = 0; fxText(d.x, d.y - 20, `${ITEMS[d.id].icon}+1`, "#ffe9a8"); Sfx.play("gather"); }
+  G.drops = G.drops.filter((d) => d.qty > 0 && G.t - d.t < 300);
+  if (G.specCd > 0) { G.specCd -= dt; G.cdHudT = (G.cdHudT || 0) - dt; if (G.cdHudT <= 0 || G.specCd <= 0) { G.cdHudT = 0.5; UI.renderHud(); } }
   // 무작위 조우
   if (!G.atBase) { G.encounterT -= dt; if (G.encounterT <= 0) { G.encounterT = 150 + Math.random() * 120; UI.encounterModal(); } }
   // HUD/저장
@@ -928,7 +1011,8 @@ function draw(dt) {
   list.sort((a, b) => a.y - b.y).forEach((o) => o.f());
   // 탄/효과
   ctx.fillStyle = "#ffd36b";
-  for (const s of G.shots) { ctx.fillStyle = s.foe ? "#ff6b5b" : "#ffd36b"; ctx.fillRect(s.x - cam.x - 2, s.y - cam.y - 2, 4, 4); }
+  for (const s of G.shots) { ctx.fillStyle = s.foe ? "#ff6b5b" : s.thrown ? "#d9d9d9" : "#ffd36b"; ctx.fillRect(s.x - cam.x - 2, s.y - cam.y - 2, s.item && !s.thrown ? 7 : 4, 4); }
+  for (const d of G.drops) { ctx.globalAlpha = 0.85 + Math.sin(G.t * 5) * 0.15; R.emoji(ctx, ITEMS[d.id].icon, d.x - cam.x, d.y - cam.y, 18); ctx.globalAlpha = 1; }
   for (const f of G.fx) { f.t -= dt; f.y -= 28 * dt; ctx.globalAlpha = Math.max(0, f.t); ctx.fillStyle = f.color; ctx.font = "bold 13px sans-serif"; ctx.fillText(f.txt, f.x - cam.x - 8, f.y - cam.y); }
   ctx.globalAlpha = 1;
   G.fx = G.fx.filter((f) => f.t > 0);

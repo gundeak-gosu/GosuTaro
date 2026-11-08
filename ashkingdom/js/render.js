@@ -107,6 +107,13 @@ export function drawCharacter(ctx, x, y, look, equip, facing, phase, opts = {}) 
     return g;
   };
 
+  // 0) 활통(등에 비스듬히 — 화살 깃이 보인다)
+  if (equip.quiver) {
+    ctx.save(); ctx.translate(-4 * s, -20 * s); ctx.rotate(-0.35);
+    ctx.fillStyle = "#6b4a2b"; roundRect(ctx, -2.2 * s, -6 * s, 4.4 * s, 14 * s, 1.5 * s); ctx.fill();
+    ctx.fillStyle = "#e8e0cc"; for (let k = 0; k < 3; k++) ctx.fillRect((-1.6 + k * 1.3) * s, -9 * s, 0.9 * s, 3.2 * s);
+    ctx.restore();
+  }
   // 1) 등(망토/배낭)
   const back = L(equip.back);
   if (back) {
@@ -152,6 +159,7 @@ export function drawCharacter(ctx, x, y, look, equip, facing, phase, opts = {}) 
     ctx.fillStyle = skin; ctx.beginPath(); ctx.arc(ax, -11.5 * s + sw * 0.2, 1.8 * s, 0, Math.PI * 2); ctx.fill();
   }
   if (equip.hand) drawHeld(ctx, equip.hand.id, (tw + 1.6) * s, -11.5 * s - arm * 0.2, s);
+  if (equip.off) { ctx.save(); ctx.scale(-1, 1); drawHeld(ctx, equip.off.id, (tw + 1.6) * s, -11.5 * s + arm * 0.2, s); ctx.restore(); } // 왼손
 
   // 5) 머리
   const hy = -31 * s;

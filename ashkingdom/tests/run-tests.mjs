@@ -441,6 +441,52 @@ test("가공: 철광석·숯 → 철괴 → 강철 (대장간)", () => {
   ok(S.craft(st, "iron_from_ore", { atBase: true }).ok); ok(S.countAll(st, "iron") >= 2);
   ok(S.craft(st, "steel", { atBase: true }).ok); ok(S.countAll(st, "steel") >= 1);
 });
+test("양손: 양손 무기는 왼손을 비우고, 왼손 장비는 양손 무기를 내린다", () => {
+  const { st } = fresh("jobless");
+  st.inv = []; give(st, { knife: 1, wood_shield: 1, bow: 1 });
+  ok(S.equipFromInv(st, "knife")); ok(S.equipFromInv(st, "wood_shield"));
+  eq(st.player.equip.off.id, "wood_shield");
+  const def0 = S.equipStat(st, "def"); ok(def0 >= 4, "방패 방어 " + def0);
+  ok(S.equipFromInv(st, "bow")); eq(st.player.equip.hand.id, "bow"); eq(st.player.equip.off, null);
+  ok(S.count(st.inv, "wood_shield") === 1 && S.count(st.inv, "knife") === 1);
+  ok(S.equipFromInv(st, "wood_shield")); eq(st.player.equip.hand, null); // 양손 무기는 내려감
+  ok(S.equipFromInv(st, "knife", true) || st.player.equip.off.id === "wood_shield");
+});
+test("활통: 용량까지 담고 종류를 고르며, 쏘면 활통에서 줄어든다", () => {
+  const { st } = fresh("jobless");
+  st.inv = []; give(st, { bow: 1, quiver_s: 1, arrow: 30, fire_arrow: 4 });
+  ok(S.equipFromInv(st, "bow")); ok(S.equipFromInv(st, "quiver_s"));
+  eq(S.loadQuiver(st), 20); eq(S.quiverCount(st), 20); // 작은 활통 20발
+  const sel0 = st.player.equip.quiver.sel;
+  const r = S.playerAttack(st); ok(r.ranged && r.arrow === sel0); eq(S.quiverCount(st), 19);
+  let rec = 0; for (let i = 0; i < 1000; i++) if (S.arrowRecovered(st, "arrow")) rec++;
+  ok(rec > 820 && rec < 970, "회수율 " + rec);
+});
+test("무기 기술: 총은 기술 없이 못 들고, 교본·훈련소로 배운다", () => {
+  const { st } = fresh("jobless");
+  st.inv = []; give(st, { rifle: 1, pipe_pistol: 1, book_firearms1: 1, book_firearms2: 1 });
+  eq(S.canWield(st, "pipe_pistol").ok, false); eq(S.equipFromInv(st, "pipe_pistol"), false);
+  eq(S.readBook(st, "book_firearms2").ok, false); // 1단계 먼저
+  ok(S.readBook(st, "book_firearms1").ok); ok(S.equipFromInv(st, "pipe_pistol"));
+  eq(S.canWield(st, "rifle").ok, false);
+  st.base.lv = 5; st.base.buildings.push({ uid: "t", id: "training" }); st.gold = 1000;
+  ok(S.train(st, "firearms").ok); ok(S.canWield(st, "rifle").ok);
+  const so = fresh("soldier").st; ok(S.canWield(so, "pipe_pistol").ok, "군인은 처음부터 권총");
+});
+test("특성 제거: 정화 숫돌로 나쁜 특성을 없앤다", () => {
+  const { st } = fresh("jobless");
+  st.inv = []; give(st, { knife: 1, whetstone: 1 });
+  ok(S.equipFromInv(st, "knife")); st.player.equip.hand.af = "dull";
+  const a0 = S.itemStat(st.player.equip.hand, "atk");
+  ok(S.removeAffix(st, "hand").ok); ok(!st.player.equip.hand.af); ok(S.itemStat(st.player.equip.hand, "atk") > a0);
+  eq(S.removeAffix(st, "hand").ok, false);
+});
+test("던지기: 표창·돌을 던지고 개수가 줄어든다", () => {
+  const { st } = fresh("jobless");
+  st.inv = []; give(st, { shuriken: 2, stone: 3 });
+  eq(S.throwPick(st), "shuriken"); const t = S.throwItem(st, "shuriken"); ok(t.dmg > 5); eq(S.count(st.inv, "shuriken"), 1);
+  ok(S.throwItem(st, "stone").dmg > 0); eq(S.count(st.inv, "stone"), 2);
+});
 test("제작: 재료 부족 시 실패 / 충분하면 성공 + 경험치", () => {
   const { st } = fresh();
   eq(S.craft(st, "stone_axe").ok, false);

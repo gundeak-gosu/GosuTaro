@@ -229,3 +229,17 @@ svg.gi { display: inline-block; vertical-align: middle; flex: none; }
 #menu button.locked::after { content: "🔒"; position: absolute; top: 2px; right: 4px; font-size: 11px; }
 #act span, #dodge span { position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--text); text-shadow: 0 1px 2px #000; white-space: nowrap; pointer-events: none; }
 .rmap { width: 100%; height: auto; max-height: 58vh; object-fit: contain; display: block; border-radius: 10px; border: 2px solid #6b5636; cursor: pointer; }
+/* 던지기·필살기·화살 */
+#throwBtn, #specBtn { position: fixed; width: 56px; height: 56px; border-radius: 50%; border: 3px solid #d9c9a8; background: rgba(60,52,44,.88); color: #fff; font-size: 22px; touch-action: none; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+#throwBtn { right: 20px; bottom: calc(196px + env(safe-area-inset-bottom)); }
+#specBtn { right: 92px; bottom: calc(176px + env(safe-area-inset-bottom)); border-color: #9fd3ff; background: rgba(40,70,100,.9); }
+#throwBtn b { position: absolute; right: -2px; top: -4px; font-size: 11px; background: #1c1814; border-radius: 8px; padding: 0 4px; }
+#throwBtn span, #specBtn span { position: absolute; bottom: -17px; left: 50%; transform: translateX(-50%); font-size: 10.5px; white-space: nowrap; text-shadow: 0 1px 2px #000; pointer-events: none; }
+#specBtn.cooling { filter: grayscale(.8); opacity: .7; }
+#specBtn .cd { position: absolute; font-style: normal; font-weight: 700; font-size: 18px; }
+#ammoBox { position: fixed; right: 16px; bottom: calc(268px + env(safe-area-inset-bottom)); background: rgba(20,17,14,.82); border: 1px solid var(--line); border-radius: 10px; padding: 4px 8px; font-size: 12px; max-width: 300px; cursor: pointer; }
+#ammoBox .sel { color: var(--accent); font-weight: 700; } #ammoBox svg.gi { vertical-align: middle; }
+body.joy-right #throwBtn { right: auto; left: 20px; } body.joy-right #specBtn { right: auto; left: 92px; } body.joy-right #ammoBox { right: auto; left: 16px; }
+@media (hover: hover) and (pointer: fine) { #throwBtn, #specBtn { width: 48px; height: 48px; } #throwBtn { bottom: 168px; } #specBtn { right: 82px; bottom: 150px; } #ammoBox { bottom: 236px; } }
+#throwBtn[hidden], #specBtn[hidden], #ammoBox[hidden] { display: none; }
+#throwBtn .gi-fb, #specBtn .gi-fb { font-size: 24px; line-height: 1; }

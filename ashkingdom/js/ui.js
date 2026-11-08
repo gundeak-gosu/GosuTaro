@@ -566,6 +566,7 @@ export function openMenu() {
       <button class="btn" id="news">📢 공지 · 🏛️ 명예의 전당</button>
       <button class="btn" id="rename">✏️ 랭킹 이름 변경 (하루 1회)</button>
       <button class="btn" id="help">❓ 조작법·도움말</button>
+      <button class="btn" id="totitle">👥 캐릭터 선택 (저장하고 나가기)</button>
       <button class="btn danger" id="newg">🆕 새 생애 시작 (현재 세계 포기)</button>
     </div>`);
   m.querySelector("#save").onclick = () => { G.save(); toast("저장했습니다", "good"); };
@@ -587,6 +588,7 @@ export function openMenu() {
     const mm = modal(`<h3>랭킹 이름</h3><input id="rn" maxlength="10" class="code" style="height:auto;padding:10px" value="${esc(st.player.name)}"><button class="btn primary" id="ok">변경</button><p class="muted small">${Net.canRename() ? "하루에 한 번 바꿀 수 있습니다." : "오늘은 이미 바꿨습니다."}</p>`);
     mm.querySelector("#ok").onclick = async () => { try { const r = await Net.rename(mm.querySelector("#rn").value); toast(r.ok ? "변경했습니다" : r.why, r.ok ? "good" : "bad"); if (r.ok) mm.close(); } catch (e) { toast("연결 실패: " + e.message, "bad"); } };
   };
+  m.querySelector("#totitle").onclick = () => { G.save(); location.reload(); };
   m.querySelector("#newg").onclick = async () => { m.close(); if (await choice("새 생애", "현재 세계를 포기하고 처음부터 시작합니다. 혈통 경험치는 보존됩니다.", [{ label: "새로 시작", value: 1, cls: "danger" }, { label: "취소", value: 0 }], { closable: true })) { S.bankLegacy(st, G.acc); saveAccount(G.acc); G.newLife(); } };
 }
 
@@ -667,7 +669,7 @@ export function syncConflict(localSt, remote) {
 export function openSettings() {
   const s = G.acc.settings;
   const m = modal(`<h2>⚙️ 설정</h2>
-    <h3>그래픽</h3><div class="seg"><button class="btn ${s.gfx !== "hd" ? "on" : ""}" data-gfx="pixel">픽셀 화면(가볍고 빠름)</button><button class="btn ${s.gfx === "hd" ? "on" : ""}" data-gfx="hd">고화질 3D</button></div>
+    <h3>그래픽</h3><div class="seg"><button class="btn ${!s.gfx || s.gfx === "fast" ? "on" : ""}" data-gfx="fast">빠른 2D (추천)</button><button class="btn ${s.gfx === "pixel" ? "on" : ""}" data-gfx="pixel">픽셀 3D</button><button class="btn ${s.gfx === "hd" ? "on" : ""}" data-gfx="hd">고화질 3D</button></div>
     <small class="muted">필드 화면 스타일입니다. '자세히 보기'와 이야기 장면은 항상 고화질로 보입니다.</small>
     <h3>소리</h3><div class="seg"><button class="btn ${s.sound !== false ? "on" : ""}" data-snd="1">효과음 켜기</button><button class="btn ${s.sound === false ? "on" : ""}" data-snd="0">끄기</button></div>
     <h3>이야기 음성</h3><div class="seg"><button class="btn ${s.voice !== false ? "on" : ""}" data-vo="1">켜기</button><button class="btn ${s.voice === false ? "on" : ""}" data-vo="0">끄기</button></div>
@@ -675,7 +677,7 @@ export function openSettings() {
     <h3>조작</h3><div class="seg"><button class="btn ${s.joyRight ? "" : "on"}" data-joy="left">조이스틱 왼쪽</button><button class="btn ${s.joyRight ? "on" : ""}" data-joy="right">오른쪽</button></div>
     <h3>튜토리얼</h3><button class="btn" id="tut">처음 안내 다시 보기</button>`);
   const re = () => { m.close(); G.applySettings(); openSettings(); };
-  m.querySelectorAll("[data-gfx]").forEach((b) => (b.onclick = () => { s.gfx = b.dataset.gfx; re(); }));
+  m.querySelectorAll("[data-gfx]").forEach((b) => (b.onclick = () => { if (s.gfx === b.dataset.gfx) return; s.gfx = b.dataset.gfx; G.save?.(); saveAccount(G.acc); location.reload(); })); // 필드 렌더러 교체는 새로 불러오기
   m.querySelectorAll("[data-snd]").forEach((b) => (b.onclick = () => { s.sound = b.dataset.snd === "1"; Sfx.setEnabled(s.sound); Sfx.play("click"); re(); }));
   m.querySelectorAll("[data-vo]").forEach((b) => (b.onclick = () => { s.voice = b.dataset.vo === "1"; re(); }));
   m.querySelectorAll("[data-mus]").forEach((b) => (b.onclick = () => { s.music = b.dataset.mus === "1"; re(); }));

@@ -196,3 +196,12 @@ svg.gi { display: inline-block; vertical-align: middle; flex: none; }
 /* 화면이 낮아도(가로 폰·브라우저 축소) 그림이 창을 밀어내지 않고, 확인 버튼은 항상 보이게 */
 .modal .btn.primary.big { position: sticky; bottom: -16px; box-shadow: 0 -10px 18px var(--panel); }
 #doll { width: 180px; height: 220px; display: block; }
+/* 세이브 슬롯 8칸 */
+.slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin: 18px 0 10px; text-align: center; }
+.slot-card { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; min-height: 132px; justify-content: center; padding: 12px 8px; background: rgba(28,24,21,.92); border: 1px solid var(--line); border-radius: 14px; cursor: pointer; color: var(--text); font: inherit; }
+.slot-card:hover { border-color: var(--accent); }
+.slot-card b { font-size: 16px; } .slot-card small { color: var(--muted); }
+.slot-card.empty b { color: var(--accent); font-size: 17px; }
+.slot-card.dead { opacity: .6; }
+.slot-del { position: absolute; top: 6px; right: 6px; background: none; border: 0; font-size: 15px; opacity: .55; cursor: pointer; }
+.slot-del:hover { opacity: 1; }

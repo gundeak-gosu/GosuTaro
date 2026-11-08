@@ -13,7 +13,7 @@ import { TUTORIAL, tutorialStep } from "./tutorial.js";
 import { BIOMES } from "./data.js";
 import { generateWorld, TILE, WORLD_W, WORLD_H, tileAt, isBlocked, nearWater, T, NODE_TYPES } from "./world.js";
 import * as R from "./render.js";
-import { loadAccount, saveAccount, loadGame, saveGame, deleteGame } from "./storage.js";
+import { loadAccount, saveAccount, loadGame, saveGame, deleteGame, listSlots, setSlot, activeSlot, loadSlot, deleteSlot } from "./storage.js";
 import { passActive, claimPassDaily, watchAd as accWatchAd, adsLeft } from "./shop.js";
 import { makeRng } from "./rng.js";
 import * as Ic from "./icons.js";
@@ -41,9 +41,15 @@ function resize() {
 addEventListener("resize", () => { resize(); G.r3d?.resize(); });
 resize();
 // 3D 렌더러(WebGL 불가 기기는 기존 2D로 자동 대체)
-if (webglAvailable() && !/[?&]2d\b/.test(location.search)) {
-  try { G.r3d = new Field3D(document.getElementById("gl")); document.body.classList.add("three"); UI.setViewer(mountViewer); preloadHeroes(); }
-  catch (e) { console.warn("3D 초기화 실패 → 2D", e); G.r3d = null; }
+// 기본은 '빠른 2D' 필드(렉 없음). 3D 필드는 설정에서 고른 사람만. 이야기 장면·자세히 보기는 WebGL 이 되면 항상 3D.
+G.hasGL = webglAvailable() && !/[?&]2d\b/.test(location.search);
+if (G.hasGL) {
+  UI.setViewer(mountViewer);
+  const g3 = G.acc.settings?.gfx;
+  if (g3 === "hd" || g3 === "pixel" || /[?&]3d\b/.test(location.search)) {
+    try { G.r3d = new Field3D(document.getElementById("gl")); document.body.classList.add("three"); }
+    catch (e) { console.warn("3D 초기화 실패 → 2D", e); G.r3d = null; }
+  }
 }
 
 // ================= 타이틀 / 캐릭터 생성 =================
@@ -63,28 +69,40 @@ G.syncOnStart = async (reload = false) => {
 
 async function title() {
   if (Sync.loggedIn()) await G.syncOnStart();
-  const has = loadGame();
   const el = document.getElementById("title");
   el.hidden = false;
   document.getElementById("hud").hidden = true;
   document.getElementById("controls").hidden = true;
+  const slots = listSlots();
+  const card = ({ n, d }) => {
+    if (!d) return `<button class="slot-card empty" data-new="${n}"><b>새로 하기</b><small>슬롯 ${n + 1}</small></button>`;
+    const p = d.player, dead = !!d.ended;
+    return `<div class="slot-card ${dead ? "dead" : ""}" data-n="${n}">
+      <button class="slot-del" data-del="${n}" aria-label="슬롯 ${n + 1} 지우기">🗑</button>
+      <span class="slot-job">${Ic.icon("job." + p.job, 44, JOBS[p.job].icon)}</span>
+      <b>${esc(p.name)} <small>Lv${p.level ?? 1}</small></b>
+      <small>${JOBS[p.job].name} · ${dead ? "생애 종료" : S.day(d) + "일 생존"}</small></div>`;
+  };
   el.innerHTML = `<div class="t-wrap"><h1>잿빛 왕국</h1><h3>ASHEN KINGDOM · 마지막 생존자</h3>
     <p class="muted">핵전쟁 이후, 당신은 살아남았다. 사람들을 모아 새로운 나라를 세워라.</p>
-    <div class="choices">${has && !has.ended ? `<button class="btn primary" id="cont">이어하기 <small>${esc(has.player.name)} · ${JOBS[has.player.job].name} · ${S.day(has)}일차</small></button>` : ""}
-    <button class="btn ${has && !has.ended ? "" : "primary"}" id="newg">새 생애 시작</button></div>
-    <p class="muted small">💎${G.acc.gems} · 생애 ${G.acc.runs}회 · 엔딩 ${G.acc.endings.length}/16</p></div>`;
-  el.querySelector("#cont")?.addEventListener("click", () => { el.hidden = true; startGame(has); });
-  el.querySelector("#newg").onclick = () => (has && !has.ended ? confirmNew() : create());
+    <div class="slots">${slots.map(card).join("")}</div>
+    <p class="muted small">💎${G.acc.gems} · 생애 ${G.acc.runs}회 · 엔딩 ${G.acc.endings.length}/16 · 캐릭터마다 따로 이어서 할 수 있습니다</p></div>`;
+  el.querySelectorAll("[data-n]").forEach((c) => (c.onclick = (e) => {
+    if (e.target.closest("[data-del]")) return;
+    const n = +c.dataset.n, d = loadSlot(n);
+    setSlot(n);
+    if (d.ended) { create(); return; } // 끝난 생애 → 같은 슬롯에서 새로 시작
+    el.hidden = true; startGame(d);
+  }));
+  el.querySelectorAll("[data-new]").forEach((c) => (c.onclick = () => { setSlot(+c.dataset.new); create(); }));
+  el.querySelectorAll("[data-del]").forEach((b) => (b.onclick = () => {
+    const n = +b.dataset.del, d = loadSlot(n);
+    if (!confirm(`슬롯 ${n + 1}의 ${d?.player?.name ?? ""} 생애를 지울까요? (혈통 경험치는 보존)`)) return;
+    if (d) { S.bankLegacy(d, G.acc); saveAccount(G.acc); }
+    deleteSlot(n); title();
+  }));
 }
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-
-function confirmNew() {
-  if (confirm("진행 중인 세계를 포기하고 새로 시작할까요? (혈통 경험치는 보존)")) {
-    const old = loadGame();
-    if (old) { S.bankLegacy(old, G.acc); saveAccount(G.acc); }
-    deleteGame(); create();
-  }
-}
 
 function create() {
   const el = document.getElementById("title");
@@ -101,7 +119,7 @@ function create() {
       <button class="btn primary big" id="go">대피소 문을 연다</button></div>`;
     const look = { skin: "#d9a982", hair: sel.gender === "F" ? "long" : "short", hairColor: "#2b211b" };
     const startEq = { body: { id: "rag_shirt" }, legs: { id: "rag_pants" }, hand: { id: JOBS[sel.job].start.find(([i]) => ITEMS[i].slot === "hand")?.[0] || "knife" } };
-    if (G.r3d) mountViewer(el.querySelector("#pv"), () => ({ look, equip: startEq, gender: sel.gender }), { spin: true });
+    if (G.hasGL) { preloadHeroes(sel.gender); } if (G.hasGL) mountViewer(el.querySelector("#pv"), () => ({ look, equip: startEq, gender: sel.gender }), { spin: true });
     else {
       const pv = el.querySelector("#pv").getContext("2d");
       let t = 0;
@@ -128,6 +146,7 @@ async function startGame(st, isNew = false) {
   G.st = st;
   G.world = generateWorld(st.seed, st.geo?.biome || "temperate");
   R.clearTerrainCache();
+  if (G.hasGL && G.st?.player) preloadHeroes(G.st.player.gender || "M"); // 이야기 장면용 3D 모델(내 성별만)
   G.r3d?.setWorld(G.world);
   G.mobs = []; G.shots = []; G.fx = []; G.trail = [];
   G.paused = 0;
@@ -185,7 +204,7 @@ G.applySettings = () => {
   const s = G.acc.settings;
   Sfx.setEnabled(s.sound !== false);
   Bgm.setEnabled(s.music !== false);
-  G.r3d?.setPixel(s.gfx !== "hd");
+  G.r3d?.setPixel(s.gfx === "pixel");
   document.body.classList.toggle("joy-right", !!s.joyRight);
   saveAccount(G.acc);
 };

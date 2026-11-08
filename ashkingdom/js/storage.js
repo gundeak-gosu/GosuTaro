@@ -40,9 +40,21 @@ export function loadAccount() {
 }
 export function saveAccount(acc) { return safeSet(KEY_ACC, pack(acc)); }
 
-export function loadGame() { return unpack(safeGet(KEY_SAVE)); }
-export function saveGame(st) { st.lastSaved = Date.now(); return safeSet(KEY_SAVE, pack(st)); }
-export function deleteGame() { safeDel(KEY_SAVE); }
+// ---------- 세이브 슬롯 8개 ----------
+// 1번 슬롯은 예전 키를 그대로 써서 기존 저장이 사라지지 않는다. 나머지는 키 뒤에 _s번호.
+export const SLOT_COUNT = 8;
+const KEY_SLOT = "ashk_slot";
+const slotKey = (n) => (n === 0 ? KEY_SAVE : `${KEY_SAVE}_s${n}`);
+export function activeSlot() { const n = parseInt(safeGet(KEY_SLOT) ?? "0", 10); return n >= 0 && n < SLOT_COUNT ? n : 0; }
+export function setSlot(n) { safeSet(KEY_SLOT, String(n)); }
+export function loadSlot(n) { return unpack(safeGet(slotKey(n))); }
+export function deleteSlot(n) { safeDel(slotKey(n)); }
+// 타이틀 화면용 요약(본문 전체를 펼치지 않고 필요한 것만)
+export function listSlots() { return Array.from({ length: SLOT_COUNT }, (_, n) => { const d = loadSlot(n); return d ? { n, d } : { n, d: null }; }); }
+
+export function loadGame() { return loadSlot(activeSlot()); }
+export function saveGame(st) { st.lastSaved = Date.now(); return safeSet(slotKey(activeSlot()), pack(st)); }
+export function deleteGame() { deleteSlot(activeSlot()); }
 
 // 내보내기/가져오기(기기 변경용 — 서버 없이도 이전 가능)
 export function exportAll(st, acc) { return btoa(unescape(encodeURIComponent(pack({ st, acc })))); }

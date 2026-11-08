@@ -436,24 +436,29 @@ const HERO = { M: null, F: null };
 export const ANIM_NAMES = ["idle", "run", "attack", "shoot", "gather", "pickup", "hit", "death", "ride", "cheer", "swim"];
 const CLIPS = {};
 let SkelUtils = null, heroLoading = null;
-export function preloadHeroes(base = "assets/characters/") {
-  if (heroLoading) return heroLoading;
-  heroLoading = (async () => {
+// 필요한 성별 모델만 그때그때 내려받는다(남녀 둘 다 미리 받으면 5MB 넘게 기다려야 함)
+const heroLoads = {};
+let loaderP = null;
+function getLoader() {
+  return (loaderP ||= (async () => {
+    const [{ GLTFLoader }, SU] = await Promise.all([import("../vendor/jsm/loaders/GLTFLoader.js"), import("../vendor/jsm/utils/SkeletonUtils.js")]);
+    SkelUtils = SU;
+    const loader = new GLTFLoader();
+    // 추가 동작: assets/characters/anims/<이름>.glb (같은 뼈대 이름 → 모든 캐릭터 모델이 공유). 목록에 있는 것만
     try {
-      const [{ GLTFLoader }, SU] = await Promise.all([import("../vendor/jsm/loaders/GLTFLoader.js"), import("../vendor/jsm/utils/SkeletonUtils.js")]);
-      SkelUtils = SU;
-      const loader = new GLTFLoader();
-      await Promise.all(["M", "F"].map(async (g) => { try { HERO[g] = await loader.loadAsync(`${base}hero_${g}.glb`); } catch { HERO[g] = null; } }));
-      // 추가 동작: assets/characters/anims/<이름>.glb (같은 뼈대 이름 → 모든 캐릭터 모델이 공유). 없는 건 건너뜀
-      let have = [];
-      try { const r = await fetch(`${base}anims/manifest.json`); if (r.ok) have = (await r.json()).clips || []; } catch { /* 목록 없음 */ }
+      const r = await fetch("assets/characters/anims/manifest.json"); const have = r.ok ? (await r.json()).clips || [] : [];
       await Promise.all(ANIM_NAMES.filter((n) => have.includes(n)).map(async (n) => {
-        try { const gl = await loader.loadAsync(`${base}anims/${n}.glb`); if (gl.animations?.[0]) { const c = gl.animations[0].clone(); c.name = n; CLIPS[n] = c; } } catch { /* 없음 */ }
+        try { const gl = await loader.loadAsync(`assets/characters/anims/${n}.glb`); if (gl.animations?.[0]) { const c = gl.animations[0].clone(); c.name = n; CLIPS[n] = c; } } catch { /* 없음 */ }
       }));
-    } catch { /* 로더 실패 → 절차적 캐릭터 유지 */ }
-    return { M: !!HERO.M, F: !!HERO.F };
-  })();
-  return heroLoading;
+    } catch { /* 목록 없음 */ }
+    return loader;
+  })());
+}
+export function preloadHeroes(gender = "M", base = "assets/characters/") {
+  return (heroLoads[gender] ||= (async () => {
+    try { const loader = await getLoader(); HERO[gender] = await loader.loadAsync(`${base}hero_${gender}.glb`); } catch { HERO[gender] = null; }
+    return !!HERO[gender];
+  })());
 }
 export const heroAvailable = (g) => !!HERO[g];
 export const setWristFix = (deg, sign) => { GlbHuman.WRIST_FIX = { deg, sign }; }; // 조정·테스트용

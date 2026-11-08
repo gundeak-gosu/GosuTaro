@@ -7,7 +7,7 @@ export const TILE = 32;
 export const WORLD_W = 128;
 export const WORLD_H = 128;
 
-export const T = { ASH: 0, GRASS: 1, RUIN: 2, WATER: 3, RAD: 4, ROCK: 5, BASE: 6, ROAD: 7, SAND: 8, SNOW: 9 };
+export const T = { ASH: 0, GRASS: 1, RUIN: 2, WATER: 3, RAD: 4, ROCK: 5, BASE: 6, ROAD: 7, SAND: 8, SNOW: 9, STREAM: 10, BRIDGE: 11 };
 export const TILE_INFO = {
   0: { name: "잿빛 황무지", color: "#6f6a60" },
   1: { name: "되살아난 숲", color: "#4f6b3a" },
@@ -19,6 +19,8 @@ export const TILE_INFO = {
   7: { name: "옛 도로", color: "#3d3b39" },
   8: { name: "모래", color: "#c8b07a" },
   9: { name: "눈밭", color: "#e3e7ea" },
+  10: { name: "얕은 샛강", color: "#4d7a8c", slow: 0.45 }, // 지나갈 수 있지만 느리다
+  11: { name: "다리", color: "#7a5a3a" },
 };
 
 export const NODE_TYPES = {
@@ -32,9 +34,19 @@ export const NODE_TYPES = {
 };
 
 // biome: 낙하 지점의 생물군계. 같은 좌표(시드)+같은 군계 = 같은 지형.
-export function generateWorld(seed, biome = "temperate") {
+// opts: { home: 고향(기지·이야기 장소 있음), rid: 지역 번호(노드 id 구분), theme: THEMES 항목(지형 보정) }
+export function generateWorld(seed, biome = "temperate", opts = {}) {
+  const home = opts.home !== false;
   const B = BIOMES[biome] || BIOMES.temperate;
-  const TL = B.tiles, NM = B.nodes;
+  const M = opts.theme?.mod || {};
+  const TL = { ...B.tiles }, NM = { ...B.nodes };
+  // 지형 테마 보정: 물↑, 바위 문턱↓(=바위↑), 폐허↑, 방사능 문턱↓(=방사능↑), 풀 문턱, 모래·눈
+  TL.water += M.water || 0; TL.rock += M.rock || 0; TL.ruin += M.ruin || 0; TL.grass += M.grass || 0;
+  if (M.sand) TL.sand = (TL.sand || 0) + M.sand; if (M.snow) TL.snow = (TL.snow || 0) + M.snow;
+  if (M.tree) NM.tree = (NM.tree ?? 1) * M.tree;
+  if (opts.theme?.ore) NM.rock = (NM.rock ?? 1) * opts.theme.ore;
+  if (opts.theme?.scrap) NM.scrap = (NM.scrap ?? 1) * opts.theme.scrap;
+  const radTh = 0.74 + (M.rad || 0);
   const s = typeof seed === "string" ? hashStr(seed) : seed;
   const n1 = valueNoise2D(s), n2 = valueNoise2D(s ^ 0x9e3779b9), n3 = valueNoise2D(s ^ 0x85ebca6b);
   const rng = makeRng(s ^ 0x1234567);
@@ -50,16 +62,45 @@ export function generateWorld(seed, biome = "temperate") {
       const n4 = n3(x / 7 + 50, y / 7 + 50);
       if (e < TL.water) t = T.WATER;
       else if (e > TL.rock) t = T.ROCK;
-      else if (r > 0.74) t = T.RAD;
+      else if (r > radTh) t = T.RAD;
       else if (TL.snow && n4 < TL.snow) t = T.SNOW;
       else if (TL.sand && n4 < TL.sand) t = T.SAND;
       else if (m > TL.grass) t = T.GRASS;
       else if (m < TL.ruin) t = T.RUIN;
-      // 가장자리는 물(세계의 끝 — 에필로그에서 '원정'으로 확장)
-      if (x < 2 || y < 2 || x >= WORLD_W - 2 || y >= WORLD_H - 2) t = T.WATER;
       tiles[y * WORLD_W + x] = t;
     }
   }
+  // 강: 지도를 가로지르는 깊은 강(건널 수 없음) + 군데군데 얕은 여울(느리게 건넘). 다리를 놓으면 어디서든 건넌다
+  const vert = rng.chance(0.5), off = rng.range(0.25, 0.75) * WORLD_W, fords = [rng.range(0.15, 0.4), rng.range(0.6, 0.85)].map((f) => Math.round(f * WORLD_W));
+  for (let i = 0; i < WORLD_W; i++) {
+    const c = Math.round(off + (n2(i / 16, 7.7) - 0.5) * 40);
+    const ford = fords.some((f) => Math.abs(f - i) <= 1);
+    for (let w = -1; w <= 1; w++) {
+      const [x, y] = vert ? [c + w, i] : [i, c + w];
+      if (home && Math.abs(x - cx) < 9 && Math.abs(y - cy) < 9) continue; // 기지는 피해서
+      setT(tiles, x, y, ford ? T.STREAM : T.WATER);
+    }
+  }
+  // 샛강: 얕은 물줄기 몇 개(늪지는 많이)
+  const nStream = 2 + Math.round((M.stream || 0) * 20);
+  for (let k = 0; k < nStream; k++) {
+    let x = rng.int(4, WORLD_W - 5), y = rng.int(4, WORLD_H - 5), a = rng.range(0, Math.PI * 2);
+    for (let step = 0; step < 50; step++) {
+      a += (n3(step / 5, k * 3.1) - 0.5) * 0.9;
+      x += Math.round(Math.cos(a)); y += Math.round(Math.sin(a));
+      if (!inside(x, y) || (home && Math.abs(x - cx) < 8 && Math.abs(y - cy) < 8)) break;
+      if (tiles[y * WORLD_W + x] !== T.WATER) setT(tiles, x, y, T.STREAM);
+    }
+  }
+  // 네 방향 가장자리 가운데는 옆 지역으로 가는 길목 — 막히지 않게 비워 둔다
+  for (const [ex, ey, dx, dy] of [[WORLD_W - 1, cy, -1, 0], [0, cy, 1, 0], [cx, WORLD_H - 1, 0, -1], [cx, 0, 0, 1]]) {
+    for (let i = 0; i < 8; i++) for (let w = -2; w <= 2; w++) {
+      const x = ex + dx * i + (dy ? w : 0), y = ey + dy * i + (dx ? w : 0);
+      const t = tiles[y * WORLD_W + x];
+      if (t === T.WATER || t === T.ROCK || t === T.STREAM) setT(tiles, x, y, T.ASH);
+    }
+  }
+  if (!home) return finishRegion(s, tiles, rng, NM, biome, opts, cx, cy);
   // 옛 도로 (십자형)
   for (let i = 4; i < WORLD_W - 4; i++) {
     const wob = Math.round((n2(i / 9, 3) - 0.5) * 6);
@@ -104,7 +145,8 @@ export function generateWorld(seed, biome = "temperate") {
     while ((x !== q.tx || y !== q.ty) && guard++ < 400) {
       if (Math.abs(q.tx - x) > Math.abs(q.ty - y) || (Math.abs(q.tx - x) === Math.abs(q.ty - y) && prng.chance(0.5))) x += Math.sign(q.tx - x); else y += Math.sign(q.ty - y);
       const t = tiles[y * WORLD_W + x];
-      if (t !== T.BASE && t !== T.RAD) setT(tiles, x, y, T.ROAD);
+      if (t === T.WATER || t === T.STREAM) setT(tiles, x, y, T.BRIDGE); // 물 위는 옛 다리
+      else if (t !== T.BASE && t !== T.RAD && t !== T.BRIDGE) setT(tiles, x, y, T.ROAD);
     }
   }
 
@@ -114,7 +156,7 @@ export function generateWorld(seed, biome = "temperate") {
   for (let y = 3; y < WORLD_H - 3; y++) {
     for (let x = 3; x < WORLD_W - 3; x++) {
       const t = tiles[y * WORLD_W + x];
-      if (t === T.WATER || t === T.BASE || t === T.ROAD) continue;
+      if (t === T.WATER || t === T.BASE || t === T.ROAD || t === T.STREAM || t === T.BRIDGE) continue;
       if (Math.abs(x - cx) < 4 && Math.abs(y - cy) < 4) continue;
       const roll = rng.next();
       let type = null;
@@ -140,8 +182,36 @@ export function generateWorld(seed, biome = "temperate") {
   for (let y = -11; y <= 11 && !hasWater; y++) for (let x = -11; x <= 11; x++) if (tiles[(cy + y) * WORLD_W + cx + x] === T.WATER) { hasWater = true; break; }
   if (!hasWater) for (let y = -1; y <= 1; y++) for (let x = -2; x <= 2; x++) setT(tiles, cx + 9 + x, cy - 3 + y, T.WATER);
 
-  return { seed: s, tiles, nodes, pois, cx, cy, biome };
+  return { seed: s, tiles, nodes, pois, cx, cy, biome, home: true, rid: 0 };
 }
+
+// 고향이 아닌 지역: 기지·이야기 장소 없이 자원과 적만. 단계(tier)가 높을수록 자원이 풍부하다
+function finishRegion(s, tiles, rng, NM, biome, opts, cx, cy) {
+  const nodes = [];
+  let nid = (opts.rid || 0) * 100000;
+  const rich = 1 + (opts.tier || 1) * 0.08;
+  for (let y = 2; y < WORLD_H - 2; y++) for (let x = 2; x < WORLD_W - 2; x++) {
+    const t = tiles[y * WORLD_W + x];
+    const type = pickNode(t, rng.next() / rich, NM);
+    if (type) nodes.push({ id: nid++, type, tx: x, ty: y });
+  }
+  return { seed: s, tiles, nodes, pois: {}, cx, cy, biome, home: false, rid: opts.rid || 0 };
+}
+function pickNode(t, roll, NM) {
+  const k = (base, key) => base * (NM[key] ?? 1);
+  const pick = (list) => { let acc = 0; for (const [ty, p] of list) { acc += p; if (roll < acc) return ty; } return null; };
+  if (t === T.GRASS) return pick([["tree", k(0.12, "tree")], ["bush", k(0.05, "bush")], ["herb", k(0.03, "herb")]]);
+  if (t === T.ASH) return pick([["tree", k(0.035, "tree")], ["rock", k(0.025, "rock")], ["bush", k(0.015, "bush")], ["crate", 0.003]]);
+  if (t === T.RUIN) return pick([["scrap", k(0.045, "scrap")], ["crate", 0.007], ["car", k(0.008, "scrap")]]);
+  if (t === T.ROCK) return pick([["rock", k(0.12, "rock")]]);
+  if (t === T.RAD) return pick([["herb", k(0.05, "herb")], ["scrap", k(0.03, "scrap")], ["crate", 0.01]]);
+  if (t === T.SAND) return pick([["rock", k(0.02, "rock")], ["scrap", k(0.015, "scrap")], ["bush", k(0.01, "bush")], ["car", 0.004]]);
+  if (t === T.SNOW) return pick([["tree", k(0.03, "tree")], ["rock", k(0.03, "rock")], ["bush", k(0.008, "bush")], ["crate", 0.003]]);
+  return null;
+}
+// 다리 놓기: 저장된 다리 칸을 지형에 반영
+export function applyBridges(world, list = []) { for (const i of list) if (world.tiles[i] === T.WATER || world.tiles[i] === T.STREAM) world.tiles[i] = T.BRIDGE; }
+export const isSlow = (world, px, py) => TILE_INFO[tileAt(world, px, py)]?.slow || 1;
 
 function inside(x, y) { return x >= 0 && y >= 0 && x < WORLD_W && y < WORLD_H; }
 function setT(tiles, x, y, t) { if (inside(x, y)) tiles[y * WORLD_W + x] = t; }

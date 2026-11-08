@@ -653,7 +653,7 @@ export class Field3D {
     const hgt = new Float32Array((N + 1) * (N + 1));
     const BI = BIOMES[world.biome] || BIOMES.temperate;
     const cold = world.biome === "tundra" || world.biome === "taiga";
-    const colors = { 0: world.biome === "desert" ? "#a8936a" : cold ? "#7a776e" : "#77705f", 1: BI.grass, 2: "#5d5d61", 3: "#4e5a4a", 4: "#6d8a35", 5: cold ? "#78736c" : "#6a625a", 6: "#7d6a50", 7: "#3f3c39", 8: "#c8b07a", 9: "#e3e7ea" };
+    const colors = { 0: world.biome === "desert" ? "#a8936a" : cold ? "#7a776e" : "#77705f", 1: BI.grass, 2: "#5d5d61", 3: "#4e5a4a", 4: "#6d8a35", 5: cold ? "#78736c" : "#6a625a", 6: "#7d6a50", 7: "#3f3c39", 8: "#c8b07a", 9: "#e3e7ea", 10: "#4d7a8c", 11: "#7a5a3a" };
     const H = { 0: 0.05, 1: 0.1, 2: 0.02, 3: -0.9, 4: 0.0, 5: 0.9, 6: 0, 7: 0, 8: 0.12, 9: 0.1 };
     const tileT = (x, y) => world.tiles[Math.max(0, Math.min(N - 1, y)) * N + Math.max(0, Math.min(N - 1, x))];
     const g = new THREE.PlaneGeometry(N, N, N, N);
@@ -805,12 +805,13 @@ export class Field3D {
 
   // ---------- 기지(레벨에 따라 커지는 성) ----------
   updateBase(st) {
-    const sig = st.base.lv + "|" + st.base.buildings.map((b) => b.id + (b.fueled ? "+" : "")).join(",");
+    const sig = (this.world?.home ? "h" : "r" + this.world?.rid) + "|" + st.base.lv + "|" + st.base.buildings.map((b) => b.id + (b.fueled ? "+" : "")).join(",");
     if (sig === this.baseSig) return;
     this.baseSig = sig;
     if (this.baseGroup) this.scene.remove(this.baseGroup);
     const g = new THREE.Group(); this.baseGroup = g;
     const w = this.world;
+    if (!w.home) { this.scene.add(g); return; } // 고향 밖에는 기지가 없다
     const cx = w.cx + 0.5, cz = w.cy + 0.5;
     const lv = st.base.lv, L = BASE_LEVELS[lv - 1];
     const R = L.wall;
@@ -900,7 +901,7 @@ export class Field3D {
     }
     // 기지 주민
     const bx = (this.world.cx + 0.5) * TILE, by = (this.world.cy + 0.5) * TILE;
-    st.companions.filter((c) => c.task === "base").slice(0, 12).forEach((c, i) => {
+    st.companions.filter((c) => c.task === "base" && this.world.home).slice(0, 12).forEach((c, i) => {
       const ang = G.t * 0.12 + i * 1.7, r = (1.4 + (i % 3) * 0.7) * TILE;
       const x = bx + Math.cos(ang) * r, y = by + Math.sin(ang) * r * 0.75 + TILE;
       const a = this.actor("r" + c.uid, () => new Rider());

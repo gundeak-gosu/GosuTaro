@@ -33,6 +33,8 @@ function drawChunk(world, cx, cy) {
       g.fillRect(x * TILE + px, y * TILE + py, 2, 2);
     }
     if (t === T.WATER) { g.fillStyle = "rgba(160,200,220,0.15)"; g.fillRect(x * TILE + (h & 15), y * TILE + ((h >> 5) & 15) + 6, 10, 2); }
+    if (t === T.STREAM) { g.fillStyle = "rgba(190,225,235,0.28)"; g.fillRect(x * TILE + (h & 15), y * TILE + 8, 12, 2); g.fillRect(x * TILE + ((h >> 4) & 15), y * TILE + 20, 9, 2); g.fillStyle = "rgba(120,110,90,0.35)"; g.fillRect(x * TILE + ((h >> 8) & 23), y * TILE + ((h >> 12) & 23), 5, 4); }
+    if (t === T.BRIDGE) { g.fillStyle = "#8a6a44"; g.fillRect(x * TILE, y * TILE, TILE, TILE); g.fillStyle = "#5e4630"; for (let k = 0; k < 4; k++) g.fillRect(x * TILE, y * TILE + k * 8 + 6, TILE, 2); g.fillStyle = "#3e2e20"; g.fillRect(x * TILE, y * TILE, TILE, 3); g.fillRect(x * TILE, y * TILE + TILE - 3, TILE, 3); }
     if (t === T.ROAD) { g.fillStyle = "rgba(220,200,90,0.35)"; if ((tx + ty) % 3 === 0) g.fillRect(x * TILE + 14, y * TILE + 14, 4, 4); }
     if (t === T.RUIN && (h & 7) === 0) { g.fillStyle = "#47474b"; g.fillRect(x * TILE + 4, y * TILE + 6, 18, 14); g.fillStyle = "#3a3a3d"; g.fillRect(x * TILE + 6, y * TILE + 8, 4, 4); }
     if (t === T.RAD) { g.fillStyle = "rgba(160,255,80,0.10)"; g.fillRect(x * TILE, y * TILE, TILE, TILE); }

@@ -11,7 +11,8 @@ import * as Sfx from "./sfx.js";
 import * as Bgm from "./bgm.js";
 import { TUTORIAL, tutorialStep } from "./tutorial.js";
 import { BIOMES } from "./data.js";
-import { generateWorld, TILE, WORLD_W, WORLD_H, tileAt, isBlocked, nearWater, T, NODE_TYPES } from "./world.js";
+import { generateWorld, TILE, WORLD_W, WORLD_H, tileAt, isBlocked, nearWater, T, NODE_TYPES, applyBridges, isSlow } from "./world.js";
+import * as Reg from "./regions.js";
 import * as R from "./render.js";
 import { loadAccount, saveAccount, loadGame, saveGame, deleteGame, listSlots, setSlot, activeSlot, loadSlot, deleteSlot } from "./storage.js";
 import { passActive, claimPassDaily, watchAd as accWatchAd, adsLeft } from "./shop.js";
@@ -99,7 +100,8 @@ async function title() {
     const n = +b.dataset.del, d = loadSlot(n);
     if (!confirm(`슬롯 ${n + 1}의 ${d?.player?.name ?? ""} 생애를 지울까요? (혈통 경험치는 보존)`)) return;
     if (d) { S.bankLegacy(d, G.acc); saveAccount(G.acc); }
-    deleteSlot(n); title();
+    deleteSlot(n); if (/[?&]debug\b/.test(location.search)) window.__G = G; // 테스트용
+title();
   }));
 }
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -144,8 +146,10 @@ function create() {
 // ================= 게임 시작 =================
 async function startGame(st, isNew = false) {
   G.st = st;
-  G.world = generateWorld(st.seed, st.geo?.biome || "temperate");
-  R.clearTerrainCache();
+  G.regions = Reg.buildRegions(st.seed, st.geo?.biome || "temperate");
+  const R0 = Reg.regionState(st);
+  if (!G.regions.some((r) => r.id === R0.cur)) R0.cur = 0;
+  loadRegion(R0.cur);
   if (G.hasGL && G.st?.player) preloadHeroes(G.st.player.gender || "M"); // 이야기 장면용 3D 모델(내 성별만)
   G.r3d?.setWorld(G.world);
   G.mobs = []; G.shots = []; G.fx = []; G.trail = [];
@@ -173,7 +177,65 @@ async function startGame(st, isNew = false) {
   if (!G.running) { G.running = true; requestAnimationFrame(frame); }
 }
 
+// ================= 지역(끝없는 탐험) =================
+// 지역마다 지형을 시드로 새로 만든다(저장은 다리·안개·미션 진행만). entry: 들어온 방향(반대편 가장자리에 선다)
+function loadRegion(rid, entry = null) {
+  const st = G.st, RS = Reg.regionState(st);
+  if (G.fog && G.world) Reg.rs(st, G.world.rid).fog = Reg.fogSave(G.fog); // 떠나는 지역의 안개 저장
+  const reg = G.regions.find((r) => r.id === rid) || G.regions[0];
+  RS.cur = reg.id;
+  const home = reg.id === 0;
+  G.world = generateWorld(home ? st.seed : (st.seed ^ (reg.id * 0x9e3779b1)) >>> 0, home ? st.geo?.biome || "temperate" : reg.biome, { home, rid: reg.id, tier: reg.tier, theme: Reg.THEMES[reg.theme] });
+  G.world.region = reg;
+  applyBridges(G.world, RS.bridges[reg.id]);
+  G.fog = Reg.fogLoad(Reg.rs(st, reg.id).fog, WORLD_W * WORLD_H); G.fogPctV = Reg.fogPct(G.fog);
+  R.clearTerrainCache(); miniCache = null;
+  G.r3d?.setWorld(G.world);
+  G.mobs = []; G.shots = [];
+  if (entry) {
+    const p = st.player, m = 4 * TILE;
+    if (entry === "동") { p.x = m; p.y = (G.world.cy + 0.5) * TILE; }
+    if (entry === "서") { p.x = (WORLD_W * TILE) - m; p.y = (G.world.cy + 0.5) * TILE; }
+    if (entry === "남") { p.y = m; p.x = (G.world.cx + 0.5) * TILE; }
+    if (entry === "북") { p.y = (WORLD_H * TILE) - m; p.x = (G.world.cx + 0.5) * TILE; }
+  }
+  G.lastRevealT = -1;
+}
+G.loadRegion = loadRegion;
+// 가장자리로 걸어가면: 열린 이웃이면 넘어가고, 잠겨 있으면 무슨 미션을 깨야 하는지 알려 주고 막는다
+function edgeCheck() {
+  const p = G.st.player, W = WORLD_W * TILE, H = WORLD_H * TILE, e = TILE * 1.2;
+  const dir = p.x < e ? "서" : p.x > W - e ? "동" : p.y < e ? "북" : p.y > H - e ? "남" : null;
+  if (!dir) return;
+  const reg = G.world.region, to = reg.links[dir];
+  const back = () => { p.x = Math.max(e + 4, Math.min(W - e - 4, p.x)); p.y = Math.max(e + 4, Math.min(H - e - 4, p.y)); };
+  if (to === undefined) { back(); if (G.t - (G.edgeToastT || -9) > 3) { G.edgeToastT = G.t; UI.toast(`${dir}쪽은 끝없는 잿빛 바다… 다른 방향을 찾아보자`); } return; }
+  if (!Reg.isUnlocked(G.st, G.regions, to)) {
+    back();
+    if (G.t - (G.edgeToastT || -9) > 3) { G.edgeToastT = G.t; UI.toast(`🔒 ${G.regions.find((r) => r.id === to).name} — ${Reg.lockReason(G.st, G.regions, to)}`, "warn"); }
+    return;
+  }
+  const opp = { 동: "동", 서: "서", 남: "남", 북: "북" }[dir]; // 들어간 방향 = 새 지역에서 반대편 가장자리에 선다
+  loadRegion(to, opp);
+  const nr = G.world.region;
+  UI.toast(`🧭 ${nr.name} (위험도 ${"★".repeat(Math.min(5, nr.tier))})${Reg.missionDone(G.st, G.regions, nr.id) ? "" : " · 미션: " + Reg.missionText(nr)}`, "good");
+  G.save();
+}
+
+// 지역 미션 완료 → 이웃 지역이 열린다(탐험 범위 확장)
+function regionCleared() {
+  const st = G.st, reg = G.world.region;
+  const opened = Object.values(reg.links).map((o) => G.regions.find((r) => r.id === o)).filter(Boolean);
+  S.gainXp(st, 60 + reg.tier * 40); st.gold += 40 + reg.tier * 30;
+  Sfx.play("level");
+  UI.toast(`🏁 「${reg.name}」 미션 완료! 새 길이 열렸다: ${opened.map((r) => r.name).join(", ")}`, "good");
+  G.save();
+}
+// 고향 미션(이야기 2장)은 이야기 진행 때 확인
+G.checkHomeMission = () => { if (G.st.story.chapter >= 2 && !G.st.regions?.s?.[0]?.done) { Reg.rs(G.st, 0).done = true; UI.toast("🗺️ 주변 지역으로 가는 길이 열렸다! [M] 지역 지도", "good"); } };
+
 function respawnAtBase() {
+  if (G.world?.rid) loadRegion(0); // 고향 기지로
   G.st.player.x = (G.world.cx + 0.5) * TILE;
   G.st.player.y = (G.world.cy + 2.5) * TILE;
 }
@@ -189,6 +251,7 @@ G.newLife = () => {
 
 G.save = () => {
   if (!G.st) return;
+  if (G.fog && G.world) Reg.rs(G.st, G.world.rid).fog = Reg.fogSave(G.fog);
   S.flushLegacy(G.st, G.acc);
   if (!G.st.ended) saveGame(G.st);
   saveAccount(G.acc);
@@ -274,6 +337,7 @@ addEventListener("keydown", (e) => {
     if (k === "shift" || k === "q") dodge();
     if (k === "i" || k === "b") UI.openBag();
     if (k === "c") UI.openCraft();
+    if (k === "m") UI.openRegionMap();
     if (k === "escape") UI.openMenu();
   }
 });
@@ -328,17 +392,18 @@ function spawnMobs(dt) {
   const a = Math.random() * Math.PI * 2, d = 520 + Math.random() * 380;
   const x = p.x + Math.cos(a) * d, y = p.y + Math.sin(a) * d;
   if (x < TILE * 3 || y < TILE * 3 || x > (WORLD_W - 3) * TILE || y > (WORLD_H - 3) * TILE || isBlocked(G.world, x, y)) return;
-  // 기지 안에는 생성 안 함
-  if (Math.hypot(x - (G.world.cx + 0.5) * TILE, y - (G.world.cy + 0.5) * TILE) < 10 * TILE) return;
+  // 기지 안에는 생성 안 함(고향만)
+  if (G.world.home && Math.hypot(x - (G.world.cx + 0.5) * TILE, y - (G.world.cy + 0.5) * TILE) < 10 * TILE) return;
   const t = tileAt(G.world, x, y);
   const night = S.isNight(st);
   const ch = st.story.chapter;
-  const poiR = (id) => { const q = G.world.pois[id]; return Math.hypot(x - q.tx * TILE, y - q.ty * TILE) < 14 * TILE; };
+  const poiR = (id) => { const q = G.world.pois[id]; return !!q && Math.hypot(x - q.tx * TILE, y - q.ty * TILE) < 14 * TILE; };
   let pick;
   if (poiR("ash_fortress")) pick = ["enemy", ch >= 9 ? "ash_knight" : "raider"];
   else if (poiR("raider_camp")) pick = ["enemy", "raider"];
   else if (t === T.RAD) pick = ["enemy", Math.random() < 0.5 ? "mutant" : "rad_rat"];
   else if (night && Math.random() < 0.55) pick = ["enemy", Math.random() < 0.6 ? "mutant" : "feral_dog"];
+  else if (G.world.rid && G.world.region.tier >= 2 && Math.random() < 0.12 + G.world.region.tier * 0.03) pick = ["enemy", G.world.region.tier >= 4 && Math.random() < 0.3 ? "ash_knight" : "raider"]; // 먼 지역일수록 약탈자 무리
   else if (t === T.RUIN) pick = Math.random() < 0.5 ? ["enemy", "rad_rat"] : Math.random() < 0.5 + ch * 0.03 ? ["enemy", "raider"] : ["animal", "dog"];
   else if (t === T.GRASS || t === T.SAND || t === T.SNOW || Math.random() < 0.5) {
     // 지역 야생동물: 그 땅에 사는 동물만 나타난다(사막엔 염소·개, 툰드라엔 늑대·사슴…)
@@ -346,7 +411,10 @@ function spawnMobs(dt) {
     pick = ["animal", list[Math.floor(Math.random() * list.length)]];
   } else pick = ["enemy", Math.random() < 0.6 ? "rad_rat" : "feral_dog"];
   if (pick[1] === "raider" && ch < 2) pick = ["enemy", "rad_rat"];
-  G.mobs.push(mobAt(pick[1], pick[0], x, y));
+  const mob = mobAt(pick[1], pick[0], x, y);
+  // 먼 지역(단계)일수록 적이 강하다
+  if (mob.kind === "enemy" && G.world.rid) { const k = 1 + G.world.region.tier * 0.3; mob.hp = mob.maxHp = Math.round(mob.hp * k); mob.atkMul = k; }
+  G.mobs.push(mob);
 }
 
 function updateMobs(dt) {
@@ -367,7 +435,7 @@ function updateMobs(dt) {
       tx = dx / d; ty = dy / d;
       m.cd -= dt;
       const reach = def?.ranged ? 190 : 26;
-      const atk = (def ? def.atk : ANIMALS[m.type].combat || 5) * (m.elite ? 1.5 : 1);
+      const atk = (def ? def.atk : ANIMALS[m.type].combat || 5) * (m.elite ? 1.5 : 1) * (m.atkMul || 1);
       // 공격 예고: 0.45초 동안 붉은 원이 차오르고, 그 안에 있으면 맞는다 → 구르기로 피할 수 있다
       if (m.windup > 0) {
         m.windup -= dt; sp = 0;
@@ -413,6 +481,7 @@ function hitMob(m, dmg, color = "#fff") {
   fxText(m.x, m.y - 40, String(dmg), color);
   Sfx.play("hit");
   if (m.hp <= 0) {
+    if (m.kind === "enemy" && Reg.addProgress(G.st, G.regions, "kill", 1)) regionCleared();
     if (m.kind === "enemy") {
       if (m.elite) { S.gainXp(G.st, ENEMIES[m.type].xp * 2); for (let i = 0; i < 2; i++) S.onKill(G.st, m.type, makeRng(Date.now() + i)); G.st.gold += 30; UI.toast("정예 처치! 추가 전리품", "good"); }
       const drops = S.onKill(G.st, m.type, makeRng(Date.now()));
@@ -444,15 +513,37 @@ async function interact() {
   // 3) 장소
   for (const q of Object.values(G.world.pois)) if (Math.hypot((q.tx + 0.5) * TILE - p.x, (q.ty + 0.5) * TILE - p.y) < 2.5 * TILE) return visitPoi(q);
   // 4) 기지 중앙
-  if (Math.hypot((G.world.cx + 0.5) * TILE - p.x, (G.world.cy + 0.5) * TILE - p.y) < 2.2 * TILE) return UI.openBase();
+  if (G.world.home && Math.hypot((G.world.cx + 0.5) * TILE - p.x, (G.world.cy + 0.5) * TILE - p.y) < 2.2 * TILE) return UI.openBase();
   // 5) 물
-  if (nearWater(G.world, p.x, p.y)) {
-    if (p.equip.hand?.id === "fishing_rod") { const r = S.gather(st, "fish", makeRng(Date.now())); UI.toast(r.length ? "🐟 물고기를 낚았다!" : "놓쳤다…"); }
-    else { S.gather(st, "water", makeRng(Date.now())); UI.toast("더러운 물을 떴습니다 (모닥불에서 끓이세요)"); }
+  // 바라보는 쪽이 깊은 물이고 나무가 있으면 다리를 놓을 수 있다
+  const bt = bridgeTarget();
+  if (bt != null && S.countAll(st, "wood") >= 4) {
+    UI.choice("🌉 물가", "깊은 강은 건널 수 없습니다. 나무 4개로 한 칸짜리 다리를 놓을 수 있습니다.", [{ label: "🌉 다리 놓기 (나무 4)", value: "b", cls: "primary" }, { label: "🫗 물 뜨기 / 낚시", value: "w" }, { label: "취소", value: 0 }], { closable: true }).then((v) => {
+      if (v === "b") { S.pay(st, { wood: 4 }); const RS = Reg.regionState(st); (RS.bridges[G.world.rid] ||= []).push(bt); applyBridges(G.world, [bt]); R.clearTerrainCache(); miniCache = null; G.r3d?.setWorld(G.world); Sfx.play("craft"); UI.toast("다리를 놓았다!", "good"); G.save(); }
+      else if (v === "w") waterAction();
+    });
     return;
   }
+  if (nearWater(G.world, p.x, p.y)) return waterAction();
   // 6) 근처 적이 있지만 사거리 밖
   if (best && bd < 120 && best.kind === "enemy") UI.toast("더 가까이 가세요");
+}
+function bridgeTarget() {
+  const p = G.st.player;
+  const dx = Math.round(Math.sin(G.moveYaw ?? 0)), dy = Math.round(Math.cos(G.moveYaw ?? 0));
+  for (const k of [1, 2]) {
+    const tx = Math.floor(p.x / TILE) + dx * k, ty = Math.floor(p.y / TILE) + dy * k;
+    if (tx < 0 || ty < 0 || tx >= WORLD_W || ty >= WORLD_H) return null;
+    const t = G.world.tiles[ty * WORLD_W + tx];
+    if (t === T.WATER) return ty * WORLD_W + tx;
+    if (t !== T.BRIDGE) return null;
+  }
+  return null;
+}
+function waterAction() {
+  const st = G.st, p = st.player;
+  if (p.equip.hand?.id === "fishing_rod") { const r = S.gather(st, "fish", makeRng(Date.now())); UI.toast(r.length ? "🐟 물고기를 낚았다!" : "놓쳤다…"); }
+  else { S.gather(st, "water", makeRng(Date.now())); UI.toast("더러운 물을 떴습니다 (모닥불에서 끓이세요)"); }
 }
 
 // 플레이어 피격: 구르는 중(무적)이면 무시
@@ -551,6 +642,7 @@ function gatherNode(n) {
     n.prog -= 1;
     n.hits = (n.hits || 0) + 1;
     const out = S.gather(st, n.type, makeRng(Date.now() + n.id + n.hits));
+    if (Reg.addProgress(st, G.regions, "gather", 1)) regionCleared();
     for (const [id, q] of out) fxText(nx, ny, `${ITEMS[id].icon}+${q}`, "#ffe9a8");
     if (n.hits >= NODE_TYPES[n.type].hp) {
       n.hits = 0; n.prog = 0;
@@ -624,6 +716,7 @@ async function visitPoi(q) {
 let storyBusy = false;
 async function handleStory() {
   if (storyBusy || !G.st) return;
+  G.checkHomeMission?.();
   // 동료 개인 이야기(호감도 40·80)
   const cs = S.pendingCompanionStories(G.st)[0];
   if (cs && !G.paused) {
@@ -694,12 +787,13 @@ function update(dt) {
   const L = Math.hypot(ix, iy);
   G.moving = L > 0.15;
   if (G.moving) {
-    const sp = S.moveSpeed(st) * Math.min(1, L);
+    const sp = S.moveSpeed(st) * Math.min(1, L) * isSlow(G.world, p.x, p.y);
     const vx = (ix / Math.max(1, L)) * sp * dt, vy = (iy / Math.max(1, L)) * sp * dt;
     if (!isBlocked(G.world, p.x + vx, p.y)) p.x += vx;
     if (!isBlocked(G.world, p.x, p.y + vy)) p.y += vy;
-    p.x = Math.max(TILE * 2, Math.min((WORLD_W - 2) * TILE, p.x));
-    p.y = Math.max(TILE * 2, Math.min((WORLD_H - 2) * TILE, p.y));
+    p.x = Math.max(4, Math.min(WORLD_W * TILE - 4, p.x));
+    p.y = Math.max(4, Math.min(WORLD_H * TILE - 4, p.y));
+    edgeCheck();
     if (Math.abs(ix) > 0.1) G.facing = ix > 0 ? 1 : -1;
     G.moveYaw = Math.atan2(ix, iy);
     G.phase += dt * (p.mount ? 9 : 11) * Math.min(1, L);
@@ -719,7 +813,16 @@ function update(dt) {
   // 위치 컨텍스트
   const bx = (G.world.cx + 0.5) * TILE, by = (G.world.cy + 0.5) * TILE;
   const wallR = (2 + st.base.lv) * TILE;
-  G.atBase = Math.hypot(p.x - bx, p.y - by) < wallR;
+  G.atBase = G.world.home && Math.hypot(p.x - bx, p.y - by) < wallR;
+  // 안개 걷기: 한 칸 움직일 때마다 주변 7칸을 밝힌다 + 탐험 미션
+  const ptx = Math.floor(p.x / TILE), pty = Math.floor(p.y / TILE), pk = pty * WORLD_W + ptx;
+  if (pk !== G.lastRevealT) {
+    G.lastRevealT = pk;
+    if (Reg.reveal(G.fog, WORLD_W, WORLD_H, ptx, pty, 7) > 0) {
+      G.fogDirty = true; G.fogPctV = Reg.fogPct(G.fog);
+      if (G.world.region.mission.kind === "explore" && Reg.addProgress(st, G.regions, "explore", 0, Reg.fogPct(G.fog))) regionCleared();
+    }
+  }
   G.nearFire = G.atBase && S.hasBuilding(st, "campfire");
   const tile = tileAt(G.world, p.x, p.y);
   G.inRad = tile === T.RAD; G.seasonId = S.season(st).id;
@@ -771,6 +874,8 @@ function draw(dt) {
   const st = G.st, p = st.player;
   G.cam.x += (p.x - VW / 2 - G.cam.x) * Math.min(1, dt * 8);
   G.cam.y += (p.y - VH / 2 - G.cam.y) * Math.min(1, dt * 8);
+  // 지도 밖(빈 공간)이 보이지 않게 카메라를 지도 안으로
+  G.cam.x = Math.max(0, Math.min(WORLD_W * TILE - VW, G.cam.x)); G.cam.y = Math.max(0, Math.min(WORLD_H * TILE - VH, G.cam.y));
   const cam = { x: Math.round(G.cam.x), y: Math.round(G.cam.y) };
   ctx.fillStyle = "#1a1714"; ctx.fillRect(0, 0, VW, VH);
   R.drawTerrain(ctx, G.world, cam, VW, VH);
@@ -782,7 +887,7 @@ function draw(dt) {
     R.emoji(ctx, q.icon, x, y - 6, 44);
     ctx.fillStyle = "#fff"; ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center"; ctx.fillText(q.name, x, y + 34); ctx.textAlign = "left";
   }
-  R.drawBase(ctx, st, G.world, cam, G.t);
+  if (G.world.home) R.drawBase(ctx, st, G.world, cam, G.t);
   // 정렬해서 그리기(y-정렬)
   const list = [];
   for (const n of visibleNodes()) list.push({ y: (n.ty + 0.5) * TILE + 8, f: () => {
@@ -837,7 +942,7 @@ function draw(dt) {
   const h = (st.time.min % 1440) / 60;
   const dark = h >= 21 || h < 5 ? 0.62 : h >= 19 ? (h - 19) / 2 * 0.62 : h < 7 ? (7 - h) / 2 * 0.62 : 0;
   const lights = [{ x: p.x - cam.x, y: p.y - cam.y - 20, r: 120 }];
-  if (S.hasBuilding(st, "campfire")) { const o = R.baseLayout(st, G.world).out.find((o) => o.b.id === "campfire"); if (o) lights.push({ x: o.x - cam.x, y: o.y - cam.y, r: 200 }); }
+  if (G.world.home && S.hasBuilding(st, "campfire")) { const o = R.baseLayout(st, G.world).out.find((o) => o.b.id === "campfire"); if (o) lights.push({ x: o.x - cam.x, y: o.y - cam.y, r: 200 }); }
   lights.push({ x: bx - cam.x, y: by - cam.y, r: 80 + st.base.lv * 30 });
   R.drawLighting(ctx, VW, VH, dark, lights);
   if (tileHere === T.RAD) { ctx.fillStyle = "rgba(120,255,60,0.07)"; ctx.fillRect(0, 0, VW, VH); }
@@ -919,7 +1024,7 @@ function drawHint(cam) {
   let txt = null, hx = 0, hy = 0;
   for (const n of visibleNodes()) { const nx = (n.tx + 0.5) * TILE, ny = (n.ty + 0.5) * TILE; if (Math.hypot(nx - p.x, ny - p.y) < 50) { const gp = S.gatherPower(G.st, n.type); txt = `${NODE_TYPES[n.type].name} 채집${gp.need ? ` · ${gp.need} 없음(아주 느림)` : ""}`; hx = nx; hy = ny - 36; break; } }
   for (const m of G.mobs) if (Math.hypot(m.x - p.x, m.y - p.y) < 56) { txt = m.kind === "enemy" ? `${ENEMIES[m.type].name} 공격` : `${ANIMALS[m.type].name} (길들이기/사냥)`; hx = m.x; hy = m.y - 50; break; }
-  if (!txt && Math.hypot((G.world.cx + 0.5) * TILE - p.x, (G.world.cy + 0.5) * TILE - p.y) < 2.2 * TILE) { txt = "기지 관리"; hx = p.x; hy = p.y - 60; }
+  if (!txt && G.world.home && Math.hypot((G.world.cx + 0.5) * TILE - p.x, (G.world.cy + 0.5) * TILE - p.y) < 2.2 * TILE) { txt = "기지 관리"; hx = p.x; hy = p.y - 60; }
   if (!txt && nearWater(G.world, p.x, p.y)) { txt = p.equip.hand?.id === "fishing_rod" ? "낚시" : "물 뜨기"; hx = p.x; hy = p.y - 60; }
   if (!txt) return;
   if (!cam) { const s = G.r3d.project(hx, hy + 40, 2.4); cam = { x: hx - s.x, y: hy - s.y }; }
@@ -936,28 +1041,50 @@ function poiImg(id) { if (!poiImgs[id]) { poiImgs[id] = new Image(); poiImgs[id]
 let miniCache = null;
 function drawMinimap() {
   const size = Math.min(120, VW * 0.26);
-  if (!miniCache || miniCache.seed !== G.world.seed || miniCache.biome !== G.world.biome) {
-    const c = document.createElement("canvas"); c.width = c.height = WORLD_W;
+  // 안개: 탐험한 칸만 지형색, 나머지는 어둡게. 새로 밝힌 곳이 있으면 0.4초마다 다시 그림
+  if (!miniCache || miniCache.seed !== G.world.seed || miniCache.biome !== G.world.biome || (G.fogDirty && G.t - miniCache.t > 0.4)) {
+    const c = miniCache?.c?.width === WORLD_W ? miniCache.c : document.createElement("canvas"); c.width = c.height = WORLD_W;
     const g = c.getContext("2d"); const img = g.createImageData(WORLD_W, WORLD_H);
-    const cols = { 0: [111, 106, 96], 1: [79, 107, 58], 2: [90, 90, 94], 3: [47, 79, 99], 4: [92, 122, 46], 5: [87, 80, 74], 6: [122, 106, 82], 7: [61, 59, 57], 8: [200, 176, 122], 9: [227, 231, 234] };
-    for (let i = 0; i < WORLD_W * WORLD_H; i++) { const c3 = cols[G.world.tiles[i]] || cols[0]; img.data.set([...c3, 255], i * 4); }
+    const cols = { 0: [111, 106, 96], 1: [79, 107, 58], 2: [90, 90, 94], 3: [47, 79, 99], 4: [92, 122, 46], 5: [87, 80, 74], 6: [122, 106, 82], 7: [61, 59, 57], 8: [200, 176, 122], 9: [227, 231, 234], 10: [77, 122, 140], 11: [122, 90, 58] };
+    const fog = G.fog, dark = [14, 12, 11];
+    for (let i = 0; i < WORLD_W * WORLD_H; i++) { const c3 = fog && !fog[i] ? dark : cols[G.world.tiles[i]] || cols[0]; img.data[i * 4] = c3[0]; img.data[i * 4 + 1] = c3[1]; img.data[i * 4 + 2] = c3[2]; img.data[i * 4 + 3] = 255; }
     g.putImageData(img, 0, 0);
-    miniCache = { seed: G.world.seed, biome: G.world.biome, c };
+    miniCache = { seed: G.world.seed, biome: G.world.biome, c, t: G.t };
+    G.fogDirty = false;
   }
   const x0 = VW - size - 10, y0 = 92;
-  ctx.globalAlpha = 0.85;
+  ctx.globalAlpha = 0.9;
   ctx.drawImage(miniCache.c, x0, y0, size, size);
   ctx.globalAlpha = 1;
   ctx.strokeStyle = "rgba(255,255,255,.4)"; ctx.strokeRect(x0, y0, size, size);
   const sc = size / (WORLD_W * TILE);
   ctx.font = "10px sans-serif";
   for (const q of Object.values(G.world.pois)) {
+    if (G.fog && !G.fog[q.ty * WORLD_W + q.tx]) continue; // 아직 못 찾은 장소는 숨김
     const img = poiImg(q.id);
     if (img.complete && img.naturalWidth) ctx.drawImage(img, x0 + q.tx * TILE * sc - 8, y0 + q.ty * TILE * sc - 8, 16, 16);
   }
-  ctx.fillStyle = "#ffd36b"; ctx.fillRect(x0 + G.world.cx * TILE * sc - 2, y0 + G.world.cy * TILE * sc - 2, 4, 4);
+  if (G.world.home) { ctx.fillStyle = "#ffd36b"; ctx.fillRect(x0 + G.world.cx * TILE * sc - 2, y0 + G.world.cy * TILE * sc - 2, 4, 4); }
+  // 열린 이웃 지역으로 가는 길목 표시(가장자리 화살표)
+  const reg = G.world.region;
+  ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center";
+  for (const [dn, o] of Object.entries(reg?.links || {})) {
+    const open = Reg.isUnlocked(G.st, G.regions, o);
+    const [ax, ay] = { 동: [x0 + size - 5, y0 + size / 2 + 4], 서: [x0 + 5, y0 + size / 2 + 4], 남: [x0 + size / 2, y0 + size - 2], 북: [x0 + size / 2, y0 + 10] }[dn];
+    ctx.fillStyle = open ? "#ffd36b" : "rgba(255,255,255,.35)"; ctx.fillText(open ? "▶◀▼▲"["동서남북".indexOf(dn)] : "🔒", ax, ay);
+  }
   ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(x0 + G.st.player.x * sc, y0 + G.st.player.y * sc, 2.5, 0, Math.PI * 2); ctx.fill();
+  ctx.font = "11px sans-serif"; ctx.fillStyle = "rgba(255,255,255,.9)";
+  ctx.fillText(`${reg?.name ?? ""} · 탐험 ${Math.floor(G.fogPctV ?? 0)}%`, x0 + size / 2, y0 + size + 13);
+  ctx.textAlign = "start";
+  G.miniRect = [x0, y0, size, size + 16];
 }
+
+addEventListener("pointerdown", (e) => {
+  const r = G.miniRect;
+  if (!G.st || G.paused || !r || document.getElementById("hud").hidden) return;
+  if (e.clientX >= r[0] && e.clientX <= r[0] + r[2] && e.clientY >= r[1] && e.clientY <= r[1] + r[3] && !e.target.closest("button,.modal-bg")) UI.openRegionMap();
+});
 
 // 서비스 워커(오프라인 플레이 + 재방문 로딩 0초)
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("./sw.js").catch(() => {});

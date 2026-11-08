@@ -228,3 +228,4 @@ svg.gi { display: inline-block; vertical-align: middle; flex: none; }
 #menu button.locked { opacity: .38; filter: grayscale(1); position: relative; }
 #menu button.locked::after { content: "🔒"; position: absolute; top: 2px; right: 4px; font-size: 11px; }
 #act span, #dodge span { position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--text); text-shadow: 0 1px 2px #000; white-space: nowrap; pointer-events: none; }
+.rmap { width: 100%; height: auto; max-height: 58vh; object-fit: contain; display: block; border-radius: 10px; border: 2px solid #6b5636; cursor: pointer; }

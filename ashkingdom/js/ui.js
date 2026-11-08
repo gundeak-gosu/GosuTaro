@@ -13,6 +13,7 @@ import { exportAll, importAll, saveGame, saveAccount } from "./storage.js";
 import * as Net from "./net.js";
 import * as Sync from "./sync.js";
 import * as Sfx from "./sfx.js";
+import * as Reg from "./regions.js";
 import * as Ic from "./icons.js";
 import * as Earth from "./earth.js";
 import * as MM from "./matchmaking.js";
@@ -566,6 +567,7 @@ export function openMenu() {
   const m = modal(`<h2>${Ic.icon("ui.menu", 26)} 메뉴</h2>
     <div class="card">${DIFFICULTY[st.difficulty].name} · ${JOBS[st.player.job].icon} ${JOBS[st.player.job].name} · ${esc(st.player.name)} · ${S.day(st)}일차</div>
     <div class="choices">
+      <button class="btn" id="rmapb">🗺️ 지역 지도 (M)</button>
       <button class="btn" id="zz">😴 잠자기 (체력은 잠을 자야만 회복)</button>
       <button class="btn" id="save">💾 지금 저장</button>
       <button class="btn" id="exp">📤 저장 코드 내보내기 (기기 변경)</button>
@@ -598,6 +600,7 @@ export function openMenu() {
     const mm = modal(`<h3>랭킹 이름</h3><input id="rn" maxlength="10" class="code" style="height:auto;padding:10px" value="${esc(st.player.name)}"><button class="btn primary" id="ok">변경</button><p class="muted small">${Net.canRename() ? "하루에 한 번 바꿀 수 있습니다." : "오늘은 이미 바꿨습니다."}</p>`);
     mm.querySelector("#ok").onclick = async () => { try { const r = await Net.rename(mm.querySelector("#rn").value); toast(r.ok ? "변경했습니다" : r.why, r.ok ? "good" : "bad"); if (r.ok) mm.close(); } catch (e) { toast("연결 실패: " + e.message, "bad"); } };
   };
+  m.querySelector("#rmapb").onclick = () => { m.close(); openRegionMap(); };
   m.querySelector("#zz").onclick = async () => {
     const bed = G.atBase && S.hasBuilding(st, "bed"), bag = S.count(st.inv, "sleeping_bag") > 0;
     const v = await choice("😴 잠자기", `아침까지 잡니다. 체력 회복: 침대 100% · 침낭 70% · 맨땅 40%.<br>${G.atBase ? "기지 안이라 안전합니다." : '<span class="no">기지 밖입니다 — 자는 동안 습격당할 수 있습니다.</span>'}`,
@@ -641,6 +644,78 @@ export function spawnReveal() {
     m.querySelector("#ok").onclick = () => m.close();
   });
 }
+// ---------------- 지역 지도(노드 지도) ----------------
+// 탐험한 지역은 밝게, 갈 수 있는 곳은 색, 잠긴 곳은 회색+자물쇠, 아직 모르는 곳은 '???'
+export function openRegionMap() {
+  const st = G.st, regs = G.regions, cur = G.world.rid;
+  const W = 760, H = 520, gx0 = 70, gy0 = 70, gw = (W - 140) / 6, gh = (H - 150) / 4;
+  const pos = (r) => [gx0 + r.gx * gw + ((r.id * 37) % 23) - 11, gy0 + r.gy * gh + ((r.id * 53) % 19) - 9];
+  const open = (r) => Reg.isUnlocked(st, regs, r.id);
+  const known = (r) => open(r) || Object.values(r.links).some((o) => open(regs.find((x) => x.id === o)));
+  const m = modal(`<h2>🗺️ 지역 지도</h2><p class="muted small">지역의 미션을 깨면 이웃 지역으로 가는 길이 열립니다. 지도 가장자리(화살표)로 걸어가거나, 열린 지역을 눌러 이동하세요.</p>
+    <canvas id="rmap" class="rmap" width="${W}" height="${H}"></canvas><div id="rinfo"></div>`, { wide: true });
+  const cv = m.querySelector("#rmap"), g = cv.getContext("2d");
+  let sel = cur;
+  const draw = () => {
+    // 양피지 바탕
+    const bg = g.createRadialGradient(W / 2, H / 2, 60, W / 2, H / 2, W * 0.7); bg.addColorStop(0, "#d8c49a"); bg.addColorStop(1, "#a88e62");
+    g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    g.globalAlpha = 0.12; g.fillStyle = "#5a4630";
+    for (let i = 0; i < 260; i++) { const x = (i * 97) % W, y = (i * 61) % H; g.fillRect(x, y, 2 + (i % 3), 1); }
+    g.globalAlpha = 1;
+    // 길(점선)
+    g.setLineDash([6, 6]); g.lineWidth = 2.5;
+    for (const r of regs) for (const o of Object.values(r.links)) {
+      if (o < r.id) continue; const q = regs.find((x) => x.id === o);
+      if (!known(r) || !known(q)) continue;
+      const [x1, y1] = pos(r), [x2, y2] = pos(q);
+      g.strokeStyle = open(r) && open(q) ? "rgba(255,255,255,.9)" : "rgba(80,60,40,.45)";
+      g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+    }
+    g.setLineDash([]);
+    // 지역 칸
+    g.textAlign = "center";
+    for (const r of regs) {
+      const [x, y] = pos(r), k = known(r), o = open(r), done = Reg.missionDone(st, regs, r.id);
+      if (!k) { if (Object.values(r.links).some((o) => known(regs.find((x2) => x2.id === o)))) { g.fillStyle = "rgba(70,55,40,.45)"; g.font = "bold 16px sans-serif"; g.fillText("???", x, y + 6); } continue; }
+      // 받침(아이소메트릭 느낌의 판)
+      g.fillStyle = o ? (r.theme === "home" ? "#7a6a52" : "#6b7a4a") : "#8a8580";
+      g.beginPath(); g.moveTo(x, y - 18); g.lineTo(x + 26, y - 4); g.lineTo(x, y + 10); g.lineTo(x - 26, y - 4); g.closePath(); g.fill();
+      g.fillStyle = "rgba(0,0,0,.25)"; g.beginPath(); g.moveTo(x - 26, y - 4); g.lineTo(x, y + 10); g.lineTo(x, y + 18); g.lineTo(x - 26, y + 4); g.closePath(); g.fill();
+      g.fillStyle = "rgba(0,0,0,.4)"; g.beginPath(); g.moveTo(x + 26, y - 4); g.lineTo(x, y + 10); g.lineTo(x, y + 18); g.lineTo(x + 26, y + 4); g.closePath(); g.fill();
+      g.font = "22px sans-serif"; g.globalAlpha = o ? 1 : 0.5; g.fillText(Reg.THEMES[r.theme].icon, x, y + 2); g.globalAlpha = 1;
+      if (!o) { g.font = "15px sans-serif"; g.fillText("🔒", x + 22, y - 14); }
+      if (done && r.id) { g.font = "14px sans-serif"; g.fillText("🏁", x - 22, y - 14); }
+      g.font = "bold 12px sans-serif"; g.fillStyle = "#2a2018"; g.fillText(r.name, x, y + 34);
+      if (r.id === sel) { g.strokeStyle = "#fff"; g.lineWidth = 2; g.strokeRect(x - 34, y - 26, 68, 66); }
+      if (r.id === cur) { g.fillStyle = "#ffd36b"; g.font = "bold 12px sans-serif"; g.fillText("▼ 현재 위치", x, y - 30); }
+    }
+    g.textAlign = "start";
+    const r = regs.find((x) => x.id === sel), o = open(r), s2 = Reg.rs(st, r.id);
+    const mi = r.mission;
+    m.querySelector("#rinfo").innerHTML = `<div class="card"><b>${Reg.THEMES[r.theme].icon} ${esc(r.name)}</b> <small class="muted">위험도 ${"★".repeat(r.tier) || "안전"}${r.theme !== "home" ? " · " + esc(BIOMES[r.biome]?.name || "") : ""}</small><br>
+      ${o ? `미션: ${esc(Reg.missionText(r))} — ${Reg.missionDone(st, regs, r.id) ? '<span class="ok">완료 🏁</span>' : mi.kind === "chapter" ? `진행 중 (${st.story.chapter}/2장)` : `${s2.prog}/${mi.n}`}` : `<span class="no">🔒 ${esc(Reg.lockReason(st, regs, r.id))}</span>`}
+      ${o && r.id !== cur ? `<br><button class="btn primary" id="go">이 지역으로 이동 (${travelHours(r.id)}시간)</button>` : ""}</div>`;
+    m.querySelector("#go")?.addEventListener("click", () => { m.close(); travelTo(r.id); });
+  };
+  // 열린 지역끼리 최단 경로 길이 × 2시간
+  const travelHours = (to) => { const seen = new Map([[cur, 0]]), q = [cur]; while (q.length) { const a = q.shift(); for (const o of Object.values(regs.find((x) => x.id === a).links)) if (!seen.has(o) && open(regs.find((x) => x.id === o))) { seen.set(o, seen.get(a) + 1); q.push(o); } } return (seen.get(to) ?? 9) * 2; };
+  const travelTo = (to) => {
+    const h = travelHours(to);
+    for (let i = 0; i < h * 2; i++) S.tick(st, 30, { moving: true });
+    const r = regs.find((x) => x.id === to);
+    G.loadRegion(to, Object.keys(r.links)[0] ? { 동: "서", 서: "동", 남: "북", 북: "남" }[Object.keys(r.links)[0]] : null);
+    toast(`🧭 ${r.name}에 도착 (${h}시간 이동)`, "good"); G.save(); G.afterAction();
+  };
+  cv.addEventListener("click", (e) => {
+    const b = cv.getBoundingClientRect(), x = ((e.clientX - b.left) / b.width) * W, y = ((e.clientY - b.top) / b.height) * H;
+    let best = null, bd = 40;
+    for (const r of regs) { if (!known(r)) continue; const [px, py] = pos(r); const d = Math.hypot(px - x, py - y); if (d < bd) { bd = d; best = r; } }
+    if (best) { sel = best.id; draw(); }
+  });
+  draw();
+}
+
 export function openWorldMap() {
   const g = S.geoOf(G.st);
   const m = modal(`<h2>${Ic.icon("ui.globe", 26)} 세계 지도</h2><canvas id="earth" class="earthmap" width="720" height="360"></canvas>${geoCard(g)}

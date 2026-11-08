@@ -1,0 +1,5 @@
+# 그림 원본(큼) — art-src/jpg 에 압축본을 둔다
+art-src/*.png
+assets/heroines/*/face_row.png
+assets/heroines/*/sd_row.png
+assets/heroines/*/sheet_src.png

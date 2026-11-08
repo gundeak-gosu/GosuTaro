@@ -774,3 +774,8 @@ export const COMPANION_STORIES = {
     { aff: 80, title: "남궁태호 · 연합 헌장", text: "그가 초안을 내밀었다. 첫 줄: '누구도 굶지 않는다.'", reward: { gold: 600 } },
   ],
 };
+
+// 영웅·스토리 동료 그림(OpenAI 시트에서 자른 얼굴 7표정 + SD 7포즈): assets/heroines/<id>/
+for (const [k, h] of Object.entries(HEROINES)) h.art ||= `assets/heroines/${k}/`;
+for (const [k, h] of Object.entries(STORY_COMPANIONS)) h.art ||= `assets/heroines/${k}/`;
+export function companionArt(c) { return (c?.hero && HEROINES[c.hero]?.art) || (c?.story && STORY_COMPANIONS[c.story]?.art) || null; }

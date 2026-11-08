@@ -6,6 +6,7 @@
 //  - 빛은 항상 왼쪽 위 → 각 도형 왼쪽 위에 같은 하이라이트, 오른쪽 아래 같은 그림자
 //  - 바닥에 같은 타원 그림자
 // =====================================================================
+import { iconSrc } from "./art.js";
 const P = {
   ink: "#1d1712", bone: "#e6dcc6", sand: "#c9b48a", wood: "#8a6340", woodD: "#5e4128", rust: "#a4552f",
   iron: "#8f969b", ironD: "#5b6166", ash: "#6e6a62", leaf: "#6f8f3e", leafD: "#4c6a2b", amber: "#e0a24a",
@@ -223,6 +224,8 @@ export function svg(key, size = 32) {
 export function has(key) { return !!D[key]; }
 // 아이템 id / 건물 id 등 → HTML (없으면 대체 문자)
 export function icon(key, size = 28, fallback = "") {
+  const src = iconSrc(key); // 그림(OpenAI 아트)이 있으면 그것을 쓴다
+  if (src) return `<img class="gi art" src="${src}" width="${size}" height="${size}" alt="" draggable="false" loading="lazy">`;
   return svg(key, size) || `<span class="gi-fb">${fallback}</span>`;
 }
 export function dataURI(key, size = 64) {

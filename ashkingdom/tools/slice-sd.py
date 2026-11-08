@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""투명 배경 SD 줄(sd_row.png) → 포즈 7장. 알파가 있는 열 덩어리로 나눈다."""
+"""초록 배경 한 줄 그림 → 7장. 알파가 있는 열 덩어리로 나눈다.
+사용: slice-sd.py <폴더> [sd|face]  (sd: sd_row.png → sd_*.png, face: face_row.png → face_*.png)"""
 import sys
 from PIL import Image
 d = sys.argv[1].rstrip("/") + "/"
-im = Image.open(d + "sd_row.png").convert("RGBA"); W, H = im.size
+mode = sys.argv[2] if len(sys.argv) > 2 else "sd"
+im = Image.open(d + mode + "_row.png").convert("RGBA"); W, H = im.size
 # 초록 배경 빼기(크로마키): 초록이 빨강·파랑보다 확실히 강하면 투명, 가장자리는 반투명 + 초록 번짐 제거
 px = im.load()
 for y in range(H):
@@ -21,6 +23,9 @@ for x in range(W):
     if not on and ins:
         ins = False
         if x - s0 > 30: segs.append((s0, x))
+# 'zz'·하트 같은 작은 조각은 버린다(무게가 가장 큰 포즈의 20% 미만)
+mass = lambda s: sum(cols[s[0]:s[1]])
+if segs: segs = [s for s in segs if mass(s) > max(map(mass, segs)) * 0.2]
 segs = sorted(sorted(segs, key=lambda s: s[1] - s[0], reverse=True)[:7])
 # 붙어 있는 포즈(모닥불 돌·잠자는 몸 등)는 가장 넓은 덩어리를 가장 얇은 열에서 둘로 나눈다
 while len(segs) < 7 and segs:
@@ -29,7 +34,8 @@ while len(segs) < 7 and segs:
     cut = min(range(lo, hi), key=lambda x: cols[x])
     segs[i:i + 1] = [(x0, cut), (cut, x1)]
 print("포즈", len(segs))
-for (x0, x1), n in zip(segs, ["idle", "happy", "cheer", "shoot", "pack", "campfire", "sleep"]):
+names = ["idle", "happy", "cheer", "shoot", "pack", "campfire", "sleep"] if mode == "sd" else ["smile", "joy", "surprised", "worried", "shy", "angry", "sleepy"]
+for (x0, x1), n in zip(segs, names):
     c = im.crop((x0, 0, x1, H)); c = c.crop(c.getbbox())
-    c.thumbnail((240, 240), Image.LANCZOS)
-    c.save(d + f"sd_{n}.png")
+    c.thumbnail((240, 240) if mode == "sd" else (200, 260), Image.LANCZOS)
+    c.save(d + f"{mode}_{n}.png")

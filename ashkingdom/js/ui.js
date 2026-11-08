@@ -6,6 +6,7 @@ import * as MG from "./minigames.js";
 import {
   ITEMS, RECIPES, BUILDINGS, BASE_LEVELS, RESEARCH, ANIMALS, VEHICLES, ROLES, JOBS, DIFFICULTY,
   CHAPTERS, ERAS, OLYMPIC_EVENTS, OLYMPICS, SHOP, STATS, ENDINGS, QUALITY, AFFIXES, BIOMES, WEATHER, SPECIALS, WSKILLS, SCOUT, RAIDER_BANDS, HEROINES, TALENTS, COOKS, COOK_SLOTS,
+  companionArt,
 } from "./data.js";
 import { drawCharacter, drawCinematic } from "./render.js";
 import { makeRng } from "./rng.js";
@@ -381,12 +382,12 @@ export function openPeople() {
     <p class="muted">동행(최대 2명)은 함께 싸우고, 기지에 있으면 역할을 수행합니다. 매일 말을 걸거나 선물하면 호감도가 오르고, 100이 되면 청혼할 수 있습니다(결혼 반지 필요). 아이는 28일(게임) 후 어른이 되어 동료·후계자가 됩니다.</p>
     <div class="card">💍 배우자 <b>${S.spouses(st).length}/${S.maxSpouses(st)}</b> <small class="muted">(매력 ${S.eff(st, "cha")} — 매력 5마다 한 명 더) · 자녀 ${st.family.children.length}명 · 배우자 1명당 자녀 최대 2명</small></div>
     <h3>⭐ 여성 영웅 도감 ${(st.heroinesMet || []).length}/${Object.keys(HEROINES).length}</h3>
-    <div class="chips">${Object.entries(HEROINES).map(([k, h]) => (st.heroinesMet || []).includes(k) ? `<span class="chip">⭐ ${h.name} <small>${h.title} · ${TALENTS[h.talent].name}</small></span>` : `<span class="chip muted">❔ ??? <small>만나는 곳: ${h.meet.map((m) => ({ apartment: "아파트", highrise: "고층 빌딩", mall: "쇼핑몰", gym: "체육관", broadcast: "방송국", power: "발전소", subway: "지하철", airport: "공항", hospital: "병원" })[m]).join("·")} · 매력 ${h.req}+</small></span>`).join("")}</div>
+    <div class="chips">${Object.entries(HEROINES).map(([k, h]) => (st.heroinesMet || []).includes(k) ? `<span class="chip">${h.art ? `<img class="chipface" src="${h.art}face_smile.png" alt="">` : "⭐"} ${h.name} <small>${h.title} · ${TALENTS[h.talent].name}</small></span>` : `<span class="chip muted">❔ ??? <small>만나는 곳: ${h.meet.map((m) => ({ apartment: "아파트", highrise: "고층 빌딩", mall: "쇼핑몰", gym: "체육관", broadcast: "방송국", power: "발전소", subway: "지하철", airport: "공항", hospital: "병원" })[m]).join("·")} · 매력 ${h.req}+</small></span>`).join("")}</div>
     <h3>동료</h3>
     ${st.companions.map((c) => {
       const r = ROLES[c.role];
       const adult = S.isAdult(c);
-      const art = c.hero && HEROINES[c.hero]?.art;
+      const art = companionArt(c);
       const mood = (c.affinity ?? 0) >= 100 ? "shy" : (c.affinity ?? 0) >= 60 ? "joy" : (c.morale ?? 70) < 40 ? "worried" : "smile";
       return `<div class="person"><div class="pp">${art ? `<img class="face" src="${art}face_${mood}.png" alt="">` : `${c.gender === "F" ? "👩" : "👨"}${c.child && !adult ? "🍼" : ""}`}</div><div class="pi">
         <b>${esc(c.name)}</b> ${c.story || c.hero ? "⭐" : ""} ${c.spouse ? "💍" : ""} ${c.talent ? `<span class="badge">${TALENTS[c.talent].name}</span>` : ""} <small>${r?.icon} ${r?.name}${c.child ? ` · ${c.age || 0}일차${adult ? " (성인)" : ""}` : ""}</small>
@@ -407,7 +408,7 @@ export function openPeople() {
   m.querySelectorAll("[data-role]").forEach((s) => (s.onchange = () => { if (s.value) S.setRole(st, s.dataset.role, s.value); re(); }));
   m.querySelectorAll("[data-marry]").forEach((b) => (b.onclick = async () => {
     const r = S.propose(st, b.dataset.marry);
-    const cc = st.companions.find((x) => x.uid === b.dataset.marry), art = cc?.hero && HEROINES[cc.hero]?.art;
+    const cc = st.companions.find((x) => x.uid === b.dataset.marry), art = companionArt(cc);
     if (!r.ok) { if (r.refused && art) await choice(cc.name, `<div class="heroface"><img src="${art}face_worried.png" alt=""></div>${esc(r.why)}`, [{ label: "…", value: 1 }]); else toast(r.why, r.refused ? "warn" : "bad"); if (r.refused) re(); return; }
     if (art) await choice(`💍 ${cc.name}`, `<div class="heroface"><img src="${art}face_shy.png" alt=""></div>"…네. 좋아요."`, [{ label: "💍", value: 1, cls: "primary" }]);
     m.close();

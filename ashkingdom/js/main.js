@@ -11,7 +11,7 @@ import * as Sfx from "./sfx.js";
 import * as Bgm from "./bgm.js";
 import { TUTORIAL, tutorialStep } from "./tutorial.js";
 import { BIOMES } from "./data.js";
-import { SPECIALS, SCOUT, RAIDER_BANDS, HEROINES, TALENTS } from "./data.js";
+import { SPECIALS, SCOUT, RAIDER_BANDS, HEROINES, TALENTS, companionArt } from "./data.js";
 // 영웅 그림이 있으면 SD 그림으로 그린다(포즈는 상황에 따라)
 // 주인공 그림(챗GPT 시트에서 만든 SD). 없으면 기존 2등신 그림
 const PLAYER_ART = { M: "assets/heroines/hero_m/", F: "assets/heroines/hero_f/" };
@@ -26,7 +26,7 @@ function drawPlayer(cam, mount) {
   if (!ok) R.drawCharacter(ctx, sx, sy, p.look, p.equip, G.facing, G.phase + (G.swing > 0 ? 2 : 0), { moving: G.moving || G.swing > 0, gender: p.gender, mount, scale: 1.05 });
   ctx.restore();
 }
-function heroArt(c) { const h = c.hero && HEROINES[c.hero]; return h?.art || null; }
+function heroArt(c) { return companionArt(c); }
 import { generateWorld, TILE, WORLD_W, WORLD_H, tileAt, isBlocked, nearWater, T, NODE_TYPES, applyBridges, isSlow } from "./world.js";
 import * as Reg from "./regions.js";
 import * as Sites from "./sites.js";
@@ -39,6 +39,7 @@ import { loadAccount, saveAccount, loadGame, saveGame, deleteGame, listSlots, se
 import { passActive, claimPassDaily, watchAd as accWatchAd, adsLeft } from "./shop.js";
 import { makeRng } from "./rng.js";
 import * as Ic from "./icons.js";
+import * as Art from "./art.js";
 
 const G = {
   st: null, acc: loadAccount(), world: null, paused: 0,
@@ -777,7 +778,7 @@ function siteEvent(ev) {
   if (ev.kind === "note") { G.world.noteSeen = true; UI.choice("📝 구겨진 쪽지", `<div class="notepaper">"보안실 비번 바꿈. 잊지 말 것 —<br><b style="font-size:28px;letter-spacing:6px">${ev.code}</b>"</div><small class="muted">잘 기억해 두세요(문 앞에서 입력).</small>`, [{ label: "기억했다", value: 1, cls: "primary" }]); G.afterAction(); return; }
   if (ev.kind === "heroine") {
     const h = HEROINES[ev.key];
-    UI.choice(`⭐ ${h.name} — ${h.title}`, `${h.art ? `<div class="heroface"><img src="${h.art}face_smile.png" alt=""><img src="${h.art}full_survivor.png" alt="" class="full"></div>` : ""}${h.bio}<br>특기 <b>${TALENTS[h.talent].name}</b>: ${TALENTS[h.talent].desc}<br><small class="muted">매력 ${h.req} 이상이면 마음을 연다 (내 매력 ${S.eff(st, "cha")})</small>`, [{ label: "함께 가자고 한다", value: 1, cls: "primary" }, { label: "그냥 지나간다", value: 0 }], { closable: true }).then((v) => {
+    UI.choice(`⭐ ${h.name} — ${h.title}`, `${h.art ? `<div class="heroface"><img src="${h.art}face_smile.png" alt=""><img src="${h.art}sd_happy.png" alt="" class="full"></div>` : ""}${h.bio}<br>특기 <b>${TALENTS[h.talent].name}</b>: ${TALENTS[h.talent].desc}<br><small class="muted">매력 ${h.req} 이상이면 마음을 연다 (내 매력 ${S.eff(st, "cha")})</small>`, [{ label: "함께 가자고 한다", value: 1, cls: "primary" }, { label: "그냥 지나간다", value: 0 }], { closable: true }).then((v) => {
       if (!v) { ev.done = false; return; }
       const r = S.recruitHeroine(st, ev.key);
       if (r.ok) UI.toast(`⭐ ${h.name}이(가) 동료가 되었다! (동료 메뉴에서 호감을 쌓으면 청혼할 수 있다)`, "good");
@@ -879,7 +880,7 @@ function drawPlacing(cam) {
   ctx.strokeStyle = "rgba(120,255,120,.35)"; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.ellipse(L.cx - cam.x, L.cy - cam.y, L.wallR * 0.9, L.wallR * 0.72, 0, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
   ctx.globalAlpha = 0.75; ctx.fillStyle = t.ok ? "rgba(90,220,90,.35)" : "rgba(230,70,60,.4)";
   ctx.beginPath(); ctx.ellipse(t.pos.x - cam.x, t.pos.y - cam.y + 10, 22, 10, 0, 0, Math.PI * 2); ctx.fill();
-  R.emoji(ctx, BUILDINGS[pl.id].icon, t.pos.x - cam.x, t.pos.y - cam.y - 6, 34); ctx.globalAlpha = 1;
+  if (!Art.drawSprite(ctx, "objects", pl.id, t.pos.x - cam.x, t.pos.y - cam.y + 16, 46)) R.emoji(ctx, BUILDINGS[pl.id].icon, t.pos.x - cam.x, t.pos.y - cam.y - 6, 34); ctx.globalAlpha = 1;
 }
 // 적을 클릭/탭하면 그 적을 공격(사거리 밖이면 알림). 쿨타임 중이면 턴이 오자마자 친다
 addEventListener("pointerdown", (e) => {
@@ -1411,7 +1412,7 @@ function draw(dt) {
     if (x < -80 || y < -80 || x > VWz + 80 || y > VHz + 80) continue;
     const D = Sites.SITES[q.kind], done = st.sites?.[Sites.siteKey(G.world.rid, q.id)]?.cleared;
     ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.beginPath(); ctx.ellipse(x, y + 20, 38, 11, 0, 0, Math.PI * 2); ctx.fill();
-    R.emoji(ctx, D.icon, x, y - 8, 52);
+    if (!Art.drawSprite(ctx, "objects", "site_" + q.kind, x, y + 22, 96)) R.emoji(ctx, D.icon, x, y - 8, 52);
     ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillRect(x - 40, y + 24, 80, 15);
     ctx.fillStyle = done ? "#9be37a" : "#fff"; ctx.fillText((done ? "🏁 " : "") + D.name, x, y + 35); ctx.textAlign = "start";
   }
@@ -1420,7 +1421,7 @@ function draw(dt) {
     const x = (q.tx + 0.5) * TILE - cam.x, y = (q.ty + 0.5) * TILE - cam.y;
     if (x < -80 || y < -80 || x > VWz + 80 || y > VHz + 80) continue;
     ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.beginPath(); ctx.ellipse(x, y + 18, 34, 10, 0, 0, Math.PI * 2); ctx.fill();
-    R.emoji(ctx, q.icon, x, y - 6, 44);
+    if (!Art.drawSprite(ctx, "objects", "poi_" + q.id, x, y + 20, 88)) R.emoji(ctx, q.icon, x, y - 6, 44);
     ctx.fillStyle = "#fff"; ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center"; ctx.fillText(q.name, x, y + 34); ctx.textAlign = "left";
   }
   if (G.world.home) R.drawBase(ctx, st, G.world, cam, G.t);
@@ -1439,7 +1440,7 @@ function draw(dt) {
   for (const m of G.mobs) {
     const sx = m.x - cam.x, sy = m.y - cam.y;
     if (sx < -60 || sy < -60 || sx > VWz + 60 || sy > VHz + 60) continue;
-    list.push({ y: m.y, f: () => { if (m.kind === "enemy") { R.drawEnemy(ctx, { ...m, x: sx, y: sy }, ENEMIES[m.type], m.phase); if (m.leader) { ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#ff8a80"; ctx.fillText("👑 " + m.leader, sx, sy - 48); ctx.textAlign = "start"; } } else { R.drawAnimal(ctx, m.type, sx, sy, m.phase, m.moving, m.facing); if (m.hp < m.maxHp) R.hpBar(ctx, sx, sy - 34, m.hp / m.maxHp); if (m.emote) R.emoji(ctx, m.emote, sx + 10, sy - 38 + Math.sin(G.t * 6) * 1.5, 14); } } });
+    list.push({ y: m.y, f: () => { if (m.kind === "enemy") { R.drawEnemy(ctx, { ...m, x: sx, y: sy }, ENEMIES[m.type], m.phase); if (m.leader) { ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#ff8a80"; ctx.fillText("👑 " + m.leader, sx, sy - (m.boss ? 108 : 62)); ctx.textAlign = "start"; } } else { R.drawAnimal(ctx, m.type, sx, sy, m.phase, m.moving, m.facing); if (m.hp < m.maxHp) R.hpBar(ctx, sx, sy - 34, m.hp / m.maxHp); if (m.emote) R.emoji(ctx, m.emote, sx + 10, sy - 38 + Math.sin(G.t * 6) * 1.5, 14); } } });
   }
   // 기지 주민
   const bx = (G.world.cx + 0.5) * TILE, by = (G.world.cy + 0.5) * TILE;
@@ -1475,7 +1476,7 @@ function draw(dt) {
   for (const d of G.drops) {
     const dx = d.x - cam.x, dy = d.y - cam.y;
     ctx.fillStyle = "rgba(255,230,140,.25)"; ctx.beginPath(); ctx.ellipse(dx, dy + 8, 12, 4, 0, 0, Math.PI * 2); ctx.fill(); // 반짝이는 받침(눈에 띄게)
-    ctx.globalAlpha = 0.85 + Math.sin(G.t * 5) * 0.15; R.emoji(ctx, ITEMS[d.id].icon, dx, dy - 2 + Math.sin(G.t * 3 + d.x) * 1.5, 18); ctx.globalAlpha = 1;
+    ctx.globalAlpha = 0.85 + Math.sin(G.t * 5) * 0.15; if (!Art.drawSprite(ctx, "items", d.id, dx, dy + 8 + Math.sin(G.t * 3 + d.x) * 1.5, 22)) R.emoji(ctx, ITEMS[d.id].icon, dx, dy - 2 + Math.sin(G.t * 3 + d.x) * 1.5, 18); ctx.globalAlpha = 1;
     if (d.qty > 1) { ctx.font = "bold 10px sans-serif"; ctx.fillStyle = "#fff"; ctx.strokeStyle = "#000"; ctx.lineWidth = 3; ctx.strokeText("×" + d.qty, dx + 6, dy + 10); ctx.fillText("×" + d.qty, dx + 6, dy + 10); }
   }
   for (const f of G.fx) { f.t -= dt; f.y -= 28 * dt; ctx.globalAlpha = Math.max(0, f.t); ctx.fillStyle = f.color; ctx.font = "bold 13px sans-serif"; ctx.fillText(f.txt, f.x - cam.x - 8, f.y - cam.y); }

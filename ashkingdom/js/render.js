@@ -1,8 +1,9 @@
 // 렌더링 — Canvas 2D. 이동 중엔 가벼운 '필드 모드'(야생소년 수준),
 // [자세히 보기]/이벤트 때는 같은 레이어 데이터로 그린 '디테일 모드'(그림자·하이라이트·얼굴)를 쓴다.
 // 실서비스 권장: Spine 2D 스켈레톤 + 옷 슬롯 교체(기획서 §10) — 이 파일의 레이어 순서가 그대로 슬롯 순서다.
-import { ITEMS, ANIMALS, VEHICLES, BUILDINGS, BASE_LEVELS } from "./data.js";
+import { ITEMS, ANIMALS, VEHICLES, BUILDINGS, BASE_LEVELS, companionArt } from "./data.js";
 import { TILE, WORLD_W, WORLD_H, TILE_INFO, T, NODE_TYPES } from "./world.js";
+import * as Art from "./art.js";
 
 const SKIN_SHADE = (hex, amt) => {
   const n = parseInt(hex.slice(1), 16);
@@ -15,6 +16,25 @@ const SKIN_SHADE = (hex, amt) => {
 const CHUNK = 16;
 const chunkCache = new Map();
 export function clearTerrainCache() { chunkCache.clear(); }
+// 지형 그림이 늦게 도착하면 캐시를 비워 다시 그린다(색으로만 칠한 청크가 남지 않게)
+let texTimer = 0;
+Art.setArtLoaded((dir) => { if (dir !== "tiles") return; clearTimeout(texTimer); texTimer = setTimeout(() => chunkCache.clear(), 50); });
+
+// 지형 → 텍스처 이름. 풀밭은 생물군계에 따라 다른 그림(사바나·스텝·사막=마른 풀, 열대우림=늪 섞인 풀)
+const TEX = { [T.ASH]: "ash", [T.GRASS]: "grass", [T.RUIN]: "ruin", [T.WATER]: "water", [T.RAD]: "rad", [T.ROCK]: "rock", [T.BASE]: "base", [T.ROAD]: "road", [T.SAND]: "sand", [T.SNOW]: "snow", [T.STREAM]: "stream", [T.BRIDGE]: "bridge", [T.WALL]: "wall", [T.FLOOR]: "floor", [T.EXIT]: "floor", [T.STAIRS]: "floor", [T.DOOR]: "floor" };
+function tileTex(t, biome) {
+  if (t === T.GRASS) return biome === "savanna" || biome === "steppe" || biome === "desert" ? "savanna" : biome === "rainforest" ? "swamp" : "grass";
+  return TEX[t] || "ash";
+}
+const SOLID = new Set([T.WALL, T.BRIDGE, T.FLOOR, T.EXIT, T.STAIRS, T.DOOR]);
+// 경계에서 어느 쪽이 덮을지(높을수록 위): 물·샛강이 땅을 살짝 적시고, 풀이 잿빛 땅을 덮는다
+const PRIO = { [T.ASH]: 1, [T.ROAD]: 2, [T.RUIN]: 2, [T.BASE]: 3, [T.ROCK]: 3, [T.SAND]: 4, [T.GRASS]: 5, [T.SNOW]: 6, [T.RAD]: 7, [T.STREAM]: 8, [T.WATER]: 9 };
+const NB = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+function drawTileDetail(g, t, x, y) {
+  if (t === T.EXIT) { g.fillStyle = "#6b4a2b"; g.fillRect(x * TILE + 6, y * TILE + 2, TILE - 12, TILE - 4); g.fillStyle = "#ffd36b"; g.fillRect(x * TILE + TILE - 12, y * TILE + 16, 3, 3); }
+  if (t === T.DOOR) { g.fillStyle = "#5a3a22"; g.fillRect(x * TILE + 2, y * TILE, TILE - 4, TILE); g.fillStyle = "#3a2414"; g.fillRect(x * TILE + 2, y * TILE + 10, TILE - 4, 3); g.fillRect(x * TILE + 2, y * TILE + 21, TILE - 4, 3); g.fillStyle = "#c9a227"; g.fillRect(x * TILE + TILE / 2 - 3, y * TILE + 13, 6, 7); }
+  if (t === T.STAIRS) { g.fillStyle = "#7a6a4a"; for (let k = 0; k < 4; k++) g.fillRect(x * TILE + 4 + k * 3, y * TILE + 4 + k * 7, TILE - 8 - k * 6, 5); }
+}
 
 function drawChunk(world, cx, cy) {
   const c = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(CHUNK * TILE, CHUNK * TILE) : Object.assign(document.createElement("canvas"), { width: CHUNK * TILE, height: CHUNK * TILE });
@@ -25,6 +45,30 @@ function drawChunk(world, cx, cy) {
     const t = world.tiles[ty * WORLD_W + tx];
     g.fillStyle = TILE_INFO[t].color;
     g.fillRect(x * TILE, y * TILE, TILE, TILE);
+    // 그림 텍스처(256px = 8칸)를 칸 위치에 맞춰 잘라 붙인다 → 이어진 지면
+    const tex = Art.img("tiles", tileTex(t, world.biome));
+    if (tex) {
+      const ts = tex.naturalWidth / 8, sx = (((tx % 8) + 8) % 8) * ts, sy = (((ty % 8) + 8) % 8) * ts;
+      g.drawImage(tex, sx, sy, ts, ts, x * TILE, y * TILE, TILE, TILE);
+      // 다른 지면과의 경계를 부드럽게: 이웃 텍스처를 가장자리에 옅게 덧칠
+      if (!SOLID.has(t)) for (const [dx, dy] of NB) {
+        const nx = tx + dx, ny = ty + dy;
+        if (nx < 0 || ny < 0 || nx >= WORLD_W || ny >= WORLD_H) continue;
+        const nt = world.tiles[ny * WORLD_W + nx];
+        if (nt === t || SOLID.has(nt) || PRIO[nt] <= PRIO[t]) continue;
+        const nTex = Art.img("tiles", tileTex(nt, world.biome)); if (!nTex) continue;
+        for (let k = 0; k < 3; k++) {
+          const d = 4 + k * 4; g.globalAlpha = 0.42 - k * 0.13;
+          const rx = dx > 0 ? TILE - d : 0, ry = dy > 0 ? TILE - d : 0, rw = dx ? d : TILE, rh = dy ? d : TILE;
+          g.drawImage(nTex, sx + (rx / TILE) * ts, sy + (ry / TILE) * ts, (rw / TILE) * ts, (rh / TILE) * ts, x * TILE + rx, y * TILE + ry, rw, rh);
+        }
+        g.globalAlpha = 1;
+      }
+      if (t === T.RAD) { g.fillStyle = "rgba(160,255,80,0.06)"; g.fillRect(x * TILE, y * TILE, TILE, TILE); }
+      if (t === T.WALL) { g.fillStyle = "rgba(0,0,0,.45)"; g.fillRect(x * TILE, y * TILE + TILE - 6, TILE, 6); }
+      if (t === T.DOOR || t === T.EXIT || t === T.STAIRS) drawTileDetail(g, t, x, y);
+      continue;
+    }
     // 결 표현(노이즈 점)
     const h = (tx * 73856093) ^ (ty * 19349663);
     g.fillStyle = "rgba(0,0,0,0.08)";
@@ -290,6 +334,12 @@ export function roundRect(ctx, x, y, w, h, r) {
 export function drawAnimal(ctx, type, x, y, phase, moving, facing = 1, tamed = false) {
   const a = ANIMALS[type];
   const big = { horse: 1.3, cow: 1.25, boar: 1.0, wolf: 1.0, dog: 0.85, deer: 1.05, goat: 0.8, chicken: 0.5 }[type] || 1;
+  if (Art.img("mobs", type)) { // 그림 동물: 걸을 때 통통 튄다
+    ctx.fillStyle = "rgba(0,0,0,0.28)"; ctx.beginPath(); ctx.ellipse(x, y + 1, 13 * big, 4 * big, 0, 0, Math.PI * 2); ctx.fill();
+    Art.drawSprite(ctx, "mobs", type, x, y + 3, 30 * big + 6, facing, moving ? Math.abs(Math.sin(phase * 1.4)) * 2.5 : 0);
+    if (tamed) { ctx.fillStyle = "#ff6b8a"; ctx.font = "11px sans-serif"; ctx.fillText("♥", x - 3, y - 30 * big - 8); }
+    return;
+  }
   const s = big;
   const g = moving ? Math.sin(phase * 1.4) * 2 : 0;
   ctx.save(); ctx.translate(x, y); if (facing < 0) ctx.scale(-1, 1);
@@ -316,7 +366,16 @@ export function drawAnimal(ctx, type, x, y, phase, moving, facing = 1, tamed = f
   ctx.restore();
 }
 
+const ENEMY_H = { rad_rat: 26, feral_dog: 34, mutant: 50, raider: 50, ash_knight: 62, boss: 92, guard: 50 };
 export function drawEnemy(ctx, e, def, phase) {
+  const sp = e.boss ? "boss" : e.guard ? "guard" : e.type;
+  if (Art.img("mobs", sp)) {
+    const h = ENEMY_H[sp] || 44;
+    ctx.fillStyle = "rgba(0,0,0,0.3)"; ctx.beginPath(); ctx.ellipse(e.x, e.y + 1, h * 0.3, h * 0.09, 0, 0, Math.PI * 2); ctx.fill();
+    Art.drawSprite(ctx, "mobs", sp, e.x, e.y + 3, h, (e.vx ?? 1) < 0 ? -1 : 1, Math.abs(Math.sin(phase)) * 2);
+    hpBar(ctx, e.x, e.y - h - 6, e.hp / e.maxHp);
+    return;
+  }
   ctx.save(); ctx.translate(e.x, e.y);
   ctx.fillStyle = "rgba(0,0,0,0.3)"; ctx.beginPath(); ctx.ellipse(0, 1, def.r, def.r * 0.35, 0, 0, Math.PI * 2); ctx.fill();
   const bob = Math.sin(phase) * 1.5;
@@ -364,6 +423,7 @@ export function baseLayout(st, world) {
   return { cx, cy, wallR: L.wall * TILE, out };
 }
 
+const BUILD_H = { campfire: 34, crate: 30, bed: 32, farm: 40, pen: 42, rain_collector: 44, fridge: 40, turret: 46, watchtower: 64, arena: 60, throne: 66, wall_gate: 52 };
 export function drawBase(ctx, st, world, cam, t) {
   const { cx, cy, wallR, out } = baseLayout(st, world);
   const x = cx - cam.x, y = cy - cam.y;
@@ -394,17 +454,21 @@ export function drawBase(ctx, st, world, cam, t) {
   for (const o of out) {
     const def = BUILDINGS[o.b.id];
     const bx = o.x - cam.x, by = o.y - cam.y;
-    ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.beginPath(); ctx.ellipse(bx, by + 10, 15, 5, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "#3b3128"; roundRect(ctx, bx - 14, by - 14, 28, 26, 5); ctx.fill();
-    ctx.strokeStyle = "rgba(255,220,160,0.25)"; ctx.lineWidth = 1; ctx.stroke();
-    emoji(ctx, def.icon, bx, by - 1, 18);
-    if (o.b.id === "campfire") drawFire(ctx, bx, by - 18, t);
+    ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.beginPath(); ctx.ellipse(bx, by + 10, 18, 6, 0, 0, Math.PI * 2); ctx.fill();
+    if (Art.drawSprite(ctx, "objects", o.b.id, bx, by + 16, BUILD_H[o.b.id] || 46)) { if (o.b.id === "campfire") drawFire(ctx, bx, by - 2, t); }
+    else {
+      ctx.fillStyle = "#3b3128"; roundRect(ctx, bx - 14, by - 14, 28, 26, 5); ctx.fill();
+      ctx.strokeStyle = "rgba(255,220,160,0.25)"; ctx.lineWidth = 1; ctx.stroke();
+      emoji(ctx, def.icon, bx, by - 1, 18);
+      if (o.b.id === "campfire") drawFire(ctx, bx, by - 18, t);
+    }
     if (o.b.id === "generator" && !o.b.fueled) { ctx.fillStyle = "#e5534b"; ctx.font = "10px sans-serif"; ctx.fillText("⛽", bx + 8, by - 10); }
   }
   return { cx, cy, wallR };
 }
 
 function drawKeep(ctx, x, y, lv, t) {
+  if (Art.drawSprite(ctx, "objects", "keep" + Math.min(8, lv), x, y + 14, 48 + lv * 10)) return; // 그림 본관(천막 → 왕궁)
   const w = 18 + lv * 6, h = 14 + lv * 7;
   if (lv === 1) { ctx.fillStyle = "#5a4a3a"; ctx.beginPath(); ctx.moveTo(x - 14, y + 6); ctx.lineTo(x, y - 16); ctx.lineTo(x + 14, y + 6); ctx.fill(); ctx.fillStyle = "#2a2018"; ctx.beginPath(); ctx.moveTo(x - 4, y + 6); ctx.lineTo(x, y - 4); ctx.lineTo(x + 4, y + 6); ctx.fill(); return; }
   const wall = lv <= 2 ? "#6b5640" : lv <= 4 ? "#7d6448" : lv <= 6 ? "#8d8780" : "#b4ada3";
@@ -427,8 +491,14 @@ export function drawFire(ctx, x, y, t) {
   }
 }
 
+const NODE_H = { tree: 70, rock: 40, scrap: 42, bush: 34, herb: 26, crate: 32, car: 46 };
 export function drawNode(ctx, n, x, y) {
   const def = NODE_TYPES[n.type];
+  if (Art.img("objects", n.type)) { // 그림 오브젝트(바닥이 칸 아래쪽에 닿게)
+    ctx.fillStyle = "rgba(0,0,0,0.22)"; ctx.beginPath(); ctx.ellipse(x, y + 9, NODE_H[n.type] * 0.32 + 4, 4, 0, 0, Math.PI * 2); ctx.fill();
+    Art.drawSprite(ctx, "objects", n.type, x, y + 12, NODE_H[n.type] || 36, (n.id & 1) ? 1 : -1);
+    return;
+  }
   ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.beginPath(); ctx.ellipse(x, y + 8, 11, 4, 0, 0, Math.PI * 2); ctx.fill();
   if (n.type === "tree") {
     ctx.fillStyle = "#4a3726"; ctx.fillRect(x - 2.5, y - 14, 5, 22);
@@ -495,8 +565,8 @@ export function drawCinematic(ctx, w, h, st, t, scene = {}) {
   const sc = Math.min(h / 120, w / 60);
   const p = st.player;
   const comps = st.companions.filter((c) => c.story || c.spouse).slice(0, 2);
-  comps.forEach((c, i) => drawCharacter(ctx, w * (0.5 + (i ? 0.16 : -0.16)), h * 0.64, { skin: "#c9956d", hair: c.gender === "F" ? "long" : "short", hairColor: "#1b1410" }, { body: { id: c.role === "soldier" ? "combat_vest" : c.role === "doctor" ? "rag_shirt" : "leather_jacket" }, legs: { id: "leather_pants" }, feet: { id: "boots" } }, i ? -1 : 1, t * 2, { detail: true, scale: sc * 0.8, gender: c.gender }));
-  drawCharacter(ctx, w * 0.5, h * 0.67, p.look, scene.crown ? { ...p.equip, head: { id: "crown" }, back: { id: "royal_robe" } } : p.equip, 1, t * 2, { detail: true, scale: sc, gender: p.gender });
+  comps.forEach((c, i) => drawArtChar(ctx, companionArt(c) || "", "idle", w * (0.5 + (i ? 0.2 : -0.2)), h * 0.66, h * 0.3, i ? -1 : 1, Math.abs(Math.sin(t * 2 + i)) * 2) || drawCharacter(ctx, w * (0.5 + (i ? 0.16 : -0.16)), h * 0.64, { skin: "#c9956d", hair: c.gender === "F" ? "long" : "short", hairColor: "#1b1410" }, { body: { id: c.role === "soldier" ? "combat_vest" : c.role === "doctor" ? "rag_shirt" : "leather_jacket" }, legs: { id: "leather_pants" }, feet: { id: "boots" } }, i ? -1 : 1, t * 2, { detail: true, scale: sc * 0.8, gender: c.gender }));
+  if (!drawArtChar(ctx, `assets/heroines/hero_${p.gender === "F" ? "f" : "m"}/`, scene.crown ? "cheer" : "idle", w * 0.5, h * 0.7, h * 0.4, 1, Math.abs(Math.sin(t * 2)) * 2)) drawCharacter(ctx, w * 0.5, h * 0.67, p.look, scene.crown ? { ...p.equip, head: { id: "crown" }, back: { id: "royal_robe" } } : p.equip, 1, t * 2, { detail: true, scale: sc, gender: p.gender });
   // 재/불씨 입자
   for (let i = 0; i < 40; i++) {
     const px = (i * 97 + t * 30 * (1 + (i % 3))) % w, py = (i * 61 + t * 20) % h;

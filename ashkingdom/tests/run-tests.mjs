@@ -614,6 +614,30 @@ test("가방: 기본 20칸, 같은 재료는 묶음 한도까지 한 칸(나무 
   // 적 처치 전리품은 바로 주지 않고 목록만(바닥에 떨어뜨림)
   const n0 = S.usedSlots(st.inv); const d = S.onKill(st, "raider", makeRng(3), false); eq(S.usedSlots(st.inv), n0); ok(Array.isArray(d));
 });
+test("요리: 불 단계별 재료 칸, 기본 요리는 바로, 조합 요리는 처음엔 서툴고 익숙해지면 90%+, 요리책이면 처음부터 잘함", () => {
+  const { st } = fresh("jobless"); st.inv = [];
+  st.base.buildings.push({ uid: "f", id: "campfire" });
+  eq(S.cookTier(st), 1);
+  give(st, { raw_meat: 5, water_dirty: 2, potato: 5, water_clean: 9 });
+  // 기본: 끓인 물, 구운 고기
+  let r = S.cook(st, { water_dirty: 1 }, 1, () => 0.5); ok(r.ok && r.out === "water_clean");
+  r = S.cook(st, { raw_meat: 1 }, 1, () => 0.5); eq(r.out, "cooked_meat");
+  // 국밥은 3칸 → 모닥불(2칸)로는 불가, 화덕 필요
+  eq(S.cook(st, { raw_meat: 1, potato: 1, water_clean: 1 }, 1).ok, false);
+  st.base.buildings.push({ uid: "s", id: "stove" }); eq(S.cookTier(st), 2);
+  const c = S.cookMatch({ raw_meat: 1, potato: 1, water_clean: 1 }, 2).c;
+  eq(S.cookKnown(st, c), false); // 처음엔 '?'
+  const first = S.cookChance(st, c); ok(first < 0.7, "처음 " + first);
+  r = S.cook(st, { raw_meat: 1, potato: 1, water_clean: 1 }, 2, () => 0.99); ok(r.fail && r.out === "bad_gukbap");
+  ok(S.cookKnown(st, c)); ok(S.cookChance(st, c) >= 0.9, "두 번째부터 90%+");
+  for (let i = 0; i < 20; i++) st.cookLog.gukbap++;
+  ok(S.cookChance(st, c) >= 0.99, "많이 만들면 ~100%");
+  // 아무거나 섞으면 정체불명의 죽
+  eq(S.cookMatch({ potato: 1, water_clean: 1 }, 2).id, "mystery_mush");
+  // 요리책: 처음부터 확률↑
+  const { st: s2 } = fresh("jobless"); give(s2, { book_cook1: 1 }); const i = s2.inv.findIndex((x) => x.id === "book_cook1");
+  ok(S.useItem(s2, i).ok); ok(S.cookKnown(s2, c)); ok(S.cookChance(s2, c) > 0.7);
+});
 test("제작: 재료 부족 시 실패 / 충분하면 성공 + 경험치", () => {
   const { st } = fresh();
   eq(S.craft(st, "stone_axe").ok, false);

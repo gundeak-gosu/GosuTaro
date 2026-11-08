@@ -223,6 +223,14 @@ export const ITEMS = {
   baked_potato: { name: "군감자", type: "food", icon: "🍠", spoil: 72, food: { hunger: 22 } },
   bread: { name: "빵", type: "food", icon: "🍞", spoil: 96, food: { hunger: 28 } },
   stew: { name: "생존자 스튜", type: "food", icon: "🍲", spoil: 36, food: { hunger: 45, thirst: 15, hp: 10 }, buff: { warm: 6 } },
+  gukbap: { name: "국밥", type: "food", icon: "🍲", spoil: 40, food: { hunger: 42, thirst: 12, hp: 8 }, buff: { warm: 5 } },
+  fish_soup: { name: "생선탕", type: "food", icon: "🥣", spoil: 36, food: { hunger: 34, thirst: 15, hp: 6 } },
+  mushroom_porridge: { name: "버섯죽", type: "food", icon: "🥣", spoil: 40, food: { hunger: 30, thirst: 8, hp: 4 } },
+  hotpot: { name: "보양 전골", type: "food", icon: "🍲", spoil: 48, food: { hunger: 60, thirst: 20, hp: 20 }, buff: { warm: 10 } },
+  meat_skewer: { name: "고기 버섯 꼬치", type: "food", icon: "🍢", spoil: 50, food: { hunger: 32, hp: 6 } },
+  mystery_mush: { name: "정체불명의 죽", type: "food", icon: "🫕", spoil: 20, food: { hunger: 8, thirst: 4, sick: 0.15 }, desc: "아무렇게나 섞어 끓인 것. 먹을 수는 있다…" },
+  book_cook1: { name: "생존 요리책", type: "misc", icon: "📙", cookbook: 1, desc: "읽으면 화덕 요리법을 알게 되고, 처음 만들 때 실패 확률이 크게 줄어든다." },
+  book_cook2: { name: "왕궁 요리책", type: "misc", icon: "📕", cookbook: 2, era: 2, desc: "주방·고급 주방 요리법을 알게 된다." },
   canned_food: { name: "통조림", type: "food", icon: "🥫", spoil: 0, food: { hunger: 25 } },
   instant_noodle: { name: "라면", type: "food", icon: "🍜", spoil: 0, food: { hunger: 20, thirst: -6 } },
 
@@ -312,6 +320,30 @@ export const RAIDER_BANDS = [
   { id: "ash", name: "잿빛 까마귀", leader: "까마귀 할멈" },
   { id: "dogs", name: "들개 무리단", leader: "개장수 최" },
 ];
+
+// ---------------- 요리(모닥불·화덕·주방에 재료를 넣어 끓이기) ----------------
+// 단계: 1 모닥불(재료 2칸) · 2 돌 화덕(3칸) · 3 주방(4칸) · 4 고급 주방(5칸)
+export const COOK_SLOTS = { 1: 2, 2: 3, 3: 4, 4: 5 };
+// basic: 요리법 없이도 처음부터 안다(굽기·끓이기). 나머지는 처음엔 '?'로 보이고, 한 번 만들어 보거나 요리책으로 안다
+export const COOKS = [
+  { id: "cooked_meat", in: { raw_meat: 1 }, tier: 1, basic: true },
+  { id: "grilled_fish", in: { raw_fish: 1 }, tier: 1, basic: true },
+  { id: "baked_potato", in: { potato: 1 }, tier: 1, basic: true },
+  { id: "water_clean", in: { water_dirty: 1 }, tier: 1, basic: true },
+  { id: "herbal_tea", in: { herb: 2, water_clean: 1 }, tier: 2, book: 1 },
+  { id: "meat_skewer", in: { raw_meat: 1, mushroom: 1 }, tier: 1, book: 1 },
+  { id: "gukbap", in: { raw_meat: 1, potato: 1, water_clean: 1 }, tier: 2, book: 1 },
+  { id: "fish_soup", in: { raw_fish: 1, herb: 1, water_clean: 1 }, tier: 2, book: 1 },
+  { id: "mushroom_porridge", in: { mushroom: 2, water_clean: 1 }, tier: 2, book: 1 },
+  { id: "stew", in: { raw_meat: 1, potato: 2, water_clean: 1 }, tier: 3, book: 2 },
+  { id: "bread", in: { potato: 3, egg: 1 }, tier: 3, book: 2 },
+  { id: "hotpot", in: { raw_meat: 2, potato: 1, mushroom: 1, salt: 1 }, tier: 4, book: 2 },
+];
+// 서툴러서 망친 요리: '맛없는 ○○' (영양 절반, 약간 탈 날 수 있음)
+for (const c of COOKS) if (!c.basic) {
+  const it = ITEMS[c.id];
+  ITEMS["bad_" + c.id] = { name: "맛없는 " + it.name, type: "food", icon: it.icon, spoil: it.spoil, food: Object.fromEntries(Object.entries(it.food || { thirst: 12, hunger: 2 }).map(([k, v]) => [k, k === "sick" ? v : Math.round(v * 0.5)]).concat([["sick", 0.08]])), desc: "서툴게 만든 요리. 다음엔 더 잘할 수 있다." };
+}
 
 export function itemName(id) { return ITEMS[id]?.name ?? id; }
 
@@ -416,7 +448,9 @@ export const BASE_LEVELS = [
 
 // 건물: storage(보관 배율 — 낮을수록 덜 썩음), defense, prod(일일 생산)
 export const BUILDINGS = {
-  campfire: { name: "모닥불", icon: "🔥", cost: { twig: 6, stone: 3 }, baseLv: 1, station: "campfire", warm: 10, max: 1 },
+  campfire: { name: "모닥불", icon: "🔥", cost: { twig: 6, stone: 3 }, baseLv: 1, station: "campfire", cookTier: 1, warm: 10, max: 1 },
+  stove: { name: "돌 화덕", icon: "🧱", cost: { stone: 20, wood: 10, scrap: 2 }, baseLv: 2, cookTier: 2, warm: 12, max: 1 },
+  grand_kitchen: { name: "고급 주방", icon: "🍽️", cost: { stone: 60, iron: 10, wood: 30, electronics: 2 }, baseLv: 5, cookTier: 4, max: 1 },
   workbench: { name: "작업대", icon: "🛠️", cost: { wood: 15, stone: 5 }, baseLv: 1, station: "workbench", max: 1 },
   crate: { name: "나무 상자", icon: "📦", cost: { wood: 12 }, baseLv: 1, storage: { slots: 16, spoil: 0.8 }, max: 4 },
   bed: { name: "침대", icon: "🛏️", cost: { wood: 10, cloth: 4 }, baseLv: 1, rest: true, max: 1 },
@@ -428,7 +462,7 @@ export const BUILDINGS = {
   watchtower: { name: "감시탑", icon: "🗼", cost: { wood: 30, stone: 10 }, baseLv: 2, defense: 25, max: 4 },
   training: { name: "훈련소", icon: "🎯", cost: { wood: 40, stone: 20, leather: 4 }, baseLv: 3, train: true, max: 1 },
   forge: { name: "대장간", icon: "⚒️", cost: { stone: 40, scrap: 20 }, baseLv: 3, station: "forge", max: 1 },
-  kitchen: { name: "주방", icon: "🍳", cost: { wood: 20, stone: 20, scrap: 6 }, baseLv: 3, station: "kitchen", max: 1 },
+  kitchen: { name: "주방", icon: "🍳", cost: { wood: 20, stone: 20, scrap: 6 }, baseLv: 3, station: "kitchen", cookTier: 3, max: 1 },
   clinic: { name: "진료소", icon: "🏥", cost: { wood: 40, cloth: 10, scrap: 10 }, baseLv: 3, heal: 3, max: 1 },
   house: { name: "주민 집", icon: "🏠", cost: { wood: 40, stone: 20 }, baseLv: 3, housing: 4, max: 8 },
   lab: { name: "연구소", icon: "🔬", cost: { stone: 40, scrap: 30, electronics: 5 }, baseLv: 3, station: "lab", researchPts: 1, max: 1 },

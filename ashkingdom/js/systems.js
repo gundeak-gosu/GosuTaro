@@ -4,7 +4,7 @@
 // =====================================================================
 import {
   VERSION, TIME, DIFFICULTY, JOBS, ITEMS, RECIPES, BUILDINGS, BASE_LEVELS, RESEARCH, ANIMALS,
-  VEHICLES, ROLES, STORY_COMPANIONS, SURVIVOR_NAMES, CHAPTERS, ENDINGS, XP_CURVE, ENEMIES, QUALITY, AFFIXES, WSKILLS, SCOUT, HEROINES, TALENTS,
+  VEHICLES, ROLES, STORY_COMPANIONS, SURVIVOR_NAMES, CHAPTERS, ENDINGS, XP_CURVE, ENEMIES, QUALITY, AFFIXES, WSKILLS, SCOUT, HEROINES, TALENTS, COOKS, COOK_SLOTS,
   BIOMES, SEASON_NAMES, WEATHER, NUCLEAR_WINTER,
 } from "./data.js";
 import { makeRng } from "./rng.js";
@@ -1069,6 +1069,41 @@ export function currentEra(st) {
   return 0;
 }
 
+// =========================== 요리 ===========================
+// 기지에 지은 불·주방 중 가장 좋은 단계
+export function cookTier(st) { let t = 0; for (const b of st.base.buildings) t = Math.max(t, BUILDINGS[b.id]?.cookTier || 0); return t; }
+const sameBag = (a, b) => { const ka = Object.keys(a).filter((k) => a[k] > 0), kb = Object.keys(b); return ka.length === kb.length && kb.every((k) => a[k] === b[k]); };
+export function cookKnown(st, c) { return c.basic || !!st.cookLog?.[c.id] || (st.cookBook || 0) >= (c.book || 9); }
+// 넣은 재료로 무엇이 될지: 요리법과 정확히 같으면 그 요리, 아니면 정체불명의 죽
+export function cookMatch(items, tier) {
+  const c = COOKS.find((x) => sameBag(items, x.in));
+  if (!c) return { id: "mystery_mush", c: null };
+  if (c.tier > tier) return { id: null, c, why: "이 불로는 만들 수 없다(더 좋은 화덕·주방 필요)" };
+  return { id: c.id, c };
+}
+// 성공 확률: 기본 요리는 거의 실패 없음. 처음 만드는 요리는 서툴러서 실패 많음 → 한 번 만들면 90%+, 많이 만들수록 100% 가까이
+export function cookChance(st, c) {
+  if (!c || c.basic) return 0.98;
+  const n = st.cookLog?.[c.id] || 0, book = (st.cookBook || 0) >= (c.book || 9);
+  const skill = eff(st, "cra") * 0.02 + (st.player.job === "cook" ? 0.2 : 0) + (talentOn(st, "chef") ? 0.1 : 0);
+  if (n === 0) return Math.min(0.95, 0.35 + skill + (book ? 0.4 : 0));
+  return Math.min(0.995, 0.9 + n * 0.012 + (book ? 0.04 : 0) + skill * 0.2);
+}
+export function cook(st, items, tier, rng = Math.random) {
+  if (!Object.values(items).some((n) => n > 0)) return { ok: false, why: "재료를 넣으세요" };
+  if (Object.values(items).reduce((a, b) => a + b, 0) > (COOK_SLOTS[tier] || 0)) return { ok: false, why: "재료 칸을 넘었습니다" };
+  for (const [k, n] of Object.entries(items)) if (count(st.inv, k) < n) return { ok: false, why: "재료가 부족합니다" };
+  const m = cookMatch(items, tier);
+  if (!m.id) return { ok: false, why: m.why };
+  for (const [k, n] of Object.entries(items)) removeFrom(st.inv, k, n);
+  let out = m.id, fail = false;
+  if (m.c && rng() >= cookChance(st, m.c)) { fail = true; out = m.c.basic ? "rotten_food" : "bad_" + m.c.id; }
+  if (m.c) (st.cookLog ||= {})[m.c.id] = (st.cookLog[m.c.id] || 0) + 1; // 실패해도 익숙해진다
+  giveItem(st, out, 1);
+  gainXp(st, m.c && !m.c.basic ? 8 : 2);
+  return { ok: true, out, fail, newDish: m.c && !m.c.basic && st.cookLog[m.c.id] === 1 };
+}
+
 // =========================== 먹기/사용 ===========================
 export function useItem(st, index) {
   const s = st.inv[index];
@@ -1077,6 +1112,7 @@ export function useItem(st, index) {
   const p = st.player;
   if (it.slot) { const c = canWield(st, s.id); if (!c.ok) return { ok: false, why: c.why }; return { ok: equipFromInv(st, index), equip: true }; }
   if (it.book) return readBook(st, s.id);
+  if (it.cookbook) { if ((st.cookBook || 0) >= it.cookbook) return { ok: false, why: "이미 읽은 책입니다" }; st.cookBook = it.cookbook; removeFrom(st.inv, s.id, 1); return { ok: true, msg: "요리법을 익혔다! 처음 만드는 요리도 잘 만들 수 있다" }; }
   if (it.type === "food") {
     const f = it.food;
     const fresh = s.fresh ?? 1;

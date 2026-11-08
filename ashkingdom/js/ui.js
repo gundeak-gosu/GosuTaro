@@ -5,7 +5,7 @@ import * as Shop from "./shop.js";
 import * as MG from "./minigames.js";
 import {
   ITEMS, RECIPES, BUILDINGS, BASE_LEVELS, RESEARCH, ANIMALS, VEHICLES, ROLES, JOBS, DIFFICULTY,
-  CHAPTERS, ERAS, OLYMPIC_EVENTS, OLYMPICS, SHOP, STATS, ENDINGS, QUALITY, AFFIXES, BIOMES, WEATHER, SPECIALS, WSKILLS, SCOUT, RAIDER_BANDS, HEROINES, TALENTS,
+  CHAPTERS, ERAS, OLYMPIC_EVENTS, OLYMPICS, SHOP, STATS, ENDINGS, QUALITY, AFFIXES, BIOMES, WEATHER, SPECIALS, WSKILLS, SCOUT, RAIDER_BANDS, HEROINES, TALENTS, COOKS, COOK_SLOTS,
 } from "./data.js";
 import { drawCharacter, drawCinematic } from "./render.js";
 import { makeRng } from "./rng.js";
@@ -34,7 +34,7 @@ const icon = (id, sz = 20) => Ic.icon(id, sz, ITEMS[id]?.icon ?? "?");
 const bicon = (id, sz = 30) => Ic.icon("b." + id, sz, BUILDINGS[id]?.icon);
 const costStr = (c) => Object.entries(c).map(([k, v]) => `${icon(k)}${v}`).join(" ");
 // 필요 재료 칸: 아이콘 크게 + 가진 수/필요 수 (부족하면 빨강)
-const needTiles = (c) => `<div class="needs">${Object.entries(c).map(([k, v]) => { const h = S.countAll(G.st, k); return `<span class="need ${h >= v ? "ok" : "no"}" title="${esc(ITEMS[k]?.name ?? k)} ${h}/${v}">${icon(k, 32)}<b>${h}/${v}</b><small>${esc(ITEMS[k]?.name ?? k)}</small></span>`; }).join("")}</div>`;
+const needTiles = (c) => `<div class="needs">${Object.entries(c).map(([k, v]) => { const h = S.countAll(G.st, k); return `<span class="need ${h >= v ? "ok" : "no"}" ${tipAttr(k)}>${icon(k, 32)}<b>${h}/${v}</b><small>${esc(ITEMS[k]?.name ?? k)}</small></span>`; }).join("")}</div>`;
 const costHave = (c) => Object.entries(c).map(([k, v]) => { const h = S.countAll(G.st, k); return `<span class="${h >= v ? "ok" : "no"}">${icon(k)}${h}/${v}</span>`; }).join(" ");
 
 // ---------------- 공용 ----------------
@@ -102,6 +102,18 @@ export function cinematic(title, text, scene = {}) {
   });
 }
 
+// 마우스를 올리거나(PC) 길게 누르면(폰) 아이템 역할을 짧게 보여 주는 말풍선
+export function tipText(s) { const it = ITEMS[s.id]; if (!it) return ""; return `${S.itemLabel ? S.itemLabel(s) : it.name}\n${itemTip(s).replace(/<[^>]+>/g, "")}`.trim(); }
+const tipAttr = (s) => `data-tip="${esc(tipText(typeof s === "string" ? { id: s } : s))}"`;
+(() => {
+  const box = document.createElement("div"); box.id = "tipbox"; box.hidden = true; document.body.appendChild(box);
+  const show = (el, x, y) => { box.textContent = el.dataset.tip; box.hidden = false; const r = box.getBoundingClientRect(); box.style.left = Math.max(6, Math.min(innerWidth - r.width - 6, x + 14)) + "px"; box.style.top = Math.max(6, Math.min(innerHeight - r.height - 6, y + 14)) + "px"; };
+  addEventListener("mouseover", (e) => { const el = e.target.closest?.("[data-tip]"); if (el) show(el, e.clientX, e.clientY); else box.hidden = true; });
+  addEventListener("mousemove", (e) => { if (!box.hidden && e.target.closest?.("[data-tip]")) show(e.target.closest("[data-tip]"), e.clientX, e.clientY); });
+  let lp = null;
+  addEventListener("touchstart", (e) => { const el = e.target.closest?.("[data-tip]"); clearTimeout(lp); if (!el) { box.hidden = true; return; } const t = e.touches[0]; lp = setTimeout(() => show(el, t.clientX, t.clientY - 60), 380); }, { passive: true });
+  addEventListener("touchend", () => { clearTimeout(lp); setTimeout(() => (box.hidden = true), 1600); }, { passive: true });
+})();
 function itemTip(s) {
   const it = ITEMS[s.id];
   const bits = [];
@@ -135,7 +147,7 @@ function slotHtml(s, idx, extra = "") {
   const fr = s.fresh;
   // 테두리 색 = 등급(제작 품질, 없으면 시대), 모양 = 종류(무기·도구·옷·음식·의료·재료)
   const g = gradeOf(s);
-  return `<button class="slot t-${it.type} g${g} ${it.twoHand ? "w2" : ""} ${fr !== undefined ? (fr > 0.7 ? "f-good" : fr > 0.3 ? "f-mid" : "f-bad") : ""}" data-idx="${idx}" ${extra} title="${esc(S.itemLabel(s))}">
+  return `<button class="slot t-${it.type} g${g} ${it.twoHand ? "w2" : ""} ${fr !== undefined ? (fr > 0.7 ? "f-good" : fr > 0.3 ? "f-mid" : "f-bad") : ""}" data-idx="${idx}" ${extra} ${tipAttr(s)}>
     <span class="ic">${icon(s.id, 44)}</span><span class="nm">${esc(it.name)}</span>${s.qty > 1 ? `<span class="q">${s.qty}${S.stackMax(s.id) < 99 ? `<i>/${S.stackMax(s.id)}</i>` : ""}</span>` : ""}
     ${durPct !== null ? `<span class="bar"><i style="width:${durPct * 100}%;background:${durPct > 0.5 ? "#7ed957" : durPct > 0.2 ? "#f2c14e" : "#e5534b"}"></i></span>` : ""}
     ${fr !== undefined ? `<span class="bar fresh"><i style="width:${Math.max(0, fr) * 100}%"></i></span>` : ""}
@@ -189,6 +201,7 @@ export function openBag() {
         if (it.slot === "hand" && !it.twoHand) acts.push(["왼손에 들기", () => S.equipFromInv(st, i, true)]);
       }
     }
+    if (it.cookbook) acts.push(["📖 읽기 (요리법 배우기)", () => { const r = S.useItem(st, i); toast(r.ok ? r.msg : r.why, r.ok ? "good" : "warn"); }]);
     if (it.book) acts.push(["📖 읽기 (기술 배우기)", () => { const r = S.readBook(st, s.id); toast(r.ok ? `${WSKILLS[r.skill].name} ${r.lv}단계를 익혔다!` : r.why, r.ok ? "good" : "warn"); }]);
     if (it.throw || s.id === "stone") acts.push(["던질 무기로 고르기 (R)", () => { G.throwSel = s.id; toast(`던지기: ${it.name}`); }]);
     if (s.id === "sleeping_bag") acts.push(["침낭 펴고 자기", () => { m.close(); G.sleep(G.atBase && S.hasBuilding(st, "bed") ? "bed" : "bag"); }]);
@@ -263,7 +276,7 @@ export function openCraft() {
       const has = k === "null" || S.hasStation(st, k);
       return `<h3>${name} ${has ? "" : '<small class="no">(미건설)</small>'}</h3><div class="rlist">${rs.map((r) => {
         const can = has && S.canAfford(st, r.in) && (k === "null" || G.atBase);
-        return `<div class="recipe ${can ? "" : "dim"}"><span class="ic slot t-${ITEMS[r.out[0]].type} g${gradeOf({ id: r.out[0] })}">${icon(r.out[0], 44)}</span><div class="rinfo"><b>${ITEMS[r.out[0]].name}${r.out[1] > 1 ? " ×" + r.out[1] : ""}</b><small class="muted">${itemTip({ id: r.out[0] })}</small></div>${needTiles(r.in)}<button class="btn sm" data-r="${r.id}" ${can ? "" : "disabled"}>제작</button></div>`;
+        return `<div class="recipe ${can ? "" : "dim"}"><span class="ic slot t-${ITEMS[r.out[0]].type} g${gradeOf({ id: r.out[0] })}" ${tipAttr(r.out[0])}>${icon(r.out[0], 44)}</span><div class="rinfo"><b>${ITEMS[r.out[0]].name}${r.out[1] > 1 ? " ×" + r.out[1] : ""}</b><small class="muted">${itemTip({ id: r.out[0] })}</small></div>${needTiles(r.in)}<button class="btn sm" data-r="${r.id}" ${can ? "" : "disabled"}>제작</button></div>`;
       }).join("")}</div>`;
     }).join("")}
     <h3>탈것</h3><div class="rlist">${Object.entries(VEHICLES).map(([id, v]) => `<div class="recipe"><span class="ic slot">${Ic.icon("v." + id, 44, v.icon)}</span><div class="rinfo"><b>${v.name}</b><small class="muted">이동 ×${v.mount} · 연구: ${RESEARCH.find((r) => r.id === v.research).name}</small></div>${needTiles(v.cost)}<button class="btn sm" data-v="${id}" ${st.vehicles.includes(id) ? "disabled" : ""}>${st.vehicles.includes(id) ? "보유" : "제작"}</button></div>`).join("")}</div>`, { wide: true });
@@ -314,6 +327,7 @@ export function openBase(tab = "build") {
   } else if (tab === "life") {
     const bed = S.hasBuilding(st, "bed");
     body = `<div class="card">🛏️ 잠자기: 다음 날 아침까지 시간을 보내며 체력을 회복합니다. ${bed ? `<button class="btn" id="sleep">잠자기</button>` : '<span class="no">침대 필요</span>'}</div>
+      <div class="card">🍲 요리: 모닥불·화덕·주방을 눌러(또는 여기서) 재료를 넣고 끓입니다. <button class="btn" id="cookBtn">요리하기</button></div>
       <div class="card">🔥 모닥불 근처에선 따뜻합니다. 핵겨울엔 기지 밖 체감온도가 영하로 떨어집니다.</div>
       <div class="card">⛽ 발전기 연료: 기지 창고에 연료(🛢️)가 있으면 하루 1개씩 자동 소비. 꺼지면 냉장고가 멈춥니다.</div>`;
   }
@@ -341,6 +355,7 @@ export function openBase(tab = "build") {
     G.afterAction();
   });
   m.querySelector("#sleep")?.addEventListener("click", () => { m.close(); G.sleep(); });
+  m.querySelector("#cookBtn")?.addEventListener("click", () => { m.close(); openCook(S.cookTier(st)); });
 }
 
 function buildingDesc(d) {
@@ -838,6 +853,50 @@ export function openRecords() {
   const acc = G.acc;
   modal(`<h2>📜 생존 기록</h2><div class="rlist">${Object.entries(JOBS).map(([id, j]) => { const l = S.legacyOf(acc, id); return `<div class="recipe"><span class="ic slot">${Ic.icon("job." + id, 40, j.icon)}</span><div class="rinfo"><b>${j.name}</b> <small>혈통 LV ${l.level}</small><small class="muted">최대 생존 ${acc.maxDays?.[id] || 0}일 · 엔딩 ${acc.endings.filter((e) => e.startsWith(j.ending + ":")).length}/2</small></div><span></span><span></span></div>`; }).join("")}</div>
     <p class="muted small">총 생애 ${acc.runs}회 · 엔딩 도감 ${acc.endings.length}/16</p>`, { wide: true });
+}
+
+// ---------------- 요리(불에 재료 넣기) ----------------
+const TIER_NAME = { 1: "🔥 모닥불", 2: "🧱 돌 화덕", 3: "🍳 주방", 4: "🍽️ 고급 주방" };
+export function openCook(tier, pot = {}) {
+  const st = G.st;
+  if (!tier) return toast("요리하려면 기지에 모닥불이 필요합니다", "warn");
+  const slots = COOK_SLOTS[tier];
+  const used = Object.values(pot).reduce((a, b) => a + b, 0);
+  const ingIds = [...new Set([...COOKS.flatMap((c) => Object.keys(c.in)), ...st.inv.filter((x) => ITEMS[x.id].type === "food" && ITEMS[x.id].food && !ITEMS[x.id].buff).map((x) => x.id)])].filter((k) => S.count(st.inv, k) > 0);
+  const m0 = used ? S.cookMatch(pot, tier) : null;
+  const known = m0?.c ? S.cookKnown(st, m0.c) : false;
+  const res = !used ? '<span class="muted">재료를 넣으세요</span>'
+    : !m0.id ? `<span class="no">${m0.why}</span>`
+    : m0.id === "mystery_mush" ? `<span class="ic slot">❓</span> <b>???</b> <small class="muted">알 수 없는 조합 — 정체불명의 무언가가 될 것 같다</small>`
+    : known ? `<span class="ic slot t-food g2" ${tipAttr(m0.id)}>${icon(m0.id, 40)}</span> <b>${ITEMS[m0.id].name}</b> <small>성공 ${Math.round(S.cookChance(st, m0.c) * 100)}%${m0.c.basic ? "" : ` · ${st.cookLog?.[m0.c.id] || 0}번 만들어 봄`}</small>`
+    : `<span class="ic slot">❓</span> <b>???</b> <small class="muted">뭔가 될 것 같다… 처음이라 서툴 수 있다 (성공 ${Math.round(S.cookChance(st, m0.c) * 100)}%)</small>`;
+  const m = modal(`<h2>${TIER_NAME[tier]} 요리</h2><p class="muted">아래 재료를 눌러 냄비에 넣고(최대 ${slots}개) [요리하기]. 굽기·물 끓이기는 요리법 없이도 됩니다. 새 조합은 처음엔 '?'로 보이고 서툴러 '맛없는 요리'가 될 수 있지만, 한 번 만들어 보면 90% 이상, 많이 만들수록 거의 100% 성공합니다. 요리책을 읽으면 처음부터 잘 만듭니다.</p>
+    <div class="pot">${Array.from({ length: slots }, (_, i) => { const k = Object.entries(pot).flatMap(([id, n]) => Array(n).fill(id))[i]; return k ? `<button class="slot t-food g1" data-out="${k}" ${tipAttr(k)}>${icon(k, 40)}<span class="nm">${esc(ITEMS[k].name)}</span></button>` : '<span class="slot empty">+</span>'; }).join("")}<span class="arrow">➜</span><div class="potres">${res}</div></div>
+    <button class="btn primary big" id="cookGo" ${used && m0?.id ? "" : "disabled"}>🍲 요리하기</button>
+    <h3>재료 (눌러서 넣기)</h3><div class="grid">${ingIds.map((k) => `<button class="slot t-${ITEMS[k].type} g1" data-in="${k}" ${tipAttr(k)}>${icon(k, 40)}<span class="nm">${esc(ITEMS[k].name)}</span><span class="q">${S.count(st.inv, k) - (pot[k] || 0)}</span></button>`).join("") || '<p class="muted">요리할 재료가 없습니다</p>'}</div>
+    <h3>요리 수첩</h3><div class="chips">${COOKS.map((c) => S.cookKnown(st, c) ? `<span class="chip" ${tipAttr(c.id)}>${icon(c.id, 18)} ${ITEMS[c.id].name} <small>${Object.entries(c.in).map(([k, n]) => ITEMS[k].name + n).join("+")}${c.tier > tier ? " · 🔒" + TIER_NAME[c.tier] : ""}</small></span>` : `<span class="chip muted">❓ ??? <small>${TIER_NAME[c.tier]} · 재료 ${Object.values(c.in).reduce((a, b) => a + b, 0)}개</small></span>`).join("")}</div>`, { wide: true });
+  const re = (p2) => { m.close(); openCook(tier, p2); };
+  m.querySelectorAll("[data-in]").forEach((b) => (b.onclick = () => { const k = b.dataset.in; if (used >= slots) return toast("냄비가 가득 찼습니다", "warn"); if ((pot[k] || 0) >= S.count(st.inv, k)) return; re({ ...pot, [k]: (pot[k] || 0) + 1 }); }));
+  m.querySelectorAll("[data-out]").forEach((b) => (b.onclick = () => { const k = b.dataset.out, p2 = { ...pot, [k]: pot[k] - 1 }; if (!p2[k]) delete p2[k]; re(p2); }));
+  m.querySelector("#cookGo").onclick = () => {
+    const r = S.cook(st, pot, tier);
+    if (!r.ok) return toast(r.why, "bad");
+    Sfx.play(r.fail ? "bad" : "craft"); Meta.addActivity(st, "craft");
+    toast(r.fail ? `😖 ${ITEMS[r.out].name}… 서툴렀다. 다음엔 더 잘할 수 있다` : r.newDish ? `✨ 새 요리 발견! ${ITEMS[r.out].name}` : `${ITEMS[r.out].name} 완성!`, r.fail ? "warn" : "good");
+    G.afterAction(); re({});
+  };
+}
+
+// ---------------- 떠돌이 상인(아이템 그림 + 가격 + 말풍선 설명) ----------------
+export function openTrader(sell, buy) {
+  const st = G.st;
+  const tile = (id, qty, price, kind, i) => { const can = kind === "buy" ? st.gold >= price : S.countAll(st, id) >= qty; return `<button class="trade ${can ? "" : "dim"}" data-${kind}="${i}" ${tipAttr(id)}><span class="slot t-${ITEMS[id].type} g${gradeOf({ id })}">${icon(id, 44)}<span class="nm">${esc(ITEMS[id].name)}</span>${qty > 1 ? `<span class="q">${qty}</span>` : ""}</span><b>${kind === "buy" ? `🪙 ${price}` : `+🪙 ${price}`}</b></button>`; };
+  const m = modal(`<h2>🛒 떠돌이 상인</h2><p class="muted">"뭐든 팔고 뭐든 사지." 아이템에 마우스를 올리거나 길게 누르면 설명이 나옵니다. · 금화 <b>${Math.floor(st.gold)}</b></p>
+    <h3>사기</h3><div class="trades">${buy.map(([id, q, p], i) => tile(id, q, p, "buy", i)).join("")}</div>
+    <h3>팔기</h3><div class="trades">${sell.map(([id, q, p], i) => tile(id, q, p, "sell", i)).join("")}</div>`, { wide: true });
+  const re = () => { m.close(); openTrader(sell, buy); };
+  m.querySelectorAll("[data-buy]").forEach((b) => (b.onclick = () => { const [id, q, p] = buy[+b.dataset.buy]; if (st.gold < p) return toast("금화가 부족합니다", "bad"); st.gold -= p; S.giveItem(st, id, q); toast(`${ITEMS[id].name} ×${q} 구매`, "good"); G.afterAction(); re(); }));
+  m.querySelectorAll("[data-sell]").forEach((b) => (b.onclick = () => { const [id, q, p] = sell[+b.dataset.sell]; if (!S.pay(st, { [id]: q })) return toast("물건이 부족합니다", "bad"); st.gold += p; toast(`${ITEMS[id].name} ×${q} 판매 (+${p})`, "good"); G.afterAction(); re(); }));
 }
 
 // ---------------- 지역 지도(노드 지도) ----------------

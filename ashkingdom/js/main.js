@@ -613,6 +613,8 @@ async function interact() {
   // 3) 장소
   for (const q of Object.values(G.world.pois)) if (Math.hypot((q.tx + 0.5) * TILE - p.x, (q.ty + 0.5) * TILE - p.y) < 2.5 * TILE) return visitPoi(q);
   // 4) 기지 중앙
+  const cs = cookStationNear();
+  if (cs) return UI.openCook(Math.max(BUILDINGS[cs.b.id].cookTier, 1) && S.cookTier(st));
   if (G.world.home && Math.hypot((G.world.cx + 0.5) * TILE - p.x, (G.world.cy + 0.5) * TILE - p.y) < 2.2 * TILE) return UI.openBase();
   // 5) 물
   // 바라보는 쪽이 깊은 물이고 나무가 있으면 다리를 놓을 수 있다
@@ -769,6 +771,12 @@ function siteEvent(ev) {
   G.afterAction();
 }
 
+// 기지의 불·화덕·주방 바로 옆인지
+function cookStationNear() {
+  if (!G.world.home) return null;
+  const p = G.st.player;
+  return R.baseLayout(G.st, G.world).out.find((o) => BUILDINGS[o.b.id]?.cookTier && Math.hypot(o.x - p.x, o.y - p.y) < 40) || null;
+}
 function bridgeTarget() {
   const p = G.st.player;
   const dx = Math.round(Math.sin(G.moveYaw ?? 0)), dy = Math.round(Math.cos(G.moveYaw ?? 0));
@@ -1057,16 +1065,9 @@ async function visitPoi(q) {
     return;
   }
   if (q.id === "trader") {
-    const v = await UI.choice("🛒 떠돌이 상인", `\"뭐든 팔고 뭐든 사지.\" 금화 ${Math.floor(st.gold)}`, [
-      { label: "고철 10 → 금화 30", value: "s1" }, { label: "가죽 3 → 금화 40", value: "s2" },
-      { label: "금화 80 → 철괴 4", value: "b1" }, { label: "금화 120 → 전자부품 3", value: "b2" }, { label: "금화 200 → 소생 키트", value: "b3" },
-      { label: "떠난다", value: null },
-    ], { closable: true });
-    const tr = { s1: [{ scrap: 10 }, 30], s2: [{ leather: 3 }, 40] };
-    const buy = { b1: [80, "iron", 4], b2: [120, "electronics", 3], b3: [200, "revive_kit", 1] };
-    if (tr[v]) { if (S.pay(st, tr[v][0])) { st.gold += tr[v][1]; UI.toast("거래 완료", "good"); } else UI.toast("물건이 부족합니다", "bad"); }
-    if (buy[v]) { if (st.gold >= buy[v][0]) { st.gold -= buy[v][0]; S.giveItem(st, buy[v][1], buy[v][2]); UI.toast("거래 완료", "good"); } else UI.toast("금화가 부족합니다", "bad"); }
-    G.afterAction();
+    // 사는 것: 생존 필수품 + 화살·숫돌·요리책 / 파는 것: 남는 재료
+    UI.openTrader([["scrap", 10, 30], ["leather", 3, 40], ["wood", 10, 20], ["bone", 5, 15], ["herb", 5, 25]],
+      [["iron", 4, 80], ["electronics", 3, 120], ["revive_kit", 1, 200], ["bottle", 2, 30], ["arrow", 20, 60], ["whetstone", 1, 70], ["book_cook1", 1, 150], ["seed", 5, 25]]);
     return;
   }
   if (q.id === "iron_city" && st.story.ironLoot !== S.day(st)) { st.story.ironLoot = S.day(st); for (const [i, n] of [["scrap", 8], ["electronics", 1], ["fuel", 1]]) S.giveItem(st, i, n); UI.toast("폐공장에서 고철·전자부품·연료를 찾았다", "good"); }
@@ -1446,6 +1447,7 @@ function drawHint(cam) {
   if (sq) txt = `${Sites.SITES[sq.kind].name} 들어가기`;
   if (!txt) for (const n of visibleNodes()) { const nx = (n.tx + 0.5) * TILE, ny = (n.ty + 0.5) * TILE; if (Math.hypot(nx - p.x, ny - p.y) < 50) { const gp = S.gatherPower(G.st, n.type); txt = `${NODE_TYPES[n.type].name} 채집${gp.need ? ` · ${gp.need} 없음(아주 느림)` : ""}`; hx = nx; hy = ny - 36; break; } }
   for (const m of G.mobs) if (Math.hypot(m.x - p.x, m.y - p.y) < 56) { txt = m.kind === "enemy" ? `${ENEMIES[m.type].name} 공격` : `${ANIMALS[m.type].name} (길들이기/사냥)`; hx = m.x; hy = m.y - 50; break; }
+  if (!txt && cookStationNear()) { txt = `${BUILDINGS[cookStationNear().b.id].name}에서 요리하기`; }
   if (!txt && G.world.home && Math.hypot((G.world.cx + 0.5) * TILE - p.x, (G.world.cy + 0.5) * TILE - p.y) < 2.2 * TILE) { txt = "기지 관리"; hx = p.x; hy = p.y - 60; }
   if (!txt && G.world.site) { if (nearTile(T.EXIT)) txt = "밖으로 나가기"; else if (nearTile(T.STAIRS)) txt = Sites.SITES[G.world.site.kind].under ? "더 깊이 내려가기" : "위층으로 올라가기"; else { const ev = (G.world.events || []).find((e) => !e.done && Math.hypot((e.tx + 0.5) * TILE - p.x, (e.ty + 0.5) * TILE - p.y) < 1.6 * TILE); const dn = doorNear(); if (dn) txt = { wood: "문 부수기", key: "잠긴 문 (녹슨 열쇠)", card: "보안문 (카드키)", code: "비밀번호 입력" }[dn.kind]; else if (ev) txt = ev.kind === "note" ? "쪽지 읽기" : ev.kind === "heroine" ? `⭐ ${HEROINES[ev.key].name}에게 말 걸기` : { survivor: "갇힌 생존자 돕기", diary: "일기 읽기", stash: "보급품 뒤지기", trap: "수상한 상자 열기" }[ev.kind]; } }
   if (!txt) { const q = !G.world.site && siteNear(); if (q) txt = `${Sites.SITES[q.kind].name} 들어가기`; }

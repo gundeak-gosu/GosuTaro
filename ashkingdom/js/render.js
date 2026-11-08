@@ -89,6 +89,9 @@ export function drawCharacter(ctx, x, y, look, equip, facing, phase, opts = {}) 
   const L = (id) => (id && ITEMS[id.id]?.look) || null;
   const skin = look.skin || "#d9a982";
   const female = opts.gender === "F";
+  // 귀여운 2등신(머리 큰) 스타일: 필드 기본. 몸은 짧고 통통하게, 머리는 1.8배
+  const chibi = opts.chibi ?? true;
+  const CB = 1.1, CV = 0.78, CH = 1.8;
 
   ctx.save();
   ctx.translate(x, y);
@@ -99,6 +102,7 @@ export function drawCharacter(ctx, x, y, look, equip, facing, phase, opts = {}) 
 
   ctx.translate(0, -riding - bob);
   if (!opts.mount) drawShadowLocal(ctx, s);
+  if (chibi) ctx.scale(CB, CV);
 
   const grad = (c, light = 22, dark = -28, w = 10 * s) => {
     if (!detail) return c;
@@ -161,13 +165,20 @@ export function drawCharacter(ctx, x, y, look, equip, facing, phase, opts = {}) 
   if (equip.hand) drawHeld(ctx, equip.hand.id, (tw + 1.6) * s, -11.5 * s - arm * 0.2, s);
   if (equip.off) { ctx.save(); ctx.scale(-1, 1); drawHeld(ctx, equip.off.id, (tw + 1.6) * s, -11.5 * s + arm * 0.2, s); ctx.restore(); } // 왼손
 
-  // 5) 머리
+  // 5) 머리 — 2등신이면 목(-25)을 기준으로 머리만 크게
+  if (chibi) { ctx.scale(1 / CB, 1 / CV); ctx.translate(0, -25 * s * CV); ctx.scale(CH, CH); ctx.translate(0, 25 * s); }
   const hy = -31 * s;
   ctx.fillStyle = grad(skin, 18, -22, 6 * s);
   ctx.beginPath(); ctx.arc(0, hy, 6.3 * s, 0, Math.PI * 2); ctx.fill();
   // 얼굴
   ctx.fillStyle = "#1e1a17";
   ctx.beginPath(); ctx.arc(2.6 * s, hy - 0.4 * s, 0.85 * s, 0, Math.PI * 2); ctx.fill();
+  if (chibi && !detail) {
+    // 큰 눈 두 개 + 반짝이 + 볼터치
+    ctx.beginPath(); ctx.arc(-1.0 * s, hy - 0.4 * s, 0.8 * s, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(2.9 * s, hy - 0.8 * s, 0.32 * s, 0, Math.PI * 2); ctx.arc(-0.7 * s, hy - 0.8 * s, 0.3 * s, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "rgba(230,110,110,0.35)"; ctx.beginPath(); ctx.arc(3.6 * s, hy + 1.5 * s, 1.1 * s, 0, Math.PI * 2); ctx.fill();
+  }
   if (detail) {
     ctx.beginPath(); ctx.arc(-1.2 * s, hy - 0.4 * s, 0.8 * s, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(2.9 * s, hy - 0.7 * s, 0.3 * s, 0, Math.PI * 2); ctx.fill();

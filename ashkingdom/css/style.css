@@ -243,3 +243,5 @@ body.joy-right #throwBtn { right: auto; left: 20px; } body.joy-right #specBtn { 
 @media (hover: hover) and (pointer: fine) { #throwBtn, #specBtn { width: 48px; height: 48px; } #throwBtn { bottom: 168px; } #specBtn { right: 82px; bottom: 150px; } #ammoBox { bottom: 236px; } }
 #throwBtn[hidden], #specBtn[hidden], #ammoBox[hidden] { display: none; }
 #throwBtn .gi-fb, #specBtn .gi-fb { font-size: 24px; line-height: 1; }
+#zoomBox { position: fixed; top: 252px; right: 12px; display: flex; flex-direction: column; gap: 4px; }
+#zoomBox button { width: 34px; height: 34px; border-radius: 8px; background: rgba(20,17,14,.82); border: 1px solid var(--line); color: #fff; font-size: 20px; line-height: 1; }

@@ -339,6 +339,8 @@ addEventListener("keydown", (e) => {
     if (k === "i" || k === "b") UI.openBag();
     if (k === "c") UI.openCraft();
     if (k === "m") UI.openRegionMap();
+    if (k === "=" || k === "+") G.setZoom((G.zoom || 1.7) + 0.2);
+    if (k === "-" || k === "_") G.setZoom((G.zoom || 1.7) - 0.2);
     if (k === "r") G.throwNow();
     if (k === "f") G.special();
     if (k === "t") { const a = S.cycleArrow(G.st); if (a) UI.toast(`화살: ${ITEMS[a].name}`); UI.renderHud(); }
@@ -1005,17 +1007,20 @@ function update(dt) {
 function draw(dt) {
   if (G.r3d) return draw3D(dt);
   const st = G.st, p = st.player;
-  G.cam.x += (p.x - VW / 2 - G.cam.x) * Math.min(1, dt * 8);
-  G.cam.y += (p.y - VH / 2 - G.cam.y) * Math.min(1, dt * 8);
+  // 줌: 세상을 Z배로 크게 그린다(한 칸이 커져 장비까지 보인다). 휠·+/−·화면 버튼으로 조절
+  const Z = G.zoom || 1.7, VWz = VW / Z, VHz = VH / Z;
+  G.cam.x += (p.x - VWz / 2 - G.cam.x) * Math.min(1, dt * 8);
+  G.cam.y += (p.y - VHz / 2 - G.cam.y) * Math.min(1, dt * 8);
   // 지도 밖(빈 공간)이 보이지 않게 카메라를 지도 안으로
-  G.cam.x = Math.max(0, Math.min(WORLD_W * TILE - VW, G.cam.x)); G.cam.y = Math.max(0, Math.min(WORLD_H * TILE - VH, G.cam.y));
+  G.cam.x = Math.max(0, Math.min(WORLD_W * TILE - VWz, G.cam.x)); G.cam.y = Math.max(0, Math.min(WORLD_H * TILE - VHz, G.cam.y));
   const cam = { x: Math.round(G.cam.x), y: Math.round(G.cam.y) };
   ctx.fillStyle = "#1a1714"; ctx.fillRect(0, 0, VW, VH);
-  R.drawTerrain(ctx, G.world, cam, VW, VH);
+  ctx.save(); ctx.scale(Z, Z);
+  R.drawTerrain(ctx, G.world, cam, VWz, VHz);
   // POI
   for (const q of Object.values(G.world.pois)) {
     const x = (q.tx + 0.5) * TILE - cam.x, y = (q.ty + 0.5) * TILE - cam.y;
-    if (x < -80 || y < -80 || x > VW + 80 || y > VH + 80) continue;
+    if (x < -80 || y < -80 || x > VWz + 80 || y > VHz + 80) continue;
     ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.beginPath(); ctx.ellipse(x, y + 18, 34, 10, 0, 0, Math.PI * 2); ctx.fill();
     R.emoji(ctx, q.icon, x, y - 6, 44);
     ctx.fillStyle = "#fff"; ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center"; ctx.fillText(q.name, x, y + 34); ctx.textAlign = "left";
@@ -1035,7 +1040,7 @@ function draw(dt) {
   } });
   for (const m of G.mobs) {
     const sx = m.x - cam.x, sy = m.y - cam.y;
-    if (sx < -60 || sy < -60 || sx > VW + 60 || sy > VH + 60) continue;
+    if (sx < -60 || sy < -60 || sx > VWz + 60 || sy > VHz + 60) continue;
     list.push({ y: m.y, f: () => { if (m.kind === "enemy") { R.drawEnemy(ctx, { ...m, x: sx, y: sy }, ENEMIES[m.type], m.phase); if (m.leader) { ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#ff8a80"; ctx.fillText("👑 " + m.leader, sx, sy - 48); ctx.textAlign = "start"; } } else { R.drawAnimal(ctx, m.type, sx, sy, m.phase, m.moving, m.facing); R.hpBar(ctx, sx, sy - 34, m.hp / m.maxHp); } } });
   }
   // 기지 주민
@@ -1066,18 +1071,21 @@ function draw(dt) {
   for (const f of G.fx) { f.t -= dt; f.y -= 28 * dt; ctx.globalAlpha = Math.max(0, f.t); ctx.fillStyle = f.color; ctx.font = "bold 13px sans-serif"; ctx.fillText(f.txt, f.x - cam.x - 8, f.y - cam.y); }
   ctx.globalAlpha = 1;
   G.fx = G.fx.filter((f) => f.t > 0);
-  // 상호작용 힌트
-  drawHint(cam);
+  // 안개: 아직 가 보지 않은 칸은 어둡게(미니맵과 같게)
+  drawFieldFog(cam, VWz, VHz);
   drawTutArrow();
+  ctx.restore();
+  // 상호작용 힌트(화면 아래 고정 — 캐릭터를 가리지 않게)
+  drawHint(cam);
   // 날씨/조명
   const sea = S.season(st);
   const tileHere = tileAt(G.world, p.x, p.y);
   R.drawParticles(ctx, G.particles, VW, VH, dt, sea.id === "winter" ? "snow" : tileHere === T.RAD ? "rad" : "ash");
   const h = (st.time.min % 1440) / 60;
   const dark = h >= 21 || h < 5 ? 0.62 : h >= 19 ? (h - 19) / 2 * 0.62 : h < 7 ? (7 - h) / 2 * 0.62 : 0;
-  const lights = [{ x: p.x - cam.x, y: p.y - cam.y - 20, r: 120 }];
-  if (G.world.home && S.hasBuilding(st, "campfire")) { const o = R.baseLayout(st, G.world).out.find((o) => o.b.id === "campfire"); if (o) lights.push({ x: o.x - cam.x, y: o.y - cam.y, r: 200 }); }
-  lights.push({ x: bx - cam.x, y: by - cam.y, r: 80 + st.base.lv * 30 });
+  const lights = [{ x: (p.x - cam.x) * Z, y: (p.y - cam.y - 20) * Z, r: 120 * Z }];
+  if (G.world.home && S.hasBuilding(st, "campfire")) { const o = R.baseLayout(st, G.world).out.find((o) => o.b.id === "campfire"); if (o) lights.push({ x: (o.x - cam.x) * Z, y: (o.y - cam.y) * Z, r: 200 * Z }); }
+  if (G.world.home) lights.push({ x: (bx - cam.x) * Z, y: (by - cam.y) * Z, r: (80 + st.base.lv * 30) * Z });
   R.drawLighting(ctx, VW, VH, dark, lights);
   if (tileHere === T.RAD) { ctx.fillStyle = "rgba(120,255,60,0.07)"; ctx.fillRect(0, 0, VW, VH); }
   if (p.hp < p.maxHp * 0.25) { const g = ctx.createRadialGradient(VW / 2, VH / 2, VH * 0.3, VW / 2, VH / 2, VH * 0.8); g.addColorStop(0, "rgba(160,0,0,0)"); g.addColorStop(1, `rgba(160,0,0,${0.35 + Math.sin(G.t * 5) * 0.1})`); ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH); }
@@ -1135,7 +1143,8 @@ function drawTutArrow() {
   const sp = G.r3d ? G.r3d.project(tgt.x, tgt.y, 1.6) : { x: tgt.x - G.cam.x, y: tgt.y - G.cam.y - 40 };
   const me = G.r3d ? G.r3d.project(st.player.x, st.player.y, 1.0) : { x: st.player.x - G.cam.x, y: st.player.y - G.cam.y };
   const pad = 70;
-  const onScreen = sp.x > pad && sp.y > pad && sp.x < VW - pad && sp.y < VH - pad;
+  const Zt = G.r3d ? 1 : G.zoom || 1.7;
+  const onScreen = sp.x > pad / Zt && sp.y > pad / Zt && sp.x < VW / Zt - pad / Zt && sp.y < VH / Zt - pad / Zt;
   const t = performance.now() / 300;
   ctx.save();
   if (onScreen) {
@@ -1161,12 +1170,26 @@ function drawHint(cam) {
   if (!txt && G.world.home && Math.hypot((G.world.cx + 0.5) * TILE - p.x, (G.world.cy + 0.5) * TILE - p.y) < 2.2 * TILE) { txt = "기지 관리"; hx = p.x; hy = p.y - 60; }
   if (!txt && nearWater(G.world, p.x, p.y)) { txt = p.equip.hand?.id === "fishing_rod" ? "낚시" : "물 뜨기"; hx = p.x; hy = p.y - 60; }
   if (!txt) return;
-  if (!cam) { const s = G.r3d.project(hx, hy + 40, 2.4); cam = { x: hx - s.x, y: hy - s.y }; }
-  ctx.font = "12px sans-serif";
-  const w = ctx.measureText(txt).width + 34;
-  ctx.fillStyle = "rgba(0,0,0,.6)"; R.roundRect(ctx, hx - cam.x - w / 2, hy - cam.y - 14, w, 22, 11); ctx.fill();
-  ctx.fillStyle = "#ffd36b"; ctx.fillText("E", hx - cam.x - w / 2 + 9, hy - cam.y + 1);
-  ctx.fillStyle = "#fff"; ctx.fillText(txt, hx - cam.x - w / 2 + 24, hy - cam.y + 1);
+  // 화면 아래 가운데(메뉴 위)에 고정 표시 — 캐릭터 머리 위를 가리지 않는다
+  ctx.font = "bold 14px sans-serif";
+  const w = ctx.measureText(txt).width + 44, x = VW / 2 - w / 2, y = VH - 112;
+  ctx.fillStyle = "rgba(0,0,0,.7)"; R.roundRect(ctx, x, y, w, 30, 15); ctx.fill();
+  ctx.strokeStyle = "rgba(242,192,106,.6)"; ctx.lineWidth = 1; ctx.stroke();
+  ctx.fillStyle = "#ffd36b"; ctx.fillText(matchMedia("(hover: hover)").matches ? "E" : "✋", x + 12, y + 20);
+  ctx.fillStyle = "#fff"; ctx.fillText(txt, x + 30, y + 20);
+}
+// 필드 안개: 탐험하지 않은 칸 위에 어두운 막(가장자리는 반투명으로 부드럽게)
+function drawFieldFog(cam, vw, vh) {
+  const fog = G.fog; if (!fog) return;
+  const x0 = Math.max(0, Math.floor(cam.x / TILE)), y0 = Math.max(0, Math.floor(cam.y / TILE));
+  const x1 = Math.min(WORLD_W - 1, Math.ceil((cam.x + vw) / TILE)), y1 = Math.min(WORLD_H - 1, Math.ceil((cam.y + vh) / TILE));
+  for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
+    if (fog[ty * WORLD_W + tx]) continue;
+    // 옆 칸이 밝혀졌으면 반투명(경계), 아니면 거의 검게
+    const edge = (tx > 0 && fog[ty * WORLD_W + tx - 1]) || (tx < WORLD_W - 1 && fog[ty * WORLD_W + tx + 1]) || (ty > 0 && fog[(ty - 1) * WORLD_W + tx]) || (ty < WORLD_H - 1 && fog[(ty + 1) * WORLD_W + tx]);
+    ctx.fillStyle = edge ? "rgba(12,10,9,.62)" : "rgba(12,10,9,.94)";
+    ctx.fillRect(tx * TILE - cam.x, ty * TILE - cam.y, TILE + 0.5, TILE + 0.5);
+  }
 }
 
 const poiImgs = {};
@@ -1216,6 +1239,12 @@ function drawMinimap() {
   G.miniRect = [x0, y0, size, size + 16];
 }
 
+// 줌: 0.9 ~ 2.8 (설정에 저장)
+G.setZoom = (z) => { G.zoom = Math.max(0.9, Math.min(2.8, Math.round(z * 10) / 10)); G.acc.settings.zoom = G.zoom; saveAccount(G.acc); };
+G.zoom = G.acc.settings?.zoom || (matchMedia("(hover: hover)").matches ? 1.7 : 1.5);
+addEventListener("wheel", (e) => { if (!G.st || G.paused || e.target.closest(".modal-bg")) return; G.setZoom((G.zoom || 1.7) * (e.deltaY > 0 ? 0.9 : 1.1)); }, { passive: true });
+document.getElementById("zoomIn")?.addEventListener("click", () => G.setZoom((G.zoom || 1.7) + 0.25));
+document.getElementById("zoomOut")?.addEventListener("click", () => G.setZoom((G.zoom || 1.7) - 0.25));
 addEventListener("pointerdown", (e) => {
   const r = G.miniRect;
   if (!G.st || G.paused || !r || document.getElementById("hud").hidden) return;
